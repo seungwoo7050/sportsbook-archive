@@ -1,0 +1,45 @@
+name: Wallet CI
+
+on:
+  push:
+    branches:
+      - wallet-service
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out wallet service
+        uses: actions/checkout@v4
+        with:
+          path: wallet-service
+
+      - name: Check out shared protocol
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: shared-protocol
+          path: shared-protocol
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install shared protocol
+        working-directory: shared-protocol
+        run: ./mvnw -Dmaven.repo.local="${{ runner.temp }}/wallet-m2" -B -ntp clean install
+
+      - name: Verify wallet service
+        working-directory: wallet-service
+        run: ./mvnw -Dmaven.repo.local="${{ runner.temp }}/wallet-m2" -B -ntp clean verify
+
+      - name: Run wallet semantic gates
+        working-directory: wallet-service
+        run: ./mvnw -Dmaven.repo.local="${{ runner.temp }}/wallet-m2" -B -ntp -Psemantic-gates clean verify
