@@ -1,0 +1,14 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "OddsChanged",
+  "doc": "A selection's price moved. Consumed by gateway (push to clients) and betting-service (slippage check against placed slips).",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "marketId", "type": "string"},
+    {"name": "selectionId", "type": "string"},
+    {"name": "previousOdds", "type": "string", "doc": "Decimal odds as a plain-string BigDecimal (e.g. \"1.8500\", scale 4) — V1 keeps decimal logicalType out of the wire."},
+    {"name": "newOdds", "type": "string"},
+    {"name": "changedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
