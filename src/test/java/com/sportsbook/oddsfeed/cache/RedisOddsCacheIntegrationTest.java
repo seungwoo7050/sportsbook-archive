@@ -10,6 +10,7 @@ import com.sportsbook.protocol.value.MarketId;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.protocol.value.SelectionId;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,6 +108,66 @@ class RedisOddsCacheIntegrationTest {
     cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.CLOSED);
     assertThat(cache.storeOperatorMarketStatus(eventId, marketId, MarketStatus.OPEN))
         .isEqualTo(MarketStatus.CLOSED);
+  }
+
+  @Test
+  void feedHoldRejectsStaleAvailabilityUpdates() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    SelectionId selectionId = new SelectionId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    Instant heldAt = Instant.parse("2026-06-01T18:00:02Z");
+
+    assertThat(cache.holdLatestOdds(eventId, marketId, selectionId, Odds.ofDecimal("2.20"), heldAt))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(
+            cache.projectLatestOdds(
+                eventId, marketId, selectionId, Odds.ofDecimal("1.90"), heldAt.minusSeconds(1)))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(cache.getOdds(eventId, marketId, selectionId)).contains(Odds.ofDecimal("2.20"));
+    assertThat(cache.isFeedHeld(eventId, marketId)).isTrue();
+
+    assertThat(
+            cache.projectLatestOdds(
+                eventId, marketId, selectionId, Odds.ofDecimal("2.30"), heldAt.plusSeconds(1)))
+        .isEqualTo(MarketStatus.OPEN);
+    assertThat(cache.getOdds(eventId, marketId, selectionId)).contains(Odds.ofDecimal("2.30"));
+    assertThat(cache.isFeedHeld(eventId, marketId)).isFalse();
+  }
+
+  @Test
+  void operatorOverridePrecedesFeedHoldAndProvider() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    SelectionId selectionId = new SelectionId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    Instant heldAt = Instant.parse("2026-06-01T18:00:02Z");
+    cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+    cache.holdLatestOdds(eventId, marketId, selectionId, Odds.ofDecimal("2.20"), heldAt);
+
+    assertThat(cache.storeOperatorMarketStatus(eventId, marketId, MarketStatus.SUSPENDED))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(cache.getMarketOverride(eventId, marketId)).contains(MarketStatus.SUSPENDED);
+    assertThat(cache.isFeedHeld(eventId, marketId)).isTrue();
+    assertThat(cache.storeOperatorMarketStatus(eventId, marketId, MarketStatus.OPEN))
+        .isEqualTo(MarketStatus.SUSPENDED);
+
+    assertThat(
+            cache.projectLatestOdds(
+                eventId, marketId, selectionId, Odds.ofDecimal("2.30"), heldAt.plusSeconds(1)))
+        .isEqualTo(MarketStatus.OPEN);
+
+    MarketId suspendedMarket = new MarketId(UUID.randomUUID());
+    SelectionId suspendedSelection = new SelectionId(UUID.randomUUID());
+    cache.storeProviderMarketStatus(eventId, suspendedMarket, MarketStatus.SUSPENDED);
+    assertThat(
+            cache.projectLatestOdds(
+                eventId, suspendedMarket, suspendedSelection, Odds.ofDecimal("1.90"), heldAt))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(redis.opsForValue().get(CacheKeys.providerMarket(eventId, suspendedMarket)))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
   }
 
   private RedisOddsCache cache() {
