@@ -70,6 +70,9 @@ logging:
     org.hibernate.SQL: WARN
 
 wallet:
+  integrity:
+    scheduling-enabled: ${WALLET_INTEGRITY_ENABLED:true}
+    poll-interval: ${WALLET_INTEGRITY_POLL_INTERVAL:PT30S}
   outbox:
     scheduling-enabled: ${WALLET_OUTBOX_ENABLED:false}
   recovery:
