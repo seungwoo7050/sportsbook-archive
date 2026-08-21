@@ -1,0 +1,22 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "RiskLimitViolated",
+  "doc": "A bet placement attempt exceeded a per-user or per-market limit; rejected by risk-service before reaching wallet (ADR-0006 Saga compensation).",
+  "fields": [
+    {"name": "userId", "type": "string"},
+    {
+      "name": "limitType",
+      "type": {
+        "type": "enum",
+        "name": "RiskLimitType",
+        "symbols": ["STAKE_DAILY", "OPEN_EXPOSURE", "SELECTIONS_PER_MINUTE"]
+      },
+      "doc": "Which limit was breached. Drives the rejection message returned to the user."
+    },
+    {"name": "currentValue", "type": "long", "doc": "User's value before the attempt (monetary types in minor units, count types as raw long)."},
+    {"name": "limitValue", "type": "long", "doc": "Configured threshold."},
+    {"name": "requestedAmount", "type": "Money", "doc": "Stake of the attempted bet; meaningful for monetary limit types."},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
