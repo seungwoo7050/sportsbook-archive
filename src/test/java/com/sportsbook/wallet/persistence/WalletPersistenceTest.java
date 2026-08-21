@@ -26,6 +26,7 @@ import com.sportsbook.wallet.domain.error.IdempotencyConflictException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import com.sportsbook.wallet.integrity.OperationCommitted;
+import com.sportsbook.wallet.outbox.OutboxAppender;
 import com.sportsbook.wallet.service.IdempotencyCache;
 import com.sportsbook.wallet.service.WalletOperationExecutor;
 import com.sportsbook.wallet.service.WalletOperationResult;
@@ -67,6 +68,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
   IdempotencyKeyLock.class,
+  OutboxAppender.class,
+  OutboxStreamLock.class,
   WalletInfrastructureConfig.class,
   WalletOperationExecutor.class,
   WalletOutcomeResolver.class,
