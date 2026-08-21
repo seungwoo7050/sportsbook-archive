@@ -14,6 +14,7 @@ import com.sportsbook.wallet.service.command.CreditCommand;
 import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
+import com.sportsbook.wallet.service.command.ForfeitCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import com.sportsbook.wallet.service.command.WithdrawCommand;
 import java.time.Clock;
@@ -137,6 +138,22 @@ public class WalletService {
               new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
               source,
               reason);
+        });
+  }
+
+  public WalletOperationResult forfeit(ForfeitCommand command) {
+    return transferExecutor.execute(
+        command.idempotencyKey(),
+        WalletCaller.SETTLEMENT,
+        WalletOperationKind.BET_FORFEIT,
+        command.userId(),
+        command.amount(),
+        (account, now) -> {
+          account.forfeitLocked(command.amount(), now);
+          return new WalletTransferPlan(
+              new LedgerEntry.TransferLeg(SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE),
+              new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.LOCKED),
+              LedgerReason.BET_FORFEIT);
         });
   }
 
