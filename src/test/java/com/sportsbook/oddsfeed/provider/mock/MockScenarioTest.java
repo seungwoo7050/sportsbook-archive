@@ -7,6 +7,8 @@ import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -80,6 +82,32 @@ class MockScenarioTest {
               assertThat(update.previousStatus()).isEqualTo(MarketStatus.OPEN);
               assertThat(update.newStatus()).isEqualTo(MarketStatus.SUSPENDED);
               assertThat(update.reason()).isNotBlank();
+            });
+  }
+
+  @Test
+  void oddsCrashPublishesOneSharpPriceChange() {
+    List<ProviderEvent.OddsUpdated> updates = new ArrayList<>();
+    var subscription =
+        provider
+            .streamEvents(event.summary.eventId())
+            .ofType(ProviderEvent.OddsUpdated.class)
+            .subscribe(updates::add);
+
+    new OddsCrash().apply(event, NOW, new Random(0), provider);
+    subscription.dispose();
+
+    assertThat(updates)
+        .singleElement()
+        .satisfies(
+            update -> {
+              var ratio =
+                  update
+                      .newOdds()
+                      .decimal()
+                      .divide(update.previousOdds().decimal(), 4, RoundingMode.HALF_EVEN);
+              assertThat(ratio).isLessThan(new BigDecimal("0.5"));
+              assertThat(update.occurredAt()).isEqualTo(NOW);
             });
   }
 }
