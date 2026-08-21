@@ -15,13 +15,16 @@ import com.sportsbook.wallet.domain.WalletFailureSnapshot;
 import com.sportsbook.wallet.domain.WalletOperation;
 import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.WalletOperationStatus;
+import com.sportsbook.wallet.domain.error.WalletBusyException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -35,6 +38,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @DataJpaTest(properties = "spring.test.database.replace=NONE")
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Import(IdempotencyKeyLock.class)
 class WalletPersistenceTest {
   @Container
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -43,6 +47,7 @@ class WalletPersistenceTest {
   @Autowired AccountRepository accounts;
   @Autowired LedgerEntryRepository ledger;
   @Autowired WalletOperationRepository operations;
+  @Autowired IdempotencyKeyLock idempotencyLocks;
   @Autowired javax.sql.DataSource dataSource;
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
@@ -207,5 +212,61 @@ class WalletPersistenceTest {
     assertThat(rejected.failure().balance()).isEqualTo(Money.krw(20L));
     assertThat(operations.findById(blockedKey.value()).orElseThrow().status())
         .isEqualTo(WalletOperationStatus.BLOCKED_FUNDS);
+  }
+
+  @Test
+  void timesOutAContendedKeyWithoutClaimingItsOutcome() {
+    IdempotencyKey key = IdempotencyKey.of("busy:unclaimed");
+    var owner = transactions.getTransaction(new DefaultTransactionDefinition());
+    try {
+      idempotencyLocks.acquire(key);
+      CompletableFuture<Void> waiter =
+          CompletableFuture.runAsync(
+              () ->
+                  new org.springframework.transaction.support.TransactionTemplate(transactions)
+                      .executeWithoutResult(
+                          ignored -> {
+                            jdbc.execute("SET LOCAL lock_timeout = '100ms'");
+                            idempotencyLocks.acquire(key);
+                          }));
+
+      assertThatThrownBy(waiter::join).hasCauseInstanceOf(WalletBusyException.class);
+      assertThat(operations.findById(key.value())).isEmpty();
+    } finally {
+      transactions.rollback(owner);
+    }
+  }
+
+  @Test
+  void mapsDifferentKeyAccountContentionWithoutClaimingAnOutcome() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000001b");
+    IdempotencyKey ownerKey = IdempotencyKey.of("busy:account-owner");
+    IdempotencyKey waiterKey = IdempotencyKey.of("busy:account-waiter");
+    accounts.saveAndFlush(Account.openFor(userId, Money.krw(0L).currency(), Instant.now()));
+    var owner = transactions.getTransaction(new DefaultTransactionDefinition());
+    try {
+      idempotencyLocks.acquire(ownerKey);
+      accounts.findByUserIdForUpdate(userId).orElseThrow();
+      CompletableFuture<Void> waiter =
+          CompletableFuture.runAsync(
+              () ->
+                  new org.springframework.transaction.support.TransactionTemplate(transactions)
+                      .executeWithoutResult(
+                          ignored -> {
+                            jdbc.execute("SET LOCAL lock_timeout = '100ms'");
+                            idempotencyLocks.acquire(waiterKey);
+                            try {
+                              accounts.findByUserIdForUpdate(userId).orElseThrow();
+                            } catch (RuntimeException failure) {
+                              throw PostgresFailureTranslator.translate(waiterKey, failure);
+                            }
+                          }));
+
+      assertThatThrownBy(waiter::join).hasCauseInstanceOf(WalletBusyException.class);
+      assertThat(operations.findAllById(java.util.List.of(ownerKey.value(), waiterKey.value())))
+          .isEmpty();
+    } finally {
+      transactions.rollback(owner);
+    }
   }
 }
