@@ -8,6 +8,7 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletFailureCode;
 import com.sportsbook.wallet.domain.WalletFailureSnapshot;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
+import com.sportsbook.wallet.domain.error.AccountRecoveryBlockedException;
 import com.sportsbook.wallet.domain.error.BalanceLimitExceededException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.InsufficientBalanceException;
@@ -22,6 +23,12 @@ class WalletFailureMapperTest {
     WalletFailureSnapshot missing =
         WalletFailureMapper.snapshot(new AccountNotFoundException(USER_ID), Money.krw(10L));
     assertThat(missing.code()).isEqualTo(WalletFailureCode.ACCOUNT_NOT_FOUND);
+
+    WalletFailureSnapshot frozen =
+        WalletFailureMapper.snapshot(new AccountRecoveryBlockedException(USER_ID), Money.krw(10L));
+    assertThat(frozen.code()).isEqualTo(WalletFailureCode.ACCOUNT_SUSPENDED);
+    assertThat(frozen.httpStatus()).isEqualTo(423);
+    assertThat(frozen.code().wireCode()).isEqualTo("WALLET_ACCOUNT_RECOVERY_BLOCKED");
 
     WalletFailureSnapshot insufficient =
         WalletFailureMapper.snapshot(

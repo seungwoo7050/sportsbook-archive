@@ -20,7 +20,11 @@ class WalletFailureCodeTest {
             tuple("CURRENCY_MISMATCH", 422, "WALLET_CURRENCY_MISMATCH", "Currency mismatch"),
             tuple(
                 "INSUFFICIENT_BALANCE", 422, "WALLET_INSUFFICIENT_BALANCE", "Insufficient balance"),
-            tuple("ACCOUNT_SUSPENDED", 423, "WALLET_ACCOUNT_SUSPENDED", "Wallet account suspended"),
+            tuple(
+                "ACCOUNT_SUSPENDED",
+                423,
+                "WALLET_ACCOUNT_RECOVERY_BLOCKED",
+                "Wallet account blocked for recovery"),
             tuple("AMOUNT_OUT_OF_RANGE", 422, "WALLET_AMOUNT_OUT_OF_RANGE", "Amount out of range"));
   }
 }
