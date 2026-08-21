@@ -81,6 +81,25 @@ class MockOddsProviderTest {
         .verify();
   }
 
+  @Test
+  void tickAdvancesScheduledEventsThroughFullTime() {
+    MockOddsProvider provider = newProvider(424242L);
+    provider.seed();
+    var event = provider.listEvents(Sport.FOOTBALL).get(0);
+
+    provider.tick(event.scheduledStartAt());
+    assertThat(provider.listEvents(Sport.FOOTBALL))
+        .filteredOn(summary -> summary.eventId().equals(event.eventId()))
+        .extracting(summary -> summary.status())
+        .containsExactly(EventLifecycleStatus.IN_PLAY);
+
+    provider.tick(event.scheduledStartAt().plusSeconds(90));
+    assertThat(provider.listEvents(Sport.FOOTBALL))
+        .filteredOn(summary -> summary.eventId().equals(event.eventId()))
+        .extracting(summary -> summary.status())
+        .containsExactly(EventLifecycleStatus.FINISHED);
+  }
+
   private static MockOddsProvider newProvider(long seed) {
     MockProperties properties =
         new MockProperties(
