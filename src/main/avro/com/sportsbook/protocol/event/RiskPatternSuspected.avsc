@@ -1,0 +1,24 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "RiskPatternSuspected",
+  "doc": "Heuristic flagged a suspicious betting pattern. Not a hard rejection — risk-service may decide to throttle, alert, or escalate downstream.",
+  "fields": [
+    {"name": "userId", "type": "string"},
+    {
+      "name": "patternType",
+      "type": {
+        "type": "enum",
+        "name": "RiskPatternType",
+        "symbols": ["RAPID_BETTING", "SUDDEN_STAKE_INCREASE", "REPEATED_SAME_SELECTION"]
+      },
+      "doc": "Which heuristic matched."
+    },
+    {
+      "name": "evidence",
+      "type": {"type": "map", "values": "string"},
+      "doc": "Free-form key/value evidence (e.g. window seconds, stake delta, selection id) for ops/audit. Schema-less by design — adding a key requires no Avro evolution."
+    },
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
