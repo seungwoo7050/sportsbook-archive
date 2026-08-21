@@ -12,6 +12,7 @@ import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.config.WalletInfrastructureConfig;
 import com.sportsbook.wallet.domain.Account;
+import com.sportsbook.wallet.domain.AdjustmentStatus;
 import com.sportsbook.wallet.domain.BalanceBucket;
 import com.sportsbook.wallet.domain.LedgerEntry;
 import com.sportsbook.wallet.domain.SystemAccountIds;
@@ -28,13 +29,17 @@ import com.sportsbook.wallet.domain.error.WalletBusyException;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import com.sportsbook.wallet.integrity.OperationCommitted;
 import com.sportsbook.wallet.outbox.OutboxAppender;
+import com.sportsbook.wallet.service.AdjustmentFirstWriter;
+import com.sportsbook.wallet.service.AdjustmentProofWriter;
 import com.sportsbook.wallet.service.IdempotencyCache;
+import com.sportsbook.wallet.service.WalletAdjustmentService;
 import com.sportsbook.wallet.service.WalletOperationExecutor;
 import com.sportsbook.wallet.service.WalletOperationResult;
 import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
 import com.sportsbook.wallet.service.WalletTransferExecutor;
 import com.sportsbook.wallet.service.WalletTransferWriter;
+import com.sportsbook.wallet.service.command.AdjustmentCommand;
 import com.sportsbook.wallet.service.command.CreditCommand;
 import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
@@ -73,10 +78,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
   IdempotencyKeyLock.class,
+  AdjustmentPairLock.class,
+  DatabaseClock.class,
   OutboxAppender.class,
   OutboxStreamLock.class,
   WalletInfrastructureConfig.class,
+  AdjustmentFirstWriter.class,
+  AdjustmentProofWriter.class,
   WalletOperationExecutor.class,
+  WalletAdjustmentService.class,
   WalletOutcomeResolver.class,
   WalletService.class,
   WalletTransferExecutor.class,
@@ -94,6 +104,8 @@ class WalletPersistenceTest {
   @SpyBean OutboxEventRepository outboxEvents;
   @Autowired IdempotencyKeyLock idempotencyLocks;
   @Autowired WalletService wallet;
+  @Autowired WalletAdjustmentService adjustmentService;
+  @Autowired WalletAdjustmentRepository adjustmentProofs;
   @Autowired CommitFault commitFault;
   @MockBean IdempotencyCache cache;
   @Autowired javax.sql.DataSource dataSource;
@@ -104,6 +116,42 @@ class WalletPersistenceTest {
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
     registry.add("spring.datasource.username", POSTGRES::getUsername);
     registry.add("spring.datasource.password", POSTGRES::getPassword);
+  }
+
+  @Test
+  void replaysABlockedAdjustmentWithoutPartialMoneyOrLedger() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000150");
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000151");
+    Instant openedAt = Instant.parse("2026-01-01T00:00:00Z");
+    Account account = Account.openFor(userId, Money.krw(0L).currency(), openedAt);
+    account.increaseAvailable(Money.krw(200L), openedAt);
+    accounts.saveAndFlush(account);
+    AdjustmentCommand command =
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-000000000152"),
+            1L,
+            userId,
+            Money.krw(1_000L),
+            Money.krw(700L),
+            IdempotencyKey.of("settlement:revision:" + revisionId));
+
+    assertThat(adjustmentService.adjust(command).status()).isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(adjustmentService.adjust(command).status()).isEqualTo(AdjustmentStatus.BLOCKED);
+
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(adjustmentProofs.findById(revisionId)).isPresent();
+    assertThat(operations.findById(command.idempotencyKey().value()))
+        .get()
+        .extracting(WalletOperation::status)
+        .isEqualTo(WalletOperationStatus.BLOCKED_FUNDS);
+    assertThat(accounts.findById(userId))
+        .get()
+        .satisfies(
+            frozen -> {
+              assertThat(frozen.available()).isEqualTo(Money.krw(200L));
+              assertThat(frozen.isOutboundFrozen()).isTrue();
+            });
   }
 
   @Test
