@@ -133,6 +133,51 @@ class WalletSecurityConfigTest {
     }
   }
 
+  @ParameterizedTest
+  @MethodSource("walletRoutes")
+  void rejectsTheOppositeMethodForEveryWalletRoute(WalletRoute route) throws Exception {
+    HttpMethod opposite = route.method() == HttpMethod.GET ? HttpMethod.POST : HttpMethod.GET;
+    WalletCaller allowed = route.allowed().iterator().next();
+
+    mvc.perform(internalRequest(opposite, route.path(), allowed)).andExpect(status().isForbidden());
+  }
+
+  @Test
+  void rejectsUnauthenticatedAndInvalidWalletCredentials() throws Exception {
+    mvc.perform(post("/internal/v1/wallet/accounts"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.errorCode").value("WALLET_AUTHENTICATION_REQUIRED"));
+    mvc.perform(
+            post("/internal/v1/wallet/accounts")
+                .header(InternalApiKeyAuthenticationFilter.SERVICE_HEADER, "platform")
+                .header(InternalApiKeyAuthenticationFilter.API_KEY_HEADER, "invalid"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.errorCode").value("WALLET_AUTHENTICATION_REQUIRED"));
+  }
+
+  @Test
+  void rejectsUnknownTrailingAndDeeperWalletPaths() throws Exception {
+    mvc.perform(
+            internalRequest(HttpMethod.GET, "/internal/v1/wallet/unknown", WalletCaller.PLATFORM))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            internalRequest(
+                HttpMethod.POST, "/internal/v1/wallet/accounts/", WalletCaller.PLATFORM))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            internalRequest(
+                HttpMethod.GET,
+                "/internal/v1/wallet/accounts/user/balance/extra",
+                WalletCaller.PLATFORM))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            internalRequest(
+                HttpMethod.GET,
+                "/internal/v1/wallet/transactions/debit/bet/extra",
+                WalletCaller.BETTING))
+        .andExpect(status().isForbidden());
+  }
+
   private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder internalGet(
       String path, WalletCaller caller) {
     return internalRequest(HttpMethod.GET, path, caller);
