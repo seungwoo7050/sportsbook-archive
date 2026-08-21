@@ -24,6 +24,8 @@ abstract class ReservationScriptTestSupport extends RedisTestSupport {
   protected static final Instant NOW = Instant.ofEpochMilli(2_000_000);
   private static final RedisScript<String> SCRIPT =
       RedisLuaScriptLoader.stringScript("risk-reserve.lua");
+  private static final RedisScript<String> COMMIT =
+      RedisLuaScriptLoader.stringScript("risk-commit.lua");
 
   protected ReservationWireMapper.Decoded execute(ReservationScriptRequest request) {
     String raw = redis.execute(SCRIPT, request.keys(), request.arguments().toArray());
@@ -32,6 +34,19 @@ abstract class ReservationScriptTestSupport extends RedisTestSupport {
 
   protected ReservationDecision reserve(RiskCheckCommand command) {
     return execute(request(command)).decision();
+  }
+
+  protected ReservationTransition commit(BetId betId, String token, Instant now) {
+    ReservationTransitionRequest request =
+        ReservationTransitionRequest.commit(
+            betId,
+            token,
+            now,
+            new RiskReservationProperties(null, null),
+            new RiskPatternProperties(null, null, null),
+            new RiskHistoryProperties(null, 0));
+    return ReservationTransition.valueOf(
+        redis.execute(COMMIT, request.keys(), request.arguments().toArray()));
   }
 
   protected ReservationScriptRequest request(RiskCheckCommand command) {
