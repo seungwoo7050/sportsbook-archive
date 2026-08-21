@@ -6,9 +6,11 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.event.BetSettled;
+import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.Money;
 import com.sportsbook.protocol.event.OddsChanged;
 import com.sportsbook.protocol.event.SettlementResultAvro;
+import com.sportsbook.protocol.event.VoidReason;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
@@ -105,6 +107,36 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
     }
   }
 
+  @Test
+  void deliversVoidedBetOnlyToOwningUser() throws Exception {
+    String owner = UUID.randomUUID().toString();
+    String other = UUID.randomUUID().toString();
+    BetVoided event = betVoided(owner);
+    StompSession ownerSession = connect("/ws/v1/bets", authHeaders(owner));
+    StompSession otherSession = connect("/ws/v1/bets", authHeaders(other));
+    try {
+      BlockingQueue<String> ownerMessages = subscribe(ownerSession, "/user/queue/bets");
+      BlockingQueue<String> otherMessages = subscribe(otherSession, "/user/queue/bets");
+      awaitListener("gateway-voided-listener");
+
+      publish(topics.betVoided(), event.getEventId(), event);
+
+      assertThat(ownerMessages.poll(5, SECONDS))
+          .contains(
+              event.getBetId(),
+              owner,
+              "\"status\":\"VOIDED\"",
+              "\"reason\":\"EVENT_POSTPONED\"",
+              "\"amount\":{\"amount\":10000,\"currency\":\"KRW\"}",
+              "\"revisionNumber\":null");
+      assertThat(ownerMessages.poll(1, SECONDS)).isNull();
+      assertThat(otherMessages.poll(1, SECONDS)).isNull();
+    } finally {
+      ownerSession.disconnect();
+      otherSession.disconnect();
+    }
+  }
+
   protected StompHeaders authHeaders(String userId) {
     when(jwtDecoder.decode(userId))
         .thenReturn(
@@ -134,6 +166,17 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
         .setStake(stake)
         .setPayout(Money.newBuilder(stake).setAmount(18_500).build())
         .setSettledAt(Instant.parse("2026-08-21T00:00:01Z"))
+        .build();
+  }
+
+  protected static BetVoided betVoided(String userId) {
+    return BetVoided.newBuilder()
+        .setBetId(UUID.randomUUID().toString())
+        .setUserId(userId)
+        .setEventId(UUID.randomUUID().toString())
+        .setReason(VoidReason.EVENT_POSTPONED)
+        .setRefund(Money.newBuilder().setAmount(10_000).setCurrency("KRW").build())
+        .setVoidedAt(Instant.parse("2026-08-21T00:00:02Z"))
         .build();
   }
 
