@@ -40,6 +40,7 @@ public class MockOddsProvider implements OddsProvider {
   static final Duration KICKOFF_SPACING = Duration.ofMinutes(1);
   private static final int REPLAY_HISTORY = 256;
   private static final double SECONDS_PER_MINUTE = 60.0;
+  private static final long ODDS_STREAM_SALT = 0x9E3779B97F4A7C15L;
   private static final String[] FOOTBALL_TEAMS = {
     "Manchester United",
     "Chelsea",
@@ -57,6 +58,7 @@ public class MockOddsProvider implements OddsProvider {
   private final Map<EventId, Sinks.Many<ProviderEvent>> streams = new ConcurrentHashMap<>();
   private long runSeed;
   private Random structureRandom;
+  private Random oddsRandom;
 
   public MockOddsProvider(MockProperties properties, Clock clock) {
     this.properties = properties;
@@ -67,6 +69,7 @@ public class MockOddsProvider implements OddsProvider {
   void seed() {
     runSeed = properties.randomSeed() == 0 ? new Random().nextLong() : properties.randomSeed();
     structureRandom = new Random(runSeed);
+    oddsRandom = new Random(runSeed ^ ODDS_STREAM_SALT);
     Instant now = clock.instant();
     for (int index = 0; index < INITIAL_EVENT_COUNT; index++) {
       Instant kickoff = now.plus(toRealDuration(KICKOFF_SPACING.multipliedBy(index)));
@@ -165,6 +168,28 @@ public class MockOddsProvider implements OddsProvider {
     }
     if (event.status == EventLifecycleStatus.IN_PLAY && !now.isBefore(event.endAt)) {
       transitionTo(event, EventLifecycleStatus.FINISHED, now);
+      return;
+    }
+    for (MockMarket market : event.markets.values()) {
+      if (market.status != MarketStatus.OPEN) {
+        continue;
+      }
+      for (MockSelection selection : market.selections.values()) {
+        Odds previous = selection.currentOdds;
+        Odds next = OddsSimulator.nextOdds(previous, selection.impliedProbability, oddsRandom);
+        if (!previous.equals(next)) {
+          selection.currentOdds = next;
+          emit(
+              event.summary.eventId(),
+              new ProviderEvent.OddsUpdated(
+                  event.summary.eventId(),
+                  market.marketId,
+                  selection.selectionId,
+                  previous,
+                  next,
+                  now));
+        }
+      }
     }
   }
 
