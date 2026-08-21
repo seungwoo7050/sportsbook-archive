@@ -69,4 +69,21 @@ class OutboxDeliveryRepositoryTest extends OutboxDeliveryRepositoryFixture {
                     created.plusMillis(1)))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
   }
+
+  @Test
+  void preservesStreamSequenceOrdering() {
+    Instant createdLater = Instant.parse("2026-08-21T00:00:01Z");
+    Instant createdEarlier = createdLater.minusSeconds(1L);
+    persist("operation-a", "key-a", "dedup-a1", createdLater);
+    persist("operation-a2", "key-a", "dedup-a2", createdEarlier);
+
+    var head = delivery.claim("worker-a", 10, Duration.ofSeconds(30));
+    var blockedSuccessor = delivery.claim("worker-b", 10, Duration.ofSeconds(30));
+
+    assertThat(head)
+        .singleElement()
+        .satisfies(message -> assertThat(message.streamSequence()).isOne());
+    assertThat(head.get(0).createdAt()).isEqualTo(createdLater);
+    assertThat(blockedSuccessor).isEmpty();
+  }
 }
