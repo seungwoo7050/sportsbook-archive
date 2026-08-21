@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: ${WALLET_TEST_DB_URL:jdbc:postgresql://localhost:55432/wallet_test}
+    username: ${WALLET_TEST_DB_USER:wallet}
+    password: ${WALLET_TEST_DB_PASSWORD:wallet}
+  kafka:
+    bootstrap-servers: ${WALLET_TEST_KAFKA_BOOTSTRAP:localhost:59092}
+  data:
+    redis:
+      host: ${WALLET_TEST_REDIS_HOST:localhost}
+      port: ${WALLET_TEST_REDIS_PORT:56379}
+
+management:
+  tracing:
+    enabled: false
+
+logging:
+  level:
+    org.testcontainers: INFO
