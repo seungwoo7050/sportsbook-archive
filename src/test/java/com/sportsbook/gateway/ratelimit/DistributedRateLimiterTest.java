@@ -10,9 +10,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sportsbook.gateway.error.GatewayProblemWriter;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisConnectionException;
 import io.lettuce.core.codec.ByteArrayCodec;
+import io.micrometer.tracing.Tracer;
+import jakarta.servlet.DispatcherType;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -21,12 +25,19 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
+import org.springframework.http.HttpHeaders;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -57,6 +68,7 @@ class DistributedRateLimiterTest {
 
   @AfterEach
   void closeLimiters() {
+    SecurityContextHolder.clearContext();
     first.closeConnection();
     second.closeConnection();
     firstClient.shutdown();
@@ -157,6 +169,62 @@ class DistributedRateLimiterTest {
     assertThatThrownBy(() -> first.tryConsume("invalid", invalid))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  @Test
+  void returnsProblemResponseAfterSeparateIpAndUserBucketsAreExhausted() throws Exception {
+    RateLimitFilter filter = filter(true);
+    String peer = "198.51.100.44";
+    assertThat(
+            exchange(filter, request(peer)).response().getHeader(RateLimitFilter.REMAINING_HEADER))
+        .isEqualTo("0");
+
+    Exchange denied = exchange(filter, request(peer));
+    assertThat(denied.response().getStatus()).isEqualTo(429);
+    assertThat(denied.response().getHeader(HttpHeaders.RETRY_AFTER)).isNotBlank();
+    assertThat(denied.response().getContentAsString()).contains("GATEWAY_RATE_LIMITED");
+
+    String user = UUID.randomUUID().toString();
+    SecurityContextHolder.getContext()
+        .setAuthentication(new UsernamePasswordAuthenticationToken(user, "unused", List.of()));
+    assertThat(exchange(filter, request(peer)).response().getStatus()).isEqualTo(200);
+  }
+
+  @Test
+  void disabledAndErrorDispatchesNeverConsumeTokens() throws Exception {
+    Exchange disabled = exchange(filter(false), request("198.51.100.45"));
+    assertThat(disabled.passed()).isTrue();
+    assertThat(disabled.response().getHeader(RateLimitFilter.REMAINING_HEADER)).isNull();
+
+    MockHttpServletRequest error = request("198.51.100.46");
+    error.setDispatcherType(DispatcherType.ERROR);
+    assertThat(exchange(filter(true), error).passed()).isTrue();
+  }
+
+  private RateLimitFilter filter(boolean enabled) {
+    RateLimitProperties.Limit single = new RateLimitProperties.Limit(1, Duration.ofMinutes(1));
+    RateLimitProperties policies = new RateLimitProperties(enabled, single, single, List.of());
+    GatewayProblemWriter writer =
+        new GatewayProblemWriter(
+            new ObjectMapper(), new DefaultListableBeanFactory().getBeanProvider(Tracer.class));
+    return new RateLimitFilter(policies, new RateLimitKeyResolver(policies), first, writer);
+  }
+
+  private static Exchange exchange(RateLimitFilter filter, MockHttpServletRequest request)
+      throws Exception {
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    AtomicBoolean passed = new AtomicBoolean();
+    filter.doFilter(request, response, (filtered, result) -> passed.set(true));
+    return new Exchange(response, passed.get());
+  }
+
+  private static MockHttpServletRequest request(String peer) {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setRemoteAddr(peer);
+    request.setRequestURI("/api/v1/events");
+    return request;
+  }
+
+  private record Exchange(MockHttpServletResponse response, boolean passed) {}
 
   private static RedisClient client() {
     RedisProperties properties = new RedisProperties();
