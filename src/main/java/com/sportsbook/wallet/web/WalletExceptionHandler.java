@@ -1,7 +1,12 @@
 package com.sportsbook.wallet.web;
 
+import com.sportsbook.wallet.domain.error.AccountNotFoundException;
+import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.IdempotencyConflictException;
+import com.sportsbook.wallet.domain.error.WalletAccessDeniedException;
+import com.sportsbook.wallet.domain.error.WalletAdjustmentNotFoundException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
+import com.sportsbook.wallet.domain.error.WalletOperationNotFoundException;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -40,6 +45,50 @@ public class WalletExceptionHandler {
     return ResponseEntity.status(WalletError.WALLET_BUSY.httpStatus())
         .header(HttpHeaders.RETRY_AFTER, "1")
         .body(problem);
+  }
+
+  @ExceptionHandler(AccountNotFoundException.class)
+  ProblemDetail accountNotFound(AccountNotFoundException exception, HttpServletRequest request) {
+    return atRequest(
+        WalletProblems.from(
+            WalletError.ACCOUNT_NOT_FOUND, "The requested wallet account does not exist"),
+        request);
+  }
+
+  @ExceptionHandler(WalletOperationNotFoundException.class)
+  ProblemDetail operationNotFound(
+      WalletOperationNotFoundException exception, HttpServletRequest request) {
+    return atRequest(
+        WalletProblems.from(
+            WalletError.OPERATION_NOT_FOUND, "The requested wallet operation does not exist"),
+        request);
+  }
+
+  @ExceptionHandler(WalletAdjustmentNotFoundException.class)
+  ProblemDetail adjustmentNotFound(
+      WalletAdjustmentNotFoundException exception, HttpServletRequest request) {
+    return atRequest(
+        WalletProblems.from(
+            WalletError.ADJUSTMENT_NOT_FOUND, "The requested wallet adjustment does not exist"),
+        request);
+  }
+
+  @ExceptionHandler(CurrencyMismatchException.class)
+  ProblemDetail currencyMismatch(CurrencyMismatchException exception, HttpServletRequest request) {
+    ProblemDetail problem =
+        WalletProblems.from(
+            WalletError.CURRENCY_MISMATCH,
+            "The requested currency does not match the wallet account");
+    problem.setProperty("expectedCurrency", exception.expected());
+    return atRequest(problem, request);
+  }
+
+  @ExceptionHandler(WalletAccessDeniedException.class)
+  ProblemDetail accessDenied(WalletAccessDeniedException exception, HttpServletRequest request) {
+    return atRequest(
+        WalletProblems.from(
+            WalletError.ACCESS_DENIED, "Authenticated caller cannot perform this wallet operation"),
+        request);
   }
 
   private ProblemDetail atRequest(ProblemDetail problem, HttpServletRequest request) {
