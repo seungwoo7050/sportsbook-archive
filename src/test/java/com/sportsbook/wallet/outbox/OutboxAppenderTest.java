@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -70,11 +71,47 @@ class OutboxAppenderTest {
         .containsExactly(1L, 2L);
   }
 
+  @Test
+  void rollsBackTheStreamPositionForADuplicateOperation() {
+    TransactionTemplate transaction = new TransactionTemplate(transactions);
+    PendingOutboxMessage first = messageOn("append:duplicate", "bet-duplicate-1", "user-duplicate");
+    transaction.executeWithoutResult(
+        ignored -> {
+          appender.append(first);
+          operations.save(operation(first.operationKey()));
+        });
+
+    assertThatThrownBy(
+            () ->
+                transaction.executeWithoutResult(
+                    ignored ->
+                        appender.append(
+                            messageOn("append:duplicate", "bet-duplicate-2", "user-duplicate"))))
+        .isInstanceOf(DataIntegrityViolationException.class);
+    PendingOutboxMessage next =
+        messageOn("append:after-rollback", "bet-after-rollback", "user-duplicate");
+    transaction.executeWithoutResult(
+        ignored -> {
+          appender.append(next);
+          operations.save(operation(next.operationKey()));
+        });
+
+    assertThat(events.findAllByOrderByTopicAscPartitionKeyAscStreamSequenceAsc())
+        .filteredOn(event -> event.partitionKey().equals("user-duplicate"))
+        .extracting(OutboxEvent::streamSequence)
+        .contains(1L, 2L);
+  }
+
   private static PendingOutboxMessage message(String operationKey, String deduplicationKey) {
+    return messageOn(operationKey, deduplicationKey, USER_ID.toString());
+  }
+
+  private static PendingOutboxMessage messageOn(
+      String operationKey, String deduplicationKey, String partitionKey) {
     return PendingOutboxMessage.create(
         operationKey,
         "wallet.debited.v1",
-        USER_ID.toString(),
+        partitionKey,
         "WalletDebited",
         deduplicationKey,
         new byte[] {1},
