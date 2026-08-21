@@ -3,6 +3,7 @@ package com.sportsbook.wallet.service;
 import com.sportsbook.wallet.domain.Account;
 import com.sportsbook.wallet.domain.WalletAdjustment;
 import com.sportsbook.wallet.domain.WalletCaller;
+import com.sportsbook.wallet.domain.WalletFailureSnapshot;
 import com.sportsbook.wallet.domain.WalletOperation;
 import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.persistence.WalletAdjustmentRepository;
@@ -86,6 +87,21 @@ public class AdjustmentProofWriter {
         command.userId(),
         command.absoluteDelta(),
         fingerprint,
+        now);
+  }
+
+  public WalletOperation reject(
+      AdjustmentCommand command, String fingerprint, RuntimeException failure, Instant now) {
+    WalletFailureSnapshot snapshot = WalletFailureMapper.snapshot(failure, command.absoluteDelta());
+    adjustments.save(WalletAdjustment.rejected(command, now));
+    return WalletOperation.rejected(
+        command.idempotencyKey(),
+        WalletCaller.SETTLEMENT,
+        WalletOperationKind.BET_ADJUSTMENT,
+        command.userId(),
+        command.absoluteDelta(),
+        fingerprint,
+        snapshot,
         now);
   }
 }
