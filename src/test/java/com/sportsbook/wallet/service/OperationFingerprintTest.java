@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletCaller;
 import com.sportsbook.wallet.domain.WalletOperationKind;
+import com.sportsbook.wallet.service.command.CreditCommand;
+import com.sportsbook.wallet.service.command.CreditReason;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -42,5 +44,35 @@ class OperationFingerprintTest {
   void rejectsNonCanonicalDigestText() {
     assertThatIllegalArgumentException().isThrownBy(() -> new OperationFingerprint("a".repeat(63)));
     assertThatIllegalArgumentException().isThrownBy(() -> new OperationFingerprint("A".repeat(64)));
+  }
+
+  @Test
+  void bindsCreditSourceAndReason() {
+    OperationFingerprint baseline =
+        OperationFingerprint.credit(
+            WalletCaller.SETTLEMENT,
+            WalletOperationKind.BET_REFUND,
+            USER,
+            Money.krw(1_000L),
+            CreditCommand.Source.USER_LOCKED,
+            CreditReason.REFUND);
+    OperationFingerprint changedSource =
+        OperationFingerprint.credit(
+            WalletCaller.SETTLEMENT,
+            WalletOperationKind.BET_REFUND,
+            USER,
+            Money.krw(1_000L),
+            CreditCommand.Source.HOUSE_POOL,
+            CreditReason.REFUND);
+    OperationFingerprint changedReason =
+        OperationFingerprint.credit(
+            WalletCaller.SETTLEMENT,
+            WalletOperationKind.BET_REFUND,
+            USER,
+            Money.krw(1_000L),
+            CreditCommand.Source.USER_LOCKED,
+            CreditReason.VOID);
+
+    assertThat(baseline).isNotEqualTo(changedSource).isNotEqualTo(changedReason);
   }
 }
