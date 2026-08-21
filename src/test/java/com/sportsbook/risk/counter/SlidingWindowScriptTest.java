@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.risk.support.RedisTestSupport;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -36,6 +39,29 @@ class SlidingWindowScriptTest extends RedisTestSupport {
     assertThatThrownBy(() -> execute(script, "READ", 2000, 1000, "", 0))
         .isInstanceOf(RedisSystemException.class)
         .hasRootCauseMessage("corrupt sliding-window member");
+  }
+
+  @Test
+  void convergesUnderConcurrentSameTimestampWrites() {
+    RedisScript<List> script = script("sliding-window.lua");
+    var executor = Executors.newFixedThreadPool(8);
+    try {
+      List<CompletableFuture<List<String>>> writes =
+          IntStream.range(0, 20)
+              .mapToObj(
+                  index ->
+                      CompletableFuture.supplyAsync(
+                          () -> execute(script, "RECORD", 1000, 1000, "bet-" + index + "|1", 1),
+                          executor))
+              .toList();
+      CompletableFuture.allOf(writes.toArray(CompletableFuture[]::new)).join();
+
+      assertThat(writes).allSatisfy(write -> assertThat(write.join().get(1)).isEqualTo("1"));
+      assertThat(execute(script, "READ", 1000, 1000, "", 0)).containsExactly("20", "0");
+      assertThat(redis.opsForZSet().size(KEYS.get(0))).isEqualTo(20);
+    } finally {
+      executor.shutdownNow();
+    }
   }
 
   @SuppressWarnings("unchecked")
