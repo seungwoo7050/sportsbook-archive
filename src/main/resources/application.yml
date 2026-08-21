@@ -42,3 +42,5 @@ gateway:
       capacity: ${GATEWAY_RATELIMIT_IP_CAPACITY:60}
       refill-period: ${GATEWAY_RATELIMIT_IP_PERIOD:1m}
     trusted-proxy-cidrs: ${GATEWAY_TRUSTED_PROXY_CIDRS:}
+  ws:
+    allowed-origins: ${GATEWAY_WS_ALLOWED_ORIGINS:http://localhost:[*],http://127.0.0.1:[*]}
