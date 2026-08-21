@@ -68,6 +68,24 @@ class RiskCheckServiceTest {
         .publishLimit(any(), eq(LimitType.STAKE_MONTHLY), anyLong(), anyLong(), any(), any());
   }
 
+  @Test
+  void appliesCurrencyNeutralSelectionCapacity() {
+    RiskSnapshotReader snapshots = mock(RiskSnapshotReader.class);
+    RiskSignalPublisher signals = mock(RiskSignalPublisher.class);
+    EnumMap<LimitType, LimitSnapshot.Value> values = emptyValues();
+    values.put(LimitType.SELECTIONS_PER_MINUTE, new LimitSnapshot.Value(20, 9, 30L));
+    when(snapshots.read(any())).thenReturn(snapshot(values));
+    RiskCheckService service = service(snapshots, signals);
+    List<SelectionId> selections = List.of(SELECTION, SelectionId.of(new UUID(0, 4)));
+
+    RiskCheckOutcome outcome = service.check(command(50, selections));
+
+    assertThat(outcome.rejection().type()).isEqualTo(LimitType.SELECTIONS_PER_MINUTE);
+    assertThat(outcome.rejection().currency()).isNull();
+    verify(signals)
+        .publishLimit(USER, LimitType.SELECTIONS_PER_MINUTE, 29, 30, Money.krw(50), Instant.EPOCH);
+  }
+
   private static RiskCheckService service(
       RiskSnapshotReader snapshots, RiskSignalPublisher signals) {
     return new RiskCheckService(
@@ -75,8 +93,12 @@ class RiskCheckServiceTest {
   }
 
   private static RiskCheckCommand command(long amount) {
+    return command(amount, List.of(SELECTION));
+  }
+
+  private static RiskCheckCommand command(long amount, List<SelectionId> selections) {
     return new RiskCheckCommand(
-        USER, BetId.of(new UUID(0, 2)), Money.krw(amount), List.of(SELECTION), Instant.EPOCH);
+        USER, BetId.of(new UUID(0, 2)), Money.krw(amount), selections, Instant.EPOCH);
   }
 
   private static RiskSnapshot snapshot(Map<LimitType, LimitSnapshot.Value> source) {
