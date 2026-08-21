@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sportsbook.oddsfeed.config.KafkaTopicsProperties;
 import com.sportsbook.oddsfeed.config.PublishProperties;
 import com.sportsbook.oddsfeed.kafka.BrokerAvailability;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
+import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.event.OddsChanged;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
@@ -14,6 +17,8 @@ import com.sportsbook.protocol.value.SelectionId;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -99,6 +104,32 @@ class OddsFeedPublisherTest {
     assertThat(publisher.isHealthy()).isFalse();
   }
 
+  @Test
+  void publishesCriticalEventsWithTheirContractPayloads() {
+    RecordingKafkaTemplate kafka = new RecordingKafkaTemplate();
+    OddsFeedPublisher publisher = publisher(kafka, new BrokerAvailability());
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+
+    publisher.publishMarketStatusChanged(
+        eventId,
+        marketId,
+        MarketStatus.OPEN,
+        MarketStatus.SUSPENDED,
+        "feed unavailable",
+        Instant.EPOCH);
+    publisher.publishEventLifecycle(
+        eventId, EventLifecycleStatus.FINISHED, Instant.EPOCH, Instant.EPOCH.plusSeconds(10));
+    publisher.publishMatchResult(
+        eventId, "2-1", MatchFinalStatus.COMPLETED, Map.of("winner", "home"), Instant.EPOCH);
+
+    assertThat(kafka.payloads)
+        .extracting(value -> value.getClass().getSimpleName())
+        .containsExactly("MarketStatusChanged", "EventLifecycle", "MatchResult");
+    assertThat(kafka.key).isEqualTo(eventId.value().toString());
+    assertThat(kafka.topic).isEqualTo("result");
+  }
+
   private static OddsFeedPublisher publisher(
       RecordingKafkaTemplate kafka, BrokerAvailability availability) {
     return new OddsFeedPublisher(
@@ -112,6 +143,7 @@ class OddsFeedPublisherTest {
     private String topic;
     private String key;
     private SpecificRecord payload;
+    private final List<SpecificRecord> payloads = new ArrayList<>();
     private boolean fail;
 
     private RecordingKafkaTemplate() {
@@ -124,6 +156,7 @@ class OddsFeedPublisherTest {
       this.topic = topic;
       this.key = key;
       this.payload = payload;
+      this.payloads.add(payload);
       if (fail) {
         return CompletableFuture.failedFuture(new IllegalStateException("broker unavailable"));
       }
