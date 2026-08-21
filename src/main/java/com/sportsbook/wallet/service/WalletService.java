@@ -12,6 +12,7 @@ import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.persistence.AccountRepository;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
+import com.sportsbook.wallet.service.command.WithdrawCommand;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -80,6 +81,23 @@ public class WalletService {
               new LedgerEntry.TransferLeg(
                   SystemAccountIds.EXTERNAL_PAYMENT, BalanceBucket.AVAILABLE),
               LedgerReason.DEPOSIT);
+        });
+  }
+
+  public WalletOperationResult withdraw(WithdrawCommand command) {
+    return transferExecutor.execute(
+        command.idempotencyKey(),
+        WalletCaller.PLATFORM,
+        WalletOperationKind.WITHDRAW,
+        command.userId(),
+        command.amount(),
+        (account, now) -> {
+          account.decreaseAvailable(command.amount(), now);
+          return new WalletTransferPlan(
+              new LedgerEntry.TransferLeg(
+                  SystemAccountIds.EXTERNAL_PAYMENT, BalanceBucket.AVAILABLE),
+              new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
+              LedgerReason.WITHDRAW);
         });
   }
 
