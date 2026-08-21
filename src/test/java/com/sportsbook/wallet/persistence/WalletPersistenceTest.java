@@ -16,6 +16,7 @@ import com.sportsbook.wallet.domain.AdjustmentStatus;
 import com.sportsbook.wallet.domain.BalanceBucket;
 import com.sportsbook.wallet.domain.LedgerEntry;
 import com.sportsbook.wallet.domain.SystemAccountIds;
+import com.sportsbook.wallet.domain.WalletAdjustment;
 import com.sportsbook.wallet.domain.WalletCaller;
 import com.sportsbook.wallet.domain.WalletFailureCode;
 import com.sportsbook.wallet.domain.WalletFailureSnapshot;
@@ -152,6 +153,69 @@ class WalletPersistenceTest {
               assertThat(frozen.available()).isEqualTo(Money.krw(200L));
               assertThat(frozen.isOutboundFrozen()).isTrue();
             });
+  }
+
+  @Test
+  void classifiesConcurrentClaimsForOneBetRevisionPair() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000153");
+    UUID betId = UUID.fromString("019b76da-a000-7000-8000-000000000154");
+    UUID firstRevision = UUID.fromString("019b76da-a000-7000-8000-000000000155");
+    UUID secondRevision = UUID.fromString("019b76da-a000-7000-8000-000000000156");
+    accounts.saveAndFlush(Account.openFor(userId, Money.krw(0L).currency(), Instant.now()));
+    java.util.function.Function<UUID, AdjustmentCommand> request =
+        revisionId ->
+            new AdjustmentCommand(
+                revisionId,
+                betId,
+                1L,
+                userId,
+                Money.krw(0L),
+                Money.krw(100L),
+                IdempotencyKey.of("settlement:revision:" + revisionId));
+    AdjustmentCommand firstCommand = request.apply(firstRevision);
+    AdjustmentCommand secondCommand = request.apply(secondRevision);
+    var start = new java.util.concurrent.CountDownLatch(1);
+    java.util.function.Function<AdjustmentCommand, Class<?>> attempt =
+        command -> {
+          try {
+            adjustmentService.adjust(command);
+            return WalletAdjustment.class;
+          } catch (IdempotencyConflictException conflict) {
+            return conflict.getClass();
+          }
+        };
+    java.util.function.Function<AdjustmentCommand, CompletableFuture<Optional<Class<?>>>> submit =
+        command ->
+            CompletableFuture.supplyAsync(
+                () -> {
+                  await(start);
+                  return retryableAttempt(() -> attempt.apply(command));
+                });
+    var commands = List.of(firstCommand, secondCommand);
+    var attempts = commands.stream().map(submit).toList();
+
+    start.countDown();
+    CompletableFuture.allOf(attempts.toArray(CompletableFuture[]::new)).join();
+    List<Class<?>> outcomes =
+        java.util.stream.IntStream.range(0, commands.size())
+            .<Class<?>>mapToObj(
+                index ->
+                    attempts.get(index).join().orElseGet(() -> attempt.apply(commands.get(index))))
+            .toList();
+
+    assertThat(outcomes)
+        .containsExactlyInAnyOrder(WalletAdjustment.class, IdempotencyConflictException.class);
+    assertThat(adjustmentProofs.findByBetIdAndRevisionNumber(betId, 1L)).isPresent();
+    assertThat(
+            java.util.stream.Stream.of(firstCommand, secondCommand)
+                .filter(command -> operations.existsById(command.idempotencyKey().value())))
+        .hasSize(1);
+    assertThat(
+            java.util.stream.Stream.of(firstCommand, secondCommand)
+                .flatMap(
+                    command ->
+                        ledger.findByIdempotencyKey(command.idempotencyKey().value()).stream()))
+        .hasSize(2);
   }
 
   @Test
