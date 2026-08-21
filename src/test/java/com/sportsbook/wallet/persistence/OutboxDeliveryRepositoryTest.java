@@ -86,4 +86,53 @@ class OutboxDeliveryRepositoryTest extends OutboxDeliveryRepositoryFixture {
     assertThat(head.get(0).createdAt()).isEqualTo(createdLater);
     assertThat(blockedSuccessor).isEmpty();
   }
+
+  @Test
+  void retriesRemainPendingAndFenceAnExpiredOwner() {
+    Instant created = Instant.parse("2999-08-21T00:00:00Z");
+    persist("operation-a", "key-a", "dedup-a1", created);
+    persist("operation-a2", "key-a", "dedup-a2", created.plusSeconds(1L));
+    var stale = delivery.claim("worker-a", 1, Duration.ofSeconds(30)).get(0);
+    jdbc.update(
+        "UPDATE outbox_event SET lease_until=clock_timestamp()-interval '1 second' WHERE event_id=?",
+        stale.lease().eventId());
+    var active = delivery.claim("worker-b", 1, Duration.ofSeconds(30)).get(0);
+
+    assertThat(delivery.releaseForRetry(stale.lease(), Duration.ZERO, "stale")).isFalse();
+    assertThat(delivery.releaseForRetry(active.lease(), Duration.ZERO, "retry")).isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT available_at < created_at FROM outbox_event WHERE event_id=?",
+                Boolean.class,
+                stale.lease().eventId()))
+        .isTrue();
+
+    for (int attempt = 0; attempt < 50; attempt++) {
+      var retry = delivery.claim("worker-b", 1, Duration.ofSeconds(30)).get(0);
+      assertThat(retry.streamSequence()).isEqualTo(1L);
+      assertThat(delivery.releaseForRetry(retry.lease(), Duration.ZERO, "retry")).isTrue();
+    }
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT attempt_count FROM outbox_event WHERE event_id=?",
+                Integer.class,
+                stale.lease().eventId()))
+        .isEqualTo(52);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT published_at IS NULL FROM outbox_event WHERE event_id=?",
+                Boolean.class,
+                stale.lease().eventId()))
+        .isTrue();
+    var finalHead = delivery.claim("worker-b", 1, Duration.ofSeconds(30)).get(0);
+    assertThat(delivery.markPublished(finalHead.lease())).isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT published_at < created_at FROM outbox_event WHERE event_id=?",
+                Boolean.class,
+                stale.lease().eventId()))
+        .isTrue();
+    assertThat(delivery.claim("worker-b", 1, Duration.ofSeconds(30)).get(0).streamSequence())
+        .isEqualTo(2L);
+  }
 }
