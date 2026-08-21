@@ -10,6 +10,10 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       pool-name: wallet-hikari
+      connection-timeout: ${WALLET_DB_CONNECTION_TIMEOUT_MS:2000}
+      connection-init-sql: >-
+        SET lock_timeout TO '${WALLET_DB_LOCK_TIMEOUT:2s}';
+        SET statement_timeout TO '${WALLET_DB_STATEMENT_TIMEOUT:5s}'
 
   jpa:
     hibernate:
