@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -21,6 +22,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 class StompAuthChannelInterceptorTest {
 
   private static final String USER_ID = "11111111-1111-4111-8111-111111111111";
+  private static final String EVENT_ID = "abcdefab-cdef-4abc-8def-abcdefabcdef";
 
   @Test
   void authenticatesConnectWithTheSharedDecoder() {
@@ -73,10 +75,75 @@ class StompAuthChannelInterceptorTest {
     assertRejected(interceptor, "Bearer rejected-token");
   }
 
+  @Test
+  void rejectsEveryUnsupportedClientCommand() {
+    for (StompCommand command :
+        List.of(
+            StompCommand.SEND,
+            StompCommand.MESSAGE,
+            StompCommand.CONNECTED,
+            StompCommand.RECEIPT,
+            StompCommand.ERROR,
+            StompCommand.ACK,
+            StompCommand.NACK,
+            StompCommand.BEGIN,
+            StompCommand.COMMIT,
+            StompCommand.ABORT)) {
+      assertDenied(frame(command, "/topic/odds/" + EVENT_ID, null));
+    }
+  }
+
+  @Test
+  void allowsOnlyPublicOddsAndAuthenticatedBetSubscriptions() {
+    StompAuthChannelInterceptor interceptor = interceptor();
+    for (StompCommand command : List.of(StompCommand.UNSUBSCRIBE, StompCommand.DISCONNECT)) {
+      assertThatCode(() -> interceptor.preSend(frame(command, null, null), null))
+          .doesNotThrowAnyException();
+    }
+    assertThatCode(
+            () ->
+                interceptor.preSend(
+                    frame(StompCommand.SUBSCRIBE, "/topic/odds/" + EVENT_ID, null), null))
+        .doesNotThrowAnyException();
+    assertThatCode(
+            () ->
+                interceptor.preSend(
+                    frame(
+                        StompCommand.SUBSCRIBE,
+                        "/user/queue/bets",
+                        new JwtAuthenticationToken(jwt())),
+                    null))
+        .doesNotThrowAnyException();
+
+    assertDenied(frame(StompCommand.SUBSCRIBE, "/user/queue/bets", null));
+    assertDenied(frame(StompCommand.SUBSCRIBE, "/user/queue/bets", (Principal) () -> USER_ID));
+    assertDenied(frame(StompCommand.SUBSCRIBE, "/topic/odds/" + EVENT_ID + "/extra", null));
+    assertDenied(frame(StompCommand.SUBSCRIBE, "/topic/odds/" + EVENT_ID.toUpperCase(), null));
+    assertDenied(frame(StompCommand.SUBSCRIBE, "/queue/internal", null));
+  }
+
   private static void assertRejected(
       StompAuthChannelInterceptor interceptor, String... credentials) {
     assertThatThrownBy(() -> interceptor.preSend(connect(StompCommand.CONNECT, credentials), null))
         .isInstanceOf(MessageDeliveryException.class);
+  }
+
+  private static void assertDenied(Message<byte[]> frame) {
+    assertThatThrownBy(() -> interceptor().preSend(frame, null))
+        .isInstanceOf(MessageDeliveryException.class);
+  }
+
+  private static StompAuthChannelInterceptor interceptor() {
+    return new StompAuthChannelInterceptor(token -> jwt());
+  }
+
+  private static Message<byte[]> frame(
+      StompCommand command, String destination, Principal principal) {
+    StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
+    accessor.setDestination(destination);
+    accessor.setUser(principal);
+    accessor.setLeaveMutable(true);
+    return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
   }
 
   private static Message<byte[]> connect(StompCommand command, String... credentials) {
