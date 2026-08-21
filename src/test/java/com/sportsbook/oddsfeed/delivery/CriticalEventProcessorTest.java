@@ -121,6 +121,16 @@ class CriticalEventProcessorTest {
     assertRestrictivePreviewSuppressesOpen("feed hold");
   }
 
+  @Test
+  void terminalStatePublishesAnEffectiveCloseForProviderSuspension() {
+    assertProviderSuspensionPublishesEffectiveClose("terminal");
+  }
+
+  @Test
+  void operatorClosePublishesAnEffectiveCloseForProviderSuspension() {
+    assertProviderSuspensionPublishesEffectiveClose("operator close");
+  }
+
   private static void assertRestrictivePreviewSuppressesOpen(String reason) {
     CriticalEventQueue queue = mock(CriticalEventQueue.class);
     OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
@@ -140,6 +150,31 @@ class CriticalEventProcessorTest {
     verify(cache, never()).storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
     verifyNoInteractions(publisher);
     verify(queue).acknowledge(queued);
+  }
+
+  private static void assertProviderSuspensionPublishesEffectiveClose(String reason) {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.marketStatus(
+            eventId, marketId, MarketStatus.OPEN, MarketStatus.SUSPENDED, reason, Instant.EPOCH);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("2-3"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.SUSPENDED))
+        .thenReturn(MarketStatus.CLOSED);
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    InOrder order = inOrder(cache, publisher, queue);
+    order.verify(cache).storeProviderMarketStatus(eventId, marketId, MarketStatus.SUSPENDED);
+    order
+        .verify(publisher)
+        .publishMarketStatusChanged(
+            eventId, marketId, MarketStatus.OPEN, MarketStatus.CLOSED, reason, Instant.EPOCH);
+    order.verify(queue).acknowledge(queued);
   }
 
   private static final class RecoveringProcessor extends CriticalEventProcessor {
