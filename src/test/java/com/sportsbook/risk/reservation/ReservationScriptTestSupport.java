@@ -26,6 +26,8 @@ abstract class ReservationScriptTestSupport extends RedisTestSupport {
       RedisLuaScriptLoader.stringScript("risk-reserve.lua");
   private static final RedisScript<String> COMMIT =
       RedisLuaScriptLoader.stringScript("risk-commit.lua");
+  private static final RedisScript<String> RELEASE =
+      RedisLuaScriptLoader.stringScript("risk-release.lua");
 
   protected ReservationWireMapper.Decoded execute(ReservationScriptRequest request) {
     String raw = redis.execute(SCRIPT, request.keys(), request.arguments().toArray());
@@ -47,6 +49,13 @@ abstract class ReservationScriptTestSupport extends RedisTestSupport {
             new RiskHistoryProperties(null, 0));
     return ReservationTransition.valueOf(
         redis.execute(COMMIT, request.keys(), request.arguments().toArray()));
+  }
+
+  protected ReservationTransition release(BetId betId, Instant now) {
+    ReservationTransitionRequest request =
+        ReservationTransitionRequest.release(betId, now, new RiskReservationProperties(null, null));
+    return ReservationTransition.valueOf(
+        redis.execute(RELEASE, request.keys(), request.arguments().toArray()));
   }
 
   protected ReservationScriptRequest request(RiskCheckCommand command) {
