@@ -6,13 +6,16 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import com.sportsbook.gateway.events.AvroTestSupport;
 import com.sportsbook.gateway.kafka.GatewayTopicProperties;
 import java.lang.reflect.Type;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.avro.specific.SpecificRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
@@ -45,11 +48,13 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
       "bet.resolution.revised.v1.DLT"
     },
     bootstrapServersProperty = "spring.kafka.bootstrap-servers")
+@Import(SubscriptionRegistrationProbe.class)
 abstract class WebSocketStreamFixture {
 
   @LocalServerPort protected int port;
   @Autowired protected KafkaTemplate<byte[], byte[]> kafka;
   @Autowired protected GatewayTopicProperties topics;
+  @Autowired protected SubscriptionRegistrationProbe registrations;
   @MockBean protected JwtDecoder jwtDecoder;
 
   protected StompSession connect(String path, StompHeaders headers) throws Exception {
@@ -66,18 +71,28 @@ abstract class WebSocketStreamFixture {
   protected BlockingQueue<String> subscribe(StompSession session, String destination)
       throws Exception {
     BlockingQueue<String> messages = new LinkedBlockingQueue<>();
-    session.subscribe(
-        destination,
-        new StompFrameHandler() {
-          public Type getPayloadType(StompHeaders headers) {
-            return byte[].class;
-          }
+    String subscriptionId = UUID.randomUUID().toString();
+    StompHeaders headers = new StompHeaders();
+    headers.setDestination(destination);
+    headers.setId(subscriptionId);
+    CompletableFuture<Void> registered = registrations.expect(subscriptionId);
+    try {
+      session.subscribe(
+          headers,
+          new StompFrameHandler() {
+            public Type getPayloadType(StompHeaders ignored) {
+              return byte[].class;
+            }
 
-          public void handleFrame(StompHeaders headers, Object payload) {
-            messages.add(new String((byte[]) payload, UTF_8));
-          }
-        });
-    return messages;
+            public void handleFrame(StompHeaders ignored, Object payload) {
+              messages.add(new String((byte[]) payload, UTF_8));
+            }
+          });
+      registered.get(5, SECONDS);
+      return messages;
+    } finally {
+      registrations.release(subscriptionId);
+    }
   }
 
   protected void publish(String topic, String key, SpecificRecord event) throws Exception {
