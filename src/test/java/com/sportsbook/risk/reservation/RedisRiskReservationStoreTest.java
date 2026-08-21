@@ -37,6 +37,18 @@ class RedisRiskReservationStoreTest extends RedisTestSupport {
         .isEqualTo(ReservationTransition.APPLIED);
   }
 
+  @Test
+  void executesAcceptedProjectionThroughTheTypedPort() {
+    RiskReservationStore store = store();
+    RiskCheckCommand accepted = command(3);
+    String fingerprint = ReservationFingerprint.of(accepted);
+
+    assertThat(store.projectAccepted(accepted, fingerprint))
+        .isEqualTo(ReservationTransition.APPLIED);
+    assertThat(store.projectAccepted(accepted, fingerprint))
+        .isEqualTo(ReservationTransition.REPLAYED);
+  }
+
   private RiskReservationStore store() {
     return new RedisRiskReservationStore(
         redis,
