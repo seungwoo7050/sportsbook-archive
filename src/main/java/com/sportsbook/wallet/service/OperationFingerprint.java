@@ -3,6 +3,8 @@ package com.sportsbook.wallet.service;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletCaller;
 import com.sportsbook.wallet.domain.WalletOperationKind;
+import com.sportsbook.wallet.service.command.CreditCommand;
+import com.sportsbook.wallet.service.command.CreditReason;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -20,6 +22,8 @@ public record OperationFingerprint(String value) {
   private static final int REVISION_NUMBER_TAG = 8;
   private static final int PREVIOUS_PAYOUT_TAG = 9;
   private static final int NEW_PAYOUT_TAG = 10;
+  private static final int CREDIT_SOURCE_TAG = 11;
+  private static final int CREDIT_REASON_TAG = 12;
 
   public OperationFingerprint {
     Objects.requireNonNull(value, "value");
@@ -31,6 +35,27 @@ public record OperationFingerprint(String value) {
   public static OperationFingerprint transfer(
       WalletCaller caller, WalletOperationKind kind, UUID userId, Money amount) {
     return digest(base(caller, kind, userId, amount).toByteArray());
+  }
+
+  public static OperationFingerprint credit(
+      WalletCaller caller,
+      WalletOperationKind kind,
+      UUID userId,
+      Money amount,
+      CreditCommand.Source source,
+      CreditReason reason) {
+    Objects.requireNonNull(source, "source");
+    Objects.requireNonNull(reason, "reason");
+    WalletOperationKind expectedKind =
+        reason == CreditReason.PAYOUT
+            ? WalletOperationKind.BET_PAYOUT
+            : WalletOperationKind.BET_REFUND;
+    if (kind != expectedKind) {
+      throw new IllegalArgumentException("Credit reason does not match operation kind");
+    }
+    CanonicalRequestEncoder encoded = base(caller, kind, userId, amount);
+    encoded.text(CREDIT_SOURCE_TAG, source.name()).text(CREDIT_REASON_TAG, reason.name());
+    return digest(encoded.toByteArray());
   }
 
   public static OperationFingerprint adjustment(
