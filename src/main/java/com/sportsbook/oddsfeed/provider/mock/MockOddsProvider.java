@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
 @Component
 @Profile("mock")
@@ -36,6 +37,7 @@ public class MockOddsProvider implements OddsProvider {
   static final int INITIAL_EVENT_COUNT = 3;
   static final Duration MATCH_DURATION = Duration.ofMinutes(90);
   static final Duration KICKOFF_SPACING = Duration.ofMinutes(1);
+  private static final int REPLAY_HISTORY = 256;
   private static final double SECONDS_PER_MINUTE = 60.0;
   private static final String[] FOOTBALL_TEAMS = {
     "Manchester United",
@@ -51,6 +53,7 @@ public class MockOddsProvider implements OddsProvider {
   private final MockProperties properties;
   private final Clock clock;
   private final Map<EventId, MockEvent> events = new ConcurrentHashMap<>();
+  private final Map<EventId, Sinks.Many<ProviderEvent>> streams = new ConcurrentHashMap<>();
   private long runSeed;
   private Random structureRandom;
 
@@ -69,6 +72,7 @@ public class MockOddsProvider implements OddsProvider {
       Instant end = kickoff.plus(toRealDuration(MATCH_DURATION));
       MockEvent event = buildEvent(kickoff, end, index);
       events.put(event.summary.eventId(), event);
+      streams.put(event.summary.eventId(), Sinks.many().replay().limit(REPLAY_HISTORY));
     }
   }
 
@@ -127,6 +131,17 @@ public class MockOddsProvider implements OddsProvider {
     return clock;
   }
 
+  void emit(EventId eventId, ProviderEvent event) {
+    Sinks.Many<ProviderEvent> sink = streams.get(eventId);
+    if (sink == null) {
+      return;
+    }
+    Sinks.EmitResult result = sink.tryEmitNext(event);
+    if (result.isFailure()) {
+      throw new IllegalStateException("Could not emit mock provider event: " + result);
+    }
+  }
+
   @Override
   public List<EventSummary> listEvents(Sport sport) {
     List<EventSummary> result = new ArrayList<>();
@@ -140,7 +155,8 @@ public class MockOddsProvider implements OddsProvider {
 
   @Override
   public Flux<ProviderEvent> streamEvents(EventId eventId) {
-    return Flux.empty();
+    Sinks.Many<ProviderEvent> sink = streams.get(eventId);
+    return sink == null ? Flux.empty() : sink.asFlux();
   }
 
   @Override
