@@ -39,6 +39,7 @@ import com.sportsbook.wallet.service.command.CreditCommand;
 import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
+import com.sportsbook.wallet.service.command.ForfeitCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import com.sportsbook.wallet.service.command.WithdrawCommand;
 import java.math.BigDecimal;
@@ -828,6 +829,42 @@ class WalletPersistenceTest {
     assertThat(event.getLedgerTxId()).isEqualTo(userSide.entryId().toString());
     assertThat(event.getLedgerTxId()).isNotEqualTo(result.operationGroupId().toString());
     assertThat(outboxFor(payout.idempotencyKey())).hasSize(1);
+  }
+
+  @Test
+  void forfeitsLockedFundsWithDurableSuccessAndFailure() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000021");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:forfeit-seed")));
+    wallet.debit(
+        new DebitCommand(userId, Money.krw(100L), IdempotencyKey.of("debit:forfeit-seed")));
+    ForfeitCommand success =
+        new ForfeitCommand(userId, Money.krw(60L), IdempotencyKey.of("forfeit:success"));
+
+    var committed = wallet.forfeit(success);
+
+    assertThat(wallet.forfeit(success)).isEqualTo(committed);
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(40L));
+    assertThat(committed.reason()).isEqualTo(com.sportsbook.wallet.domain.LedgerReason.BET_FORFEIT);
+    assertThat(ledger.findByIdempotencyKey(success.idempotencyKey().value())).hasSize(2);
+    assertThat(outboxFor(success.idempotencyKey())).isEmpty();
+
+    ForfeitCommand rejected =
+        new ForfeitCommand(userId, Money.krw(100L), IdempotencyKey.of("forfeit:rejected"));
+    WalletRejectedException first =
+        catchThrowableOfType(() -> wallet.forfeit(rejected), WalletRejectedException.class);
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:forfeit-more")));
+    wallet.debit(
+        new DebitCommand(userId, Money.krw(100L), IdempotencyKey.of("debit:forfeit-more")));
+    WalletRejectedException replay =
+        catchThrowableOfType(() -> wallet.forfeit(rejected), WalletRejectedException.class);
+
+    assertThat(replay.failure().detail()).isEqualTo(first.failure().detail());
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(140L));
+    assertThat(ledger.findByIdempotencyKey(rejected.idempotencyKey().value())).isEmpty();
+    assertThat(outboxFor(rejected.idempotencyKey())).isEmpty();
   }
 
   @Test
