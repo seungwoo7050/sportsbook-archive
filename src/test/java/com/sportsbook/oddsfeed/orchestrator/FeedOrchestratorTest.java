@@ -11,6 +11,7 @@ import com.sportsbook.oddsfeed.provider.MatchOutcome;
 import com.sportsbook.oddsfeed.provider.OddsProvider;
 import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
+import com.sportsbook.oddsfeed.publisher.KafkaPublishException;
 import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
@@ -76,6 +77,29 @@ class FeedOrchestratorTest {
     orchestrator.dispatch(eventId, odds);
     assertThat(order).containsExactly("publish", "publish", "cache");
     assertThat(publisher.forceCurrentSnapshot).isTrue();
+  }
+
+  @Test
+  void holdsLatestOddsWhileTheBrokerIsUnavailable() {
+    assertOutageOrder(new RecordingPublisher(new ArrayList<>(), false, false), "hold");
+    assertOutageOrder(new RecordingPublisher(new ArrayList<>(), true, true), "publish", "hold");
+  }
+
+  private static void assertOutageOrder(RecordingPublisher publisher, String... expected) {
+    RecordingCache cache = new RecordingCache(Map.of(), publisher.order);
+    FeedOrchestrator orchestrator =
+        new FeedOrchestrator(new StubProvider(List.of()), cache, publisher, new EventCatalog());
+    EventId eventId = new EventId(UUID.randomUUID());
+    orchestrator.dispatch(
+        eventId,
+        new ProviderEvent.OddsUpdated(
+            eventId,
+            new MarketId(UUID.randomUUID()),
+            new SelectionId(UUID.randomUUID()),
+            Odds.ofDecimal("2.00"),
+            Odds.ofDecimal("2.10"),
+            Instant.EPOCH));
+    assertThat(publisher.order).containsExactly(expected);
   }
 
   private static EventSummary event(UUID id, EventLifecycleStatus status) {
@@ -149,21 +173,40 @@ class FeedOrchestratorTest {
     public boolean isFeedHeld(EventId eventId, MarketId marketId) {
       return held;
     }
+
+    @Override
+    public MarketStatus holdLatestOdds(
+        EventId eventId,
+        MarketId marketId,
+        SelectionId selectionId,
+        Odds odds,
+        Instant observedAt) {
+      order.add("hold");
+      return MarketStatus.SUSPENDED;
+    }
   }
 
   private static final class RecordingPublisher extends OddsFeedPublisher {
     private final List<String> order;
     private boolean published = true;
     private boolean forceCurrentSnapshot;
+    private final boolean healthy;
+    private final boolean fail;
 
     private RecordingPublisher(List<String> order) {
+      this(order, true, false);
+    }
+
+    private RecordingPublisher(List<String> order, boolean healthy, boolean fail) {
       super(null, null, null, null);
       this.order = order;
+      this.healthy = healthy;
+      this.fail = fail;
     }
 
     @Override
     public boolean isHealthy() {
-      return true;
+      return healthy;
     }
 
     @Override
@@ -177,6 +220,9 @@ class FeedOrchestratorTest {
         boolean forceCurrentSnapshot) {
       order.add("publish");
       this.forceCurrentSnapshot = forceCurrentSnapshot;
+      if (fail) {
+        throw new KafkaPublishException("broker unavailable", new IllegalStateException());
+      }
       return published;
     }
   }
