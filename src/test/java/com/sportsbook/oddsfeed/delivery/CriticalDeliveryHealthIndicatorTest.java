@@ -1,6 +1,8 @@
 package com.sportsbook.oddsfeed.delivery;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.oddsfeed.config.CriticalDeliveryProperties;
@@ -42,6 +44,31 @@ class CriticalDeliveryHealthIndicatorTest {
             .get(0);
     assertThat(defaults.getProperty("management.endpoint.health.group.readiness.include"))
         .isEqualTo("readinessState,redis,criticalDelivery");
+  }
+
+  @Test
+  void operatorDeliveryFailureMakesReadinessUnavailable() {
+    CriticalEventQueue criticalQueue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    CriticalEventProcessor criticalProcessor = mock(CriticalEventProcessor.class);
+    OperatorActionQueue operatorQueue = mock(OperatorActionQueue.class);
+    OperatorActionProcessor operatorProcessor = mock(OperatorActionProcessor.class);
+    when(criticalQueue.isHealthy()).thenReturn(true);
+    when(publisher.isHealthy()).thenReturn(true);
+    when(criticalProcessor.isHealthy()).thenReturn(true);
+    when(operatorQueue.isHealthy()).thenReturn(true);
+    when(operatorQueue.pendingCount()).thenReturn(3L);
+    when(operatorProcessor.isHealthy()).thenReturn(false);
+
+    var health =
+        new CriticalDeliveryHealthIndicator(
+                criticalQueue, publisher, criticalProcessor, operatorQueue, operatorProcessor)
+            .health();
+
+    assertThat(health.getStatus()).isEqualTo(Status.DOWN);
+    assertThat(health.getDetails())
+        .containsEntry("operatorDelivery", "DOWN")
+        .containsEntry("operatorPendingRecords", 3L);
   }
 
   private static final class StubQueue extends CriticalEventQueue {
