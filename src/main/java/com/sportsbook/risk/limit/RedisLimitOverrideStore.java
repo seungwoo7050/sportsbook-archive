@@ -10,8 +10,6 @@ import org.springframework.stereotype.Component;
 /** Redis hash implementation of authoritative user-specific limit overrides. */
 @Component
 public final class RedisLimitOverrideStore implements LimitOverrideStore {
-  private static final String PREFIX = "risk:limit:override:";
-
   private final StringRedisTemplate redis;
 
   public RedisLimitOverrideStore(StringRedisTemplate redis) {
@@ -24,7 +22,9 @@ public final class RedisLimitOverrideStore implements LimitOverrideStore {
         (String)
             redis
                 .opsForHash()
-                .get(key(userId), Objects.requireNonNull(field, "field").redisField());
+                .get(
+                    LimitOverrideKeys.user(userId),
+                    Objects.requireNonNull(field, "field").redisField());
     if (value == null) {
       return OptionalLong.empty();
     }
@@ -42,16 +42,20 @@ public final class RedisLimitOverrideStore implements LimitOverrideStore {
     redis
         .opsForHash()
         .put(
-            key(userId), Objects.requireNonNull(field, "field").redisField(), Long.toString(value));
+            LimitOverrideKeys.user(userId),
+            Objects.requireNonNull(field, "field").redisField(),
+            Long.toString(value));
   }
 
   @Override
   public void clear(UserId userId, LimitOverrideField field) {
-    redis.opsForHash().delete(key(userId), Objects.requireNonNull(field, "field").redisField());
+    redis
+        .opsForHash()
+        .delete(
+            LimitOverrideKeys.user(userId), Objects.requireNonNull(field, "field").redisField());
   }
 
   static String key(UserId userId) {
-    Objects.requireNonNull(userId, "userId");
-    return PREFIX + "{" + userId.value() + "}";
+    return LimitOverrideKeys.user(userId);
   }
 }
