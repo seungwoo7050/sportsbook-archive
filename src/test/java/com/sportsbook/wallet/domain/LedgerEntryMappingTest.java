@@ -7,8 +7,11 @@ import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.lang.reflect.Field;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -57,6 +60,45 @@ class LedgerEntryMappingTest {
     assertThat(entry.bucket()).isEqualTo(BalanceBucket.LOCKED);
     assertThat(entry.side()).isEqualTo(LedgerSide.CREDIT);
     assertThat(entry.money()).isEqualTo(Money.krw(8L));
+  }
+
+  @Test
+  void mapsImmutableRequestAndOperationIdentity() throws Exception {
+    for (String field :
+        new String[] {"reason", "idempotencyKey", "operationGroupId", "createdAt"}) {
+      assertThat(column(field).updatable()).isFalse();
+    }
+    Table table = LedgerEntry.class.getAnnotation(Table.class);
+    assertThat(table.uniqueConstraints())
+        .extracting(UniqueConstraint::name)
+        .containsExactly("uk_ledger_entry_idempotency_side", "uk_ledger_entry_group_side");
+    assertThat(table.uniqueConstraints())
+        .extracting(constraint -> constraint.columnNames())
+        .containsExactly(
+            new String[] {"idempotency_key", "side"}, new String[] {"operation_group_id", "side"});
+    assertThat(table.indexes())
+        .extracting(Index::name, Index::columnList)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple(
+                "ix_ledger_entry_account_created", "account_id, created_at"),
+            org.assertj.core.groups.Tuple.tuple(
+                "ix_ledger_entry_idempotency_key", "idempotency_key"));
+  }
+
+  @Test
+  void exposesHydratedRequestAndOperationIdentity() {
+    LedgerEntry entry = new LedgerEntry();
+    UUID groupId = UUID.fromString("019b76da-a000-7000-8000-000000000005");
+    Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
+    ReflectionTestUtils.setField(entry, "reason", LedgerReason.DEPOSIT);
+    ReflectionTestUtils.setField(entry, "idempotencyKey", "deposit:mapping");
+    ReflectionTestUtils.setField(entry, "operationGroupId", groupId);
+    ReflectionTestUtils.setField(entry, "createdAt", createdAt);
+
+    assertThat(entry.reason()).isEqualTo(LedgerReason.DEPOSIT);
+    assertThat(entry.idempotencyKey()).isEqualTo("deposit:mapping");
+    assertThat(entry.operationGroupId()).isEqualTo(groupId);
+    assertThat(entry.createdAt()).isEqualTo(createdAt);
   }
 
   private Column column(String field) throws Exception {
