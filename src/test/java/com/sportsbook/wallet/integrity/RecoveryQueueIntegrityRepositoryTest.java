@@ -58,6 +58,29 @@ class RecoveryQueueIntegrityRepositoryTest {
 
     jdbc.update("UPDATE account SET recovery_debt_amount = 51 WHERE user_id = ?", userId);
     assertThat(integrity.findQueueDriftUsers()).containsExactly(userId);
+    jdbc.update("UPDATE account SET recovery_debt_amount = 50 WHERE user_id = ?", userId);
+  }
+
+  @Test
+  void detectsOrphansWithoutOverflowingNumericDebt() {
+    UUID bounded = UUID.fromString("019b76da-a000-7000-8000-0000000001b8");
+    jdbc.update(
+        """
+        INSERT INTO account(user_id, available_currency, locked_currency, recovery_debt_amount,
+          recovery_frozen_at, next_adjustment_sequence, created_at, updated_at)
+        VALUES (?, 'KRW', 'KRW', 18446744073709551614, now(), 3, now(), now())
+        """,
+        bounded);
+    insertBlocked("1b9", bounded, 1L, Long.MAX_VALUE);
+    insertBlocked("1ba", bounded, 2L, Long.MAX_VALUE);
+    assertThat(integrity.findQueueDriftUsers()).doesNotContain(bounded);
+
+    UUID orphan = UUID.fromString("019b76da-a000-7000-8000-0000000001bb");
+    insertBlocked("1bc", orphan, 1L, 10L);
+    assertThat(integrity.findQueueDriftUsers()).contains(orphan);
+    jdbc.update("DELETE FROM wallet_adjustment WHERE user_id IN (?, ?)", bounded, orphan);
+    jdbc.update("DELETE FROM wallet_operation WHERE user_id IN (?, ?)", bounded, orphan);
+    jdbc.update("DELETE FROM account WHERE user_id = ?", bounded);
   }
 
   private static AdjustmentCommand command(
@@ -71,5 +94,34 @@ class RecoveryQueueIntegrityRepositoryTest {
         Money.krw(amount),
         Money.krw(0L),
         IdempotencyKey.of("settlement:revision:" + revisionId));
+  }
+
+  private void insertBlocked(String revisionTail, UUID userId, long sequence, long amount) {
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
+    String key = "settlement:revision:" + revisionId;
+    jdbc.update(
+        """
+        INSERT INTO wallet_operation(idempotency_key, caller_id, operation_kind, user_id,
+          request_amount, request_currency, request_fingerprint, status, requested_at, updated_at)
+        VALUES (?, 'SETTLEMENT', 'BET_ADJUSTMENT', ?, ?, 'KRW', ?, 'BLOCKED_FUNDS', now(), now())
+        """,
+        key,
+        userId,
+        amount,
+        "c".repeat(64));
+    jdbc.update(
+        """
+        INSERT INTO wallet_adjustment(revision_id, idempotency_key, bet_id, revision_number,
+          user_id, previous_payout_amount, new_payout_amount, delta_amount, currency, status,
+          queue_sequence, queued_at, next_attempt_at, created_at, updated_at)
+        VALUES (?, ?, ?, 1, ?, ?, 0, ?, 'KRW', 'BLOCKED', ?, now(), now(), now(), now())
+        """,
+        revisionId,
+        key,
+        UUID.randomUUID(),
+        userId,
+        amount,
+        -amount,
+        sequence);
   }
 }
