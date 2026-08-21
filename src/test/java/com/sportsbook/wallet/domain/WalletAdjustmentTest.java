@@ -9,6 +9,7 @@ import com.sportsbook.wallet.service.command.AdjustmentCommand;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class WalletAdjustmentTest {
   private static final UUID REVISION_ID = UUID.fromString("019b76da-a000-7000-8000-000000000116");
@@ -58,6 +59,24 @@ class WalletAdjustmentTest {
     assertThat(proof.operationGroupId()).isNull();
     assertThat(proof.queueSequence()).isNull();
     assertThat(proof.appliedAt()).isNull();
+  }
+
+  @Test
+  void advancesOnlyABlockedProofWithoutDelayingAnEarlierAttempt() {
+    WalletAdjustment proof = WalletAdjustment.blocked(command(1_000L, 700L), 4L, NOW);
+    ReflectionTestUtils.setField(proof, "nextAttemptAt", NOW.plusSeconds(60L));
+
+    proof.wake(NOW.minusSeconds(5L));
+    proof.wake(NOW.minusSeconds(1L));
+
+    assertThat(proof.status()).isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(proof.queueSequence()).isEqualTo(4L);
+    assertThat(proof.queuedAt()).isEqualTo(NOW);
+    assertThat(proof.nextAttemptAt()).isEqualTo(NOW.minusSeconds(5L));
+    assertThat(proof.updatedAt()).isEqualTo(NOW.minusSeconds(1L));
+    assertThatThrownBy(
+            () -> WalletAdjustment.applied(command(700L, 1_000L), GROUP_ID, NOW).wake(NOW))
+        .hasMessage("Only blocked adjustments can be woken");
   }
 
   private void assertIdentity(WalletAdjustment proof, long delta) {
