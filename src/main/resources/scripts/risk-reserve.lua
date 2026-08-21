@@ -156,7 +156,35 @@ if selectionCandidate > selectionLimit then
   return response({status = "REJECTED", rejection = "SELECTIONS_PER_MINUTE_LIMIT_EXCEEDED",
     replayed = false, patternsJson = "[]"})
 end
-persist("RESERVED", "[]")
+local function action(value)
+  if value == "SUSPECT" or value == "REVIEW" or value == "BLOCK" then return value end
+end
+local patterns, firstBlock = {}, nil
+local function addPattern(rule, configuredAction, reason)
+  table.insert(patterns, {rule = rule, action = configuredAction, reason = reason})
+  if configuredAction == "BLOCK" and not firstBlock then firstBlock = rule end
+end
+if ARGV[20] == "1" then
+  local rapidError = typeError(KEYS[16], "zset") or typeError(KEYS[2], "zset")
+  local rapidWindow, rapidMax, rapidAction = tonumber(ARGV[21]), tonumber(ARGV[22]), action(ARGV[23])
+  if rapidError or not rapidWindow or not rapidMax or not rapidAction then
+    return redis.error_reply(rapidError or "invalid rapid policy")
+  end
+  local cutoff = "(" .. (now - rapidWindow)
+  local rapidCount = redis.call("ZCOUNT", KEYS[16], cutoff, "+inf")
+    + redis.call("ZCOUNT", KEYS[2], cutoff, "+inf") + 1
+  if rapidCount >= rapidMax then
+    addPattern("RAPID_BETTING", rapidAction, "rapid betting threshold reached")
+  end
+end
+local patternsJson = #patterns == 0 and "[]" or cjson.encode(patterns)
+if firstBlock then
+  persist("REJECTED", patternsJson)
+  redis.call("HSET", KEYS[1], "rejection", firstBlock, "rejectedAt", string.format("%.0f", now))
+  return response({status = "REJECTED", rejection = firstBlock,
+    replayed = false, patternsJson = patternsJson})
+end
+persist("RESERVED", patternsJson)
 redis.call("HSET", KEYS[1], "reservedAt", string.format("%.0f", now),
   "expiresAt", string.format("%.0f", expiresAt))
 redis.call("ZADD", KEYS[2], now, betId); redis.call("ZADD", KEYS[3], now, betId .. "|" .. stakeText)
@@ -166,4 +194,4 @@ redis.call("SET", KEYS[6], string.format("%.0f", nextSelections))
 redis.call("SET", KEYS[18], string.format("%.0f", nextGauge))
 return response({status = "APPROVED", state = "RESERVED",
   expiresAt = string.format("%.0f", expiresAt), token = fingerprint,
-  replayed = false, patternsJson = "[]"})
+  replayed = false, patternsJson = patternsJson})
