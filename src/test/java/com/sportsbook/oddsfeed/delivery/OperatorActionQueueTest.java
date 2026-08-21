@@ -228,6 +228,40 @@ class OperatorActionQueueTest {
     assertThat(record.getValue()).containsEntry("announcedStatus", MarketStatus.SUSPENDED.name());
   }
 
+  @Test
+  void actionsReceiveMonotonicPerMarketPredecessors() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+
+    OperatorActionSubmission first =
+        queue.submit(
+            IdempotencyKey.of("first-key"),
+            UUID.randomUUID(),
+            eventId,
+            marketId,
+            MarketStatus.SUSPENDED,
+            "first",
+            NOW);
+    OperatorActionSubmission second =
+        queue.submit(
+            IdempotencyKey.of("second-key"),
+            UUID.randomUUID(),
+            eventId,
+            marketId,
+            MarketStatus.CLOSED,
+            "second",
+            NOW);
+
+    assertThat(first.sequence()).isEqualTo(1);
+    assertThat(first.predecessor()).isZero();
+    assertThat(second.sequence()).isEqualTo(2);
+    assertThat(second.predecessor()).isEqualTo(first.sequence());
+    assertThat(redis.opsForValue().get(OperatorActionQueue.sequenceKey(eventId, marketId)))
+        .isEqualTo("2");
+    assertThat(redis.getExpire(OperatorActionQueue.sequenceKey(eventId, marketId))).isEqualTo(-1);
+  }
+
   private OperatorActionQueue queue() {
     return new OperatorActionQueue(
         redis,
