@@ -1,0 +1,41 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "BetPlacedRequested",
+  "doc": "Accepted-bet event published by betting-service through its transactional outbox after risk reservation commit and wallet debit are confirmed. Consumers must remain idempotent because outbox delivery is at least once.",
+  "fields": [
+    {"name": "betId", "type": "string", "doc": "Slip UUID — primary key in betting-service."},
+    {"name": "userId", "type": "string"},
+    {
+      "name": "slipType",
+      "type": {
+        "type": "enum",
+        "name": "BetSlipTypeTag",
+        "symbols": ["SINGLE", "MULTIPLE", "SYSTEM"]
+      },
+      "doc": "Tag for the BetSlipType sealed interface. SYSTEM additionally requires systemMinWins + systemTotalSelections."
+    },
+    {"name": "systemMinWins", "type": ["null", "int"], "default": null, "doc": "K parameter for SYSTEM slips. null for SINGLE/MULTIPLE."},
+    {"name": "systemTotalSelections", "type": ["null", "int"], "default": null, "doc": "N parameter for SYSTEM slips. null for SINGLE/MULTIPLE; for SINGLE/MULTIPLE the value equals selections.size."},
+    {
+      "name": "selections",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "RequestedSelection",
+          "fields": [
+            {"name": "eventId", "type": "string"},
+            {"name": "marketId", "type": "string"},
+            {"name": "selectionId", "type": "string"},
+            {"name": "oddsAtSubmission", "type": "string", "doc": "Decimal odds the user saw at submit time (\"1.8500\", scale 4). Slippage compared against the current odds before acceptance."}
+          ]
+        }
+      },
+      "doc": "Selections the user picked. Order preserved."
+    },
+    {"name": "stake", "type": "Money", "doc": "Wager amount; same Money record reused across the event schema family."},
+    {"name": "idempotencyKey", "type": "string", "doc": "Caller-supplied idempotency key (ADR-0005). Same key replays produce the same betId / outcome."},
+    {"name": "requestedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
