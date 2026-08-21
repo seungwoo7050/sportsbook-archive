@@ -4,6 +4,7 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletFailureCode;
 import com.sportsbook.wallet.domain.WalletFailureSnapshot;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
+import com.sportsbook.wallet.domain.error.AccountRecoveryBlockedException;
 import com.sportsbook.wallet.domain.error.BalanceLimitExceededException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.InsufficientBalanceException;
@@ -14,6 +15,9 @@ final class WalletFailureMapper {
   static WalletFailureSnapshot snapshot(RuntimeException failure, Money requestAmount) {
     if (failure instanceof AccountNotFoundException) {
       return WalletFailureSnapshot.of(WalletFailureCode.ACCOUNT_NOT_FOUND, failure.getMessage());
+    }
+    if (failure instanceof AccountRecoveryBlockedException) {
+      return WalletFailureSnapshot.of(WalletFailureCode.ACCOUNT_SUSPENDED, failure.getMessage());
     }
     if (failure instanceof CurrencyMismatchException mismatch) {
       return WalletFailureSnapshot.currencyMismatch(failure.getMessage(), mismatch.expected());

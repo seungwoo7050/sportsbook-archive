@@ -5,7 +5,7 @@ public enum WalletFailureCode {
   ACCOUNT_NOT_FOUND(404, "WALLET_ACCOUNT_NOT_FOUND", "Account not found"),
   CURRENCY_MISMATCH(422, "WALLET_CURRENCY_MISMATCH", "Currency mismatch"),
   INSUFFICIENT_BALANCE(422, "WALLET_INSUFFICIENT_BALANCE", "Insufficient balance"),
-  ACCOUNT_SUSPENDED(423, "WALLET_ACCOUNT_SUSPENDED", "Wallet account suspended"),
+  ACCOUNT_SUSPENDED(423, "WALLET_ACCOUNT_RECOVERY_BLOCKED", "Wallet account blocked for recovery"),
   AMOUNT_OUT_OF_RANGE(422, "WALLET_AMOUNT_OUT_OF_RANGE", "Amount out of range");
 
   private final int httpStatus;
