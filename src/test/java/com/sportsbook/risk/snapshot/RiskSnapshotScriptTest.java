@@ -13,10 +13,16 @@ import com.sportsbook.risk.counter.LimitKeys;
 import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.limit.LimitOverrideField;
 import com.sportsbook.risk.limit.LimitOverrideKeys;
+import com.sportsbook.risk.pattern.HistoryKeys;
 import com.sportsbook.risk.pattern.PatternContext;
+import com.sportsbook.risk.policy.PatternAction;
+import com.sportsbook.risk.policy.RapidBettingPolicy;
+import com.sportsbook.risk.policy.RepeatedSelectionPolicy;
 import com.sportsbook.risk.policy.RiskPatternProperties;
+import com.sportsbook.risk.policy.SuddenStakePolicy;
 import com.sportsbook.risk.reservation.RiskReservationProperties;
 import com.sportsbook.risk.support.RedisTestSupport;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -77,13 +83,42 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
     assertThat(slot.path("error").asText()).contains("sum");
   }
 
+  @Test
+  void readsGlobalAndCurrencyScopedConfirmedPatternFacts() throws Exception {
+    redis
+        .opsForZSet()
+        .add(HistoryKeys.bets(USER), HistoryKeys.betMember(BET), NOW.toEpochMilli() - 1);
+    redis
+        .opsForZSet()
+        .add(
+            HistoryKeys.stakes(USER, Currency.KRW),
+            HistoryKeys.stakeMember(BET, 100),
+            NOW.toEpochMilli() - 1);
+    redis
+        .opsForZSet()
+        .add(
+            HistoryKeys.selection(USER, SELECTION),
+            HistoryKeys.betMember(BET),
+            NOW.toEpochMilli() - 1);
+
+    JsonNode patterns = execute().path("patterns");
+
+    assertThat(patterns.path("rapid").path("value").asText()).isEqualTo("1");
+    assertThat(patterns.path("stakes").path("value").asText()).isEqualTo("100");
+    assertThat(patterns.path("selections").get(0).path("slot").path("value").asText())
+        .isEqualTo("1");
+  }
+
   private JsonNode execute() throws Exception {
     PatternContext context = new PatternContext(USER, BET, Money.krw(1), List.of(SELECTION), NOW);
+    RiskPatternProperties patterns =
+        new RiskPatternProperties(
+            new RapidBettingPolicy(true, Duration.ofMinutes(1), 30, PatternAction.SUSPECT),
+            new SuddenStakePolicy(true, 10, 10, PatternAction.SUSPECT),
+            new RepeatedSelectionPolicy(true, Duration.ofHours(24), 5, PatternAction.REVIEW));
     RiskSnapshotScriptRequest request =
         RiskSnapshotScriptRequest.from(
-            context,
-            new RiskPatternProperties(null, null, null),
-            new RiskReservationProperties(null, null));
+            context, patterns, new RiskReservationProperties(null, null));
     DefaultRedisScript<String> script = new DefaultRedisScript<>();
     script.setLocation(new ClassPathResource("scripts/risk-snapshot.lua"));
     script.setResultType(String.class);
