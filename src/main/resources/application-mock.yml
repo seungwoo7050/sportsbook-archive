@@ -1,0 +1,13 @@
+oddsfeed:
+  provider:
+    mode: mock
+  mock:
+    minutes-per-second: 1
+    random-seed: ${ODDSFEED_MOCK_RANDOM_SEED:424242}
+    tick-interval-ms: ${ODDSFEED_MOCK_TICK_INTERVAL_MS:500}
+    scenarios:
+      auto-rotate: true
+      rotation-interval-seconds: 60
+    base-home-win-probability: 0.45
+    base-draw-probability: 0.25
+    base-away-win-probability: 0.30
