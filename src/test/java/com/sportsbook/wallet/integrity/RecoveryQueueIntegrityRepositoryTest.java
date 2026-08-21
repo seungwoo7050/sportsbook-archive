@@ -83,6 +83,42 @@ class RecoveryQueueIntegrityRepositoryTest {
     jdbc.update("DELETE FROM account WHERE user_id = ?", bounded);
   }
 
+  @Test
+  void detectsSequenceDriftButAcceptsClockReversal() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-0000000001bd");
+    insertRecoveringAccount(userId, 30L, 3L);
+    insertBlocked("1be", userId, 1L, 10L);
+    insertBlocked("1bf", userId, 2L, 20L);
+    assertThat(integrity.findQueueDriftUsers()).doesNotContain(userId);
+
+    jdbc.update("UPDATE account SET next_adjustment_sequence = 4 WHERE user_id = ?", userId);
+    assertThat(integrity.findQueueDriftUsers()).contains(userId);
+    jdbc.update("UPDATE account SET next_adjustment_sequence = 3 WHERE user_id = ?", userId);
+
+    jdbc.update(
+        "UPDATE wallet_adjustment SET queue_sequence = 3 WHERE user_id = ? AND queue_sequence = 2",
+        userId);
+    jdbc.update("UPDATE account SET next_adjustment_sequence = 4 WHERE user_id = ?", userId);
+    assertThat(integrity.findQueueDriftUsers()).contains(userId);
+    jdbc.update(
+        "UPDATE wallet_adjustment SET queue_sequence = 2 WHERE user_id = ? AND queue_sequence = 3",
+        userId);
+    jdbc.update("UPDATE account SET next_adjustment_sequence = 3 WHERE user_id = ?", userId);
+
+    jdbc.update(
+        """
+        UPDATE wallet_adjustment SET created_at = TIMESTAMPTZ '2026-01-01T00:00:00Z',
+          queued_at = TIMESTAMPTZ '2026-01-04T00:00:00Z' - queue_sequence * INTERVAL '1 day',
+          next_attempt_at = TIMESTAMPTZ '2026-01-04T00:00:00Z',
+          updated_at = TIMESTAMPTZ '2026-01-04T00:00:00Z'
+        WHERE user_id = ?
+        """,
+        userId);
+    assertThat(integrity.findQueueDriftUsers()).doesNotContain(userId);
+
+    deleteRecoveryFixture(userId);
+  }
+
   private static AdjustmentCommand command(
       String revisionTail, String betTail, long revisionNumber, UUID userId, long amount) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
@@ -123,5 +159,23 @@ class RecoveryQueueIntegrityRepositoryTest {
         amount,
         -amount,
         sequence);
+  }
+
+  private void insertRecoveringAccount(UUID userId, long debt, long nextSequence) {
+    jdbc.update(
+        """
+        INSERT INTO account(user_id, available_currency, locked_currency, recovery_debt_amount,
+          recovery_frozen_at, next_adjustment_sequence, created_at, updated_at)
+        VALUES (?, 'KRW', 'KRW', ?, now(), ?, now(), now())
+        """,
+        userId,
+        debt,
+        nextSequence);
+  }
+
+  private void deleteRecoveryFixture(UUID userId) {
+    jdbc.update("DELETE FROM wallet_adjustment WHERE user_id = ?", userId);
+    jdbc.update("DELETE FROM wallet_operation WHERE user_id = ?", userId);
+    jdbc.update("DELETE FROM account WHERE user_id = ?", userId);
   }
 }
