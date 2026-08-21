@@ -28,6 +28,7 @@ import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import com.sportsbook.wallet.integrity.OperationCommitted;
 import com.sportsbook.wallet.service.IdempotencyCache;
 import com.sportsbook.wallet.service.WalletOperationExecutor;
+import com.sportsbook.wallet.service.WalletOperationResult;
 import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
 import com.sportsbook.wallet.service.WalletTransferExecutor;
@@ -551,6 +552,50 @@ class WalletPersistenceTest {
     } catch (WalletBusyException busy) {
       return Optional.empty();
     }
+  }
+
+  @Test
+  void convergesOneHundredConcurrentRequestsForOneKey() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000019");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    DepositCommand command =
+        new DepositCommand(userId, Money.krw(77L), IdempotencyKey.of("deposit:hundred-race"));
+    var start = new java.util.concurrent.CountDownLatch(1);
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(20);
+    try {
+      var attempts =
+          java.util.stream.IntStream.range(0, 100)
+              .mapToObj(
+                  ignored ->
+                      CompletableFuture.supplyAsync(
+                          () -> {
+                            await(start);
+                            return retryableAttempt(() -> wallet.deposit(command));
+                          },
+                          pool))
+              .toList();
+      start.countDown();
+      CompletableFuture.allOf(attempts.toArray(CompletableFuture[]::new)).join();
+
+      var initial = attempts.stream().map(CompletableFuture::join).toList();
+      var converged =
+          initial.stream()
+              .map(outcome -> outcome.orElseGet(() -> wallet.deposit(command)))
+              .toList();
+      WalletOperationResult winner = converged.get(0);
+      assertThat(converged).hasSize(100).containsOnly(winner);
+      assertThat(operations.findById(command.idempotencyKey().value()))
+          .get()
+          .satisfies(
+              operation -> {
+                assertThat(operation.status()).isEqualTo(WalletOperationStatus.SUCCEEDED);
+                assertThat(operation.operationGroupId()).isEqualTo(winner.operationGroupId());
+              });
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(77L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {
