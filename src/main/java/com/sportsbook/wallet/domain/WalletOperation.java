@@ -1,5 +1,7 @@
 package com.sportsbook.wallet.domain;
 
+import com.sportsbook.protocol.value.IdempotencyKey;
+import com.sportsbook.protocol.value.Money;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
@@ -11,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Authoritative immutable request identity and durable outcome for one idempotency key. */
@@ -70,4 +73,99 @@ public class WalletOperation {
   private long version;
 
   protected WalletOperation() {}
+
+  private WalletOperation(
+      IdempotencyKey key,
+      WalletCaller caller,
+      WalletOperationKind kind,
+      UUID userId,
+      Money amount,
+      String fingerprint,
+      Instant now) {
+    if (!amount.isPositive()) {
+      throw new IllegalArgumentException("Operation amount must be strictly positive");
+    }
+    Objects.requireNonNull(caller, "caller");
+    Objects.requireNonNull(kind, "kind");
+    this.idempotencyKey = Objects.requireNonNull(key, "key").value();
+    this.caller = caller;
+    this.kind = kind;
+    this.userId = Objects.requireNonNull(userId, "userId");
+    this.requestAmount = EmbeddedMoney.of(amount);
+    this.requestFingerprint = Objects.requireNonNull(fingerprint, "fingerprint");
+    this.requestedAt = Objects.requireNonNull(now, "now");
+    this.updatedAt = now;
+  }
+
+  public static WalletOperation succeeded(
+      IdempotencyKey key,
+      WalletCaller caller,
+      WalletOperationKind kind,
+      UUID userId,
+      Money amount,
+      String fingerprint,
+      UUID operationGroupId,
+      Instant now) {
+    WalletOperation operation =
+        new WalletOperation(key, caller, kind, userId, amount, fingerprint, now);
+    operation.status = WalletOperationStatus.SUCCEEDED;
+    operation.operationGroupId = Objects.requireNonNull(operationGroupId, "operationGroupId");
+    operation.completedAt = now;
+    return operation;
+  }
+
+  public static WalletOperation rejected(
+      IdempotencyKey key,
+      WalletCaller caller,
+      WalletOperationKind kind,
+      UUID userId,
+      Money amount,
+      String fingerprint,
+      WalletFailureSnapshot failure,
+      Instant now) {
+    WalletOperation operation =
+        new WalletOperation(key, caller, kind, userId, amount, fingerprint, now);
+    operation.status = WalletOperationStatus.REJECTED;
+    operation.failure = Objects.requireNonNull(failure, "failure");
+    operation.completedAt = now;
+    return operation;
+  }
+
+  public static WalletOperation blockedFunds(
+      IdempotencyKey key,
+      WalletCaller caller,
+      UUID userId,
+      Money amount,
+      String fingerprint,
+      Instant now) {
+    WalletOperation operation =
+        new WalletOperation(
+            key, caller, WalletOperationKind.BET_ADJUSTMENT, userId, amount, fingerprint, now);
+    operation.status = WalletOperationStatus.BLOCKED_FUNDS;
+    return operation;
+  }
+
+  public WalletOperationStatus status() {
+    return status;
+  }
+
+  public UUID operationGroupId() {
+    return operationGroupId;
+  }
+
+  public WalletFailureSnapshot failure() {
+    return failure;
+  }
+
+  public Instant requestedAt() {
+    return requestedAt;
+  }
+
+  public Instant updatedAt() {
+    return updatedAt;
+  }
+
+  public Instant completedAt() {
+    return completedAt;
+  }
 }
