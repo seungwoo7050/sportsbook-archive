@@ -100,6 +100,42 @@ class MockOddsProviderTest {
         .containsExactly(EventLifecycleStatus.FINISHED);
   }
 
+  @Test
+  void oddsTicksAreDeterministicForTheConfiguredSeed() {
+    MockOddsProvider first = newProvider(99L);
+    MockOddsProvider second = newProvider(99L);
+    first.seed();
+    second.seed();
+    var firstEvent = first.listEvents(Sport.FOOTBALL).get(0);
+    var secondEvent =
+        second.listEvents(Sport.FOOTBALL).stream()
+            .filter(summary -> summary.eventId().equals(firstEvent.eventId()))
+            .findFirst()
+            .orElseThrow();
+
+    first.tick(firstEvent.scheduledStartAt());
+    second.tick(secondEvent.scheduledStartAt());
+
+    var firstOdds =
+        first
+            .streamEvents(firstEvent.eventId())
+            .ofType(ProviderEvent.OddsUpdated.class)
+            .map(ProviderEvent.OddsUpdated::newOdds)
+            .take(3)
+            .collectList()
+            .block();
+    var secondOdds =
+        second
+            .streamEvents(secondEvent.eventId())
+            .ofType(ProviderEvent.OddsUpdated.class)
+            .map(ProviderEvent.OddsUpdated::newOdds)
+            .take(3)
+            .collectList()
+            .block();
+
+    assertThat(firstOdds).containsExactlyElementsOf(secondOdds);
+  }
+
   private static MockOddsProvider newProvider(long seed) {
     MockProperties properties =
         new MockProperties(
