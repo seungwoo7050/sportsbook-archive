@@ -1,6 +1,7 @@
 package com.sportsbook.gateway.ws;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -46,6 +47,17 @@ class WebSocketTokenExpiryTest {
     fresh.session.close();
   }
 
+  @Test
+  void preservesAnonymousOddsSessionWithoutAnExpiryTask() throws Exception {
+    RawStompConnection anonymous = connect(null);
+
+    assertThat(anonymous.connected.await(2, TimeUnit.SECONDS)).isTrue();
+    assertThat(anonymous.closed.await(2, TimeUnit.SECONDS)).isFalse();
+    assertThat(anonymous.session.isOpen()).isTrue();
+    verifyNoInteractions(decoder);
+    anonymous.session.close();
+  }
+
   private RawStompConnection connect(String token) throws Exception {
     RawStompConnection connection = new RawStompConnection(token);
     new StandardWebSocketClient()
@@ -76,11 +88,10 @@ class WebSocketTokenExpiryTest {
     @Override
     public void afterConnectionEstablished(WebSocketSession established) throws Exception {
       session = established;
+      String authorization = token == null ? "" : "Authorization:Bearer " + token + "\n";
       established.sendMessage(
           new TextMessage(
-              "CONNECT\naccept-version:1.2\nhost:localhost\nAuthorization:Bearer "
-                  + token
-                  + "\n\n\0"));
+              "CONNECT\naccept-version:1.2\nhost:localhost\n" + authorization + "\n\0"));
     }
 
     @Override
