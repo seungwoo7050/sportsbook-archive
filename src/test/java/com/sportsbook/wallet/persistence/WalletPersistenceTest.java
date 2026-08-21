@@ -3,6 +3,7 @@ package com.sportsbook.wallet.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
@@ -51,6 +52,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -86,7 +88,7 @@ class WalletPersistenceTest {
   @Autowired AccountRepository accounts;
   @Autowired LedgerEntryRepository ledger;
   @Autowired WalletOperationRepository operations;
-  @Autowired OutboxEventRepository outboxEvents;
+  @SpyBean OutboxEventRepository outboxEvents;
   @Autowired IdempotencyKeyLock idempotencyLocks;
   @Autowired WalletService wallet;
   @Autowired CommitFault commitFault;
@@ -647,6 +649,42 @@ class WalletPersistenceTest {
     }
     assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(77L));
     assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
+  }
+
+  @Test
+  void rollsBackDebitWhenOutboxPersistenceFails() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000007f");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:outbox-failure")));
+    DebitCommand command =
+        new DebitCommand(userId, Money.krw(60L), IdempotencyKey.of("debit:outbox-failure"));
+    doThrow(new IllegalStateException("outbox persistence unavailable"))
+        .when(outboxEvents)
+        .save(any(com.sportsbook.wallet.outbox.OutboxEvent.class));
+
+    assertThatThrownBy(() -> wallet.debit(command))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("outbox persistence unavailable");
+
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(100L));
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(0L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(operations.findById(command.idempotencyKey().value())).isEmpty();
+    assertThat(outboxFor(command.idempotencyKey())).isEmpty();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_stream WHERE topic=? AND partition_key=?",
+                Integer.class,
+                com.sportsbook.wallet.outbox.WalletEventFactory.DEBITED_TOPIC,
+                userId.toString()))
+        .isZero();
+    reset(outboxEvents);
+    wallet.debit(command);
+    assertThat(outboxFor(command.idempotencyKey()))
+        .singleElement()
+        .extracting(com.sportsbook.wallet.outbox.OutboxEvent::streamSequence)
+        .isEqualTo(1L);
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {
