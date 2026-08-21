@@ -29,7 +29,9 @@ class JwtDecoderConfiguration {
     OAuth2TokenValidator<Jwt> timestamps = new JwtTimestampValidator(Duration.ZERO);
     OAuth2TokenValidator<Jwt> requiredExpiry =
         new JwtClaimValidator<>(JwtClaimNames.EXP, Objects::nonNull);
-    decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestamps, requiredExpiry));
+    decoder.setJwtValidator(
+        new DelegatingOAuth2TokenValidator<>(
+            timestamps, requiredExpiry, new GatewayClaimsValidator()));
     return decoder;
   }
 }
