@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.wallet.outbox.OutboxAppender;
+import com.sportsbook.wallet.outbox.OutboxPublisher;
+import com.sportsbook.wallet.outbox.OutboxRetryPolicy;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -134,5 +137,57 @@ class OutboxDeliveryRepositoryTest extends OutboxDeliveryRepositoryFixture {
         .isTrue();
     assertThat(delivery.claim("worker-b", 1, Duration.ofSeconds(30)).get(0).streamSequence())
         .isEqualTo(2L);
+  }
+
+  @Test
+  void twoPublishersConvergeAfterTheFirstWorkerIsLost() {
+    Instant created = Instant.parse("2026-08-21T00:00:00Z");
+    persist("operation-a", "key-a", "dedup-a1", created);
+    persist("operation-a2", "key-a", "dedup-a2", created.plusMillis(1));
+    CompletableFuture<Void> abandonedSend = new CompletableFuture<>();
+    java.util.List<com.sportsbook.wallet.outbox.LeasedOutboxMessage> recovered =
+        new java.util.concurrent.CopyOnWriteArrayList<>();
+    OutboxRetryPolicy policy = new OutboxRetryPolicy(Duration.ofMillis(1), Duration.ofSeconds(1));
+    OutboxPublisher workerA =
+        new OutboxPublisher(
+            delivery,
+            ignored -> abandonedSend,
+            policy,
+            Runnable::run,
+            "worker-a",
+            1,
+            1,
+            Duration.ofSeconds(30));
+    OutboxPublisher workerB =
+        new OutboxPublisher(
+            delivery,
+            message -> {
+              recovered.add(message);
+              return CompletableFuture.completedFuture(null);
+            },
+            policy,
+            Runnable::run,
+            "worker-b",
+            1,
+            1,
+            Duration.ofSeconds(30));
+
+    workerA.poll();
+    jdbc.update(
+        "UPDATE outbox_event SET lease_until=clock_timestamp()-interval '1 second' WHERE lease_owner='worker-a'");
+    workerB.poll();
+    abandonedSend.complete(null);
+    workerB.poll();
+
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_event WHERE published_at IS NOT NULL", Integer.class))
+        .isEqualTo(2);
+    assertThat(jdbc.queryForObject("SELECT sum(attempt_count) FROM outbox_event", Integer.class))
+        .isEqualTo(3);
+    assertThat(recovered)
+        .extracting(message -> message.leaseTakeover())
+        .containsExactly(true, false);
+    assertThat(recovered).extracting(message -> message.streamSequence()).containsExactly(1L, 2L);
   }
 }
