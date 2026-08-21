@@ -1,6 +1,9 @@
 package com.sportsbook.risk.event;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import java.time.Clock;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
@@ -18,25 +21,47 @@ public final class BetPlacedConsumer {
   private final Supplier<AcceptedBetReconciler> reconciler;
   private final BetPlacedDeadLetterPublisher deadLetters;
   private final Clock clock;
+  private final MeterRegistry meters;
 
   @Autowired
   public BetPlacedConsumer(
+      ObjectProvider<AcceptedBetReconciler> reconciler,
+      BetPlacedDeadLetterPublisher deadLetters,
+      MeterRegistry meters) {
+    this(
+        (Supplier<AcceptedBetReconciler>) reconciler::getIfUnique,
+        deadLetters,
+        Clock.systemUTC(),
+        meters);
+  }
+
+  BetPlacedConsumer(
       ObjectProvider<AcceptedBetReconciler> reconciler, BetPlacedDeadLetterPublisher deadLetters) {
-    this((Supplier<AcceptedBetReconciler>) reconciler::getIfUnique, deadLetters, Clock.systemUTC());
+    this(reconciler, deadLetters, Metrics.globalRegistry);
   }
 
   BetPlacedConsumer(
       AcceptedBetReconciler reconciler, BetPlacedDeadLetterPublisher deadLetters, Clock clock) {
-    this(() -> Objects.requireNonNull(reconciler, "reconciler"), deadLetters, clock);
+    this(reconciler, deadLetters, clock, Metrics.globalRegistry);
+  }
+
+  BetPlacedConsumer(
+      AcceptedBetReconciler reconciler,
+      BetPlacedDeadLetterPublisher deadLetters,
+      Clock clock,
+      MeterRegistry meters) {
+    this(() -> Objects.requireNonNull(reconciler, "reconciler"), deadLetters, clock, meters);
   }
 
   private BetPlacedConsumer(
       Supplier<AcceptedBetReconciler> reconciler,
       BetPlacedDeadLetterPublisher deadLetters,
-      Clock clock) {
+      Clock clock,
+      MeterRegistry meters) {
     this.reconciler = Objects.requireNonNull(reconciler, "reconciler");
     this.deadLetters = Objects.requireNonNull(deadLetters, "deadLetters");
     this.clock = Objects.requireNonNull(clock, "clock");
+    this.meters = Objects.requireNonNull(meters, "meters");
   }
 
   @KafkaListener(
@@ -59,9 +84,11 @@ public final class BetPlacedConsumer {
         Objects.requireNonNull(requiredReconciler().reconcile(envelope), "reconciliation result");
     if (result.permanentFailure()) {
       deadLetter(key, payload, result.failureReason(), acknowledgment);
+      record(result);
       return;
     }
     acknowledgment.acknowledge();
+    record(result);
   }
 
   private AcceptedBetReconciler requiredReconciler() {
@@ -76,5 +103,11 @@ public final class BetPlacedConsumer {
       String key, byte[] payload, BetPlacedFailureReason reason, Acknowledgment acknowledgment) {
     deadLetters.publishAndAwait(key, payload, reason);
     acknowledgment.acknowledge();
+  }
+
+  private void record(AcceptedBetReconciliation result) {
+    meters
+        .counter("risk.bet.placed.reconciliation", "result", result.name().toLowerCase(Locale.ROOT))
+        .increment();
   }
 }
