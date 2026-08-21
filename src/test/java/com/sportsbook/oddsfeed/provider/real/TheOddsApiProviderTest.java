@@ -64,6 +64,21 @@ class TheOddsApiProviderTest {
     assertThat(quota.current()).isEqualTo(1);
   }
 
+  @Test
+  void identitiesRemainStableForTheSameProviderKeys() {
+    var eventId = TheOddsApiProvider.deriveEventId("abc123");
+    var repeatedEventId = TheOddsApiProvider.deriveEventId("abc123");
+    var marketId = TheOddsApiProvider.deriveMarketId(eventId, "h2h");
+    var selection = new TheOddsApiProvider.SelectionKey("h2h", "Chelsea");
+
+    assertThat(eventId).isEqualTo(repeatedEventId);
+    assertThat(marketId).isEqualTo(TheOddsApiProvider.deriveMarketId(eventId, "h2h"));
+    assertThat(TheOddsApiProvider.deriveSelectionId(eventId, selection))
+        .isEqualTo(TheOddsApiProvider.deriveSelectionId(repeatedEventId, selection));
+    assertThat(TheOddsApiProvider.deriveSelectionId(eventId, selection).value())
+        .isNotEqualTo(marketId.value());
+  }
+
   private static final class RecordingQuota implements QuotaCounter {
     private long used;
 
