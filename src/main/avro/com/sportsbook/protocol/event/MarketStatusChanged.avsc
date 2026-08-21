@@ -1,0 +1,21 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "MarketStatusChanged",
+  "doc": "A market opened, suspended, or closed for betting. Suspensions are common mid-match (goal scored, injury) and pause incoming slips for that market.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "marketId", "type": "string"},
+    {
+      "name": "previousStatus",
+      "type": {
+        "type": "enum",
+        "name": "MarketStatus",
+        "symbols": ["OPEN", "SUSPENDED", "CLOSED"]
+      }
+    },
+    {"name": "newStatus", "type": "MarketStatus"},
+    {"name": "reason", "type": ["null", "string"], "default": null, "doc": "Optional human-readable reason (e.g. \"goal scored\", \"market closed at kickoff\")."},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
