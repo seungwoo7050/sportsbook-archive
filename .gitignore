@@ -1,0 +1,27 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+.mvn/timing.properties
+
+# Editors
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# Local runtime data and secrets
+*.log
+logs/
+secrets/
+*.pem
+.env
+.env.*
+
+# Operating systems
+.DS_Store
+Thumbs.db
