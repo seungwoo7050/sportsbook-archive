@@ -6,6 +6,7 @@ import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.oddsfeed.provider.OddsProvider;
 import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
+import com.sportsbook.oddsfeed.publisher.KafkaPublishException;
 import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
 import com.sportsbook.protocol.value.EventId;
 import jakarta.annotation.PostConstruct;
@@ -68,6 +69,17 @@ public class FeedOrchestrator {
 
   void dispatch(EventId eventId, ProviderEvent event) {
     if (event instanceof ProviderEvent.OddsUpdated odds) {
+      handleOdds(odds);
+    }
+  }
+
+  private void handleOdds(ProviderEvent.OddsUpdated odds) {
+    if (!publisher.isHealthy()) {
+      cache.holdLatestOdds(
+          odds.eventId(), odds.marketId(), odds.selectionId(), odds.newOdds(), odds.occurredAt());
+      return;
+    }
+    try {
       boolean held = cache.isFeedHeld(odds.eventId(), odds.marketId());
       boolean published =
           publisher.publishOddsChanged(
@@ -78,10 +90,15 @@ public class FeedOrchestrator {
               odds.newOdds(),
               odds.occurredAt(),
               held);
-      if (!held || published) {
-        cache.projectLatestOdds(
-            odds.eventId(), odds.marketId(), odds.selectionId(), odds.newOdds(), odds.occurredAt());
+      if (held && !published) {
+        return;
       }
+    } catch (KafkaPublishException error) {
+      cache.holdLatestOdds(
+          odds.eventId(), odds.marketId(), odds.selectionId(), odds.newOdds(), odds.occurredAt());
+      return;
     }
+    cache.projectLatestOdds(
+        odds.eventId(), odds.marketId(), odds.selectionId(), odds.newOdds(), odds.occurredAt());
   }
 }
