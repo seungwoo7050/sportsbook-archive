@@ -29,6 +29,10 @@ server:
   port: ${SERVER_PORT:8083}
 
 risk:
+  auth:
+    betting-service-api-key: ${INTERNAL_BETTING_SERVICE_API_KEY}
+    admin-api-key: ${INTERNAL_ADMIN_API_KEY}
+    platform-api-key: ${INTERNAL_PLATFORM_API_KEY}
   limits:
     stake-daily: { KRW: 1000000, USD: 100000 }
     stake-weekly: { KRW: 5000000, USD: 500000 }
