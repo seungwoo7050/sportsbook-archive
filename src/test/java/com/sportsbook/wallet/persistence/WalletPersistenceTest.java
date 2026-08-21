@@ -868,6 +868,44 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void findsOnlyCanonicalBetDebitOutcomesWithoutRepeatingTransfers() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000022");
+    UUID committedBetId = UUID.fromString("019b76da-b000-7000-8000-000000000001");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:debit-lookup")));
+    DebitCommand committedCommand =
+        new DebitCommand(userId, Money.krw(60L), IdempotencyKey.of(committedBetId.toString()));
+    var committed = wallet.debit(committedCommand);
+    long ledgerCount = ledger.count();
+    long outboxCount = outboxEvents.count();
+
+    assertThat(wallet.findDebit(committedBetId)).contains(committed);
+    assertThat(ledger.count()).isEqualTo(ledgerCount);
+    assertThat(outboxEvents.count()).isEqualTo(outboxCount);
+
+    UUID rejectedBetId = UUID.fromString("019b76da-b000-7000-8000-000000000002");
+    DebitCommand rejectedCommand =
+        new DebitCommand(userId, Money.krw(100L), IdempotencyKey.of(rejectedBetId.toString()));
+    WalletRejectedException rejected =
+        catchThrowableOfType(() -> wallet.debit(rejectedCommand), WalletRejectedException.class);
+
+    assertThatThrownBy(() -> wallet.findDebit(rejectedBetId))
+        .isInstanceOfSatisfying(
+            WalletRejectedException.class,
+            replay -> {
+              assertThat(replay.failure().code()).isEqualTo(rejected.failure().code());
+              assertThat(replay.failure().detail()).isEqualTo(rejected.failure().detail());
+            });
+    assertThat(wallet.findDebit(UUID.fromString("019b76da-b000-7000-8000-000000000003"))).isEmpty();
+
+    UUID depositKey = UUID.fromString("019b76da-b000-7000-8000-000000000004");
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(1L), IdempotencyKey.of(depositKey.toString())));
+    assertThat(wallet.findDebit(depositKey)).isEmpty();
+  }
+
+  @Test
   void convergesOneHundredConcurrentRequestsForOneKey() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000019");
     wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
