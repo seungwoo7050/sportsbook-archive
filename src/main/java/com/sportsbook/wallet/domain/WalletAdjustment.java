@@ -2,6 +2,7 @@ package com.sportsbook.wallet.domain;
 
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.service.command.AdjustmentCommand;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -9,6 +10,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Durable request identity and proof for one nonzero settlement payout correction. */
@@ -73,6 +75,52 @@ public class WalletAdjustment {
   private Instant updatedAt;
 
   protected WalletAdjustment() {}
+
+  private WalletAdjustment(AdjustmentCommand command, Instant now) {
+    Objects.requireNonNull(command, "command");
+    this.revisionId = command.revisionId();
+    this.idempotencyKey = command.idempotencyKey().value();
+    this.betId = command.betId();
+    this.revisionNumber = command.revisionNumber();
+    this.userId = command.userId();
+    this.previousPayoutAmount = command.previousPayout().amount();
+    this.newPayoutAmount = command.newPayout().amount();
+    this.deltaAmount = command.deltaAmount();
+    this.currency = command.previousPayout().currency();
+    this.createdAt = Objects.requireNonNull(now, "now");
+    this.updatedAt = now;
+  }
+
+  public static WalletAdjustment applied(
+      AdjustmentCommand command, UUID operationGroupId, Instant now) {
+    WalletAdjustment proof = new WalletAdjustment(command, now);
+    proof.status = AdjustmentStatus.APPLIED;
+    proof.operationGroupId = Objects.requireNonNull(operationGroupId, "operationGroupId");
+    proof.appliedAt = now;
+    return proof;
+  }
+
+  public static WalletAdjustment blocked(
+      AdjustmentCommand command, long queueSequence, Instant now) {
+    if (command.deltaAmount() >= 0L) {
+      throw new IllegalArgumentException("Only negative adjustments can be blocked");
+    }
+    if (queueSequence < 1L) {
+      throw new IllegalArgumentException("Queue sequence must be positive");
+    }
+    WalletAdjustment proof = new WalletAdjustment(command, now);
+    proof.status = AdjustmentStatus.BLOCKED;
+    proof.queueSequence = queueSequence;
+    proof.queuedAt = now;
+    proof.nextAttemptAt = now;
+    return proof;
+  }
+
+  public static WalletAdjustment rejected(AdjustmentCommand command, Instant now) {
+    WalletAdjustment proof = new WalletAdjustment(command, now);
+    proof.status = AdjustmentStatus.REJECTED;
+    return proof;
+  }
 
   public UUID revisionId() {
     return revisionId;
