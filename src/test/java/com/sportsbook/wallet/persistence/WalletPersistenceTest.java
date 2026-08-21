@@ -3,8 +3,11 @@ package com.sportsbook.wallet.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.domain.Account;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +17,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,6 +30,9 @@ class WalletPersistenceTest {
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
   @Autowired JdbcTemplate jdbc;
+  @Autowired AccountRepository accounts;
+  @Autowired javax.sql.DataSource dataSource;
+  @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -91,5 +98,28 @@ class WalletPersistenceTest {
                     1L,
                     userId))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+  }
+
+  @Test
+  void preventsAConcurrentWriterFromTakingTheAccountLock() throws Exception {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000011");
+    accounts.saveAndFlush(Account.openFor(userId, Money.krw(0L).currency(), Instant.now()));
+    var status = transactions.getTransaction(new DefaultTransactionDefinition());
+    try {
+      accounts.findByUserIdForUpdate(userId).orElseThrow();
+      try (var connection = dataSource.getConnection()) {
+        connection.setAutoCommit(false);
+        try (var timeout = connection.createStatement();
+            var lock =
+                connection.prepareStatement(
+                    "SELECT user_id FROM account WHERE user_id = ? FOR UPDATE")) {
+          timeout.execute("SET LOCAL lock_timeout = '100ms'");
+          lock.setObject(1, userId);
+          assertThatThrownBy(lock::executeQuery).isInstanceOf(java.sql.SQLException.class);
+        }
+      }
+    } finally {
+      transactions.rollback(status);
+    }
   }
 }
