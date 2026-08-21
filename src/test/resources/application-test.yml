@@ -21,3 +21,5 @@ logging:
 wallet:
   outbox:
     scheduling-enabled: false
+  recovery:
+    scheduling-enabled: false

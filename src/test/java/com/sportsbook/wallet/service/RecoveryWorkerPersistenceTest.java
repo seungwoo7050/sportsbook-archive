@@ -33,7 +33,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest(
-    properties = {"wallet.outbox.scheduling-enabled=false", "wallet.recovery.retry-base=PT30S"})
+    properties = {
+      "wallet.outbox.scheduling-enabled=false",
+      "wallet.recovery.scheduling-enabled=false",
+      "wallet.recovery.retry-base=PT30S"
+    })
 @Testcontainers
 @Import(RecoveryWorkerPersistenceTest.CommitFault.class)
 class RecoveryWorkerPersistenceTest {
