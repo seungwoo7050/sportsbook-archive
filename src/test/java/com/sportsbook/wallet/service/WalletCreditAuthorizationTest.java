@@ -13,8 +13,10 @@ import com.sportsbook.wallet.service.command.CreditCommand;
 import com.sportsbook.wallet.service.command.CreditReason;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("wallet-semantic-gate")
 class WalletCreditAuthorizationTest {
 
   private static final UUID USER = UUID.fromString("019b76da-a000-7000-8000-000000000027");

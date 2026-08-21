@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.sportsbook.wallet.domain.WalletCaller;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -37,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag("wallet-semantic-gate")
 @WebMvcTest(controllers = WalletSecurityConfigTest.TestEndpoints.class)
 @Import({WalletSecurityConfig.class, WalletSecurityConfigTest.TestEndpoints.class})
 class WalletSecurityConfigTest {
