@@ -33,6 +33,7 @@ import com.sportsbook.wallet.outbox.OutboxAppender;
 import com.sportsbook.wallet.service.AdjustmentFirstWriter;
 import com.sportsbook.wallet.service.AdjustmentProofWriter;
 import com.sportsbook.wallet.service.IdempotencyCache;
+import com.sportsbook.wallet.service.RecoveryWakeService;
 import com.sportsbook.wallet.service.WalletAdjustmentService;
 import com.sportsbook.wallet.service.WalletOperationExecutor;
 import com.sportsbook.wallet.service.WalletOperationResult;
@@ -86,6 +87,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
   WalletInfrastructureConfig.class,
   AdjustmentFirstWriter.class,
   AdjustmentProofWriter.class,
+  RecoveryWakeService.class,
   WalletOperationExecutor.class,
   WalletAdjustmentService.class,
   WalletOutcomeResolver.class,
@@ -259,6 +261,44 @@ class WalletPersistenceTest {
     assertThat(outboxFor(debit.idempotencyKey())).hasSize(1);
     assertThat(event.getReason())
         .isEqualTo(com.sportsbook.protocol.event.WalletDebitFailureReason.ACCOUNT_SUSPENDED);
+  }
+
+  @Test
+  void depositsWakeOnlyTheBlockedHeadWithoutRecoveringInline() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000161");
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000162");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    AdjustmentCommand adjustment =
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-000000000163"),
+            1L,
+            userId,
+            Money.krw(300L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + revisionId));
+    adjustmentService.adjust(adjustment);
+    jdbc.update(
+        "UPDATE wallet_adjustment SET next_attempt_at=now()+interval '1 hour' WHERE revision_id=?",
+        revisionId);
+    Instant delayed = adjustmentProofs.findById(revisionId).orElseThrow().nextAttemptAt();
+    DepositCommand deposit =
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:wake-head"));
+
+    wallet.deposit(deposit);
+
+    var proof = adjustmentProofs.findById(revisionId).orElseThrow();
+    assertThat(proof.status()).isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(proof.nextAttemptAt()).isBefore(delayed);
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(100L));
+              assertThat(account.recoveryDebtAmount()).isEqualTo(BigInteger.valueOf(300L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
+    assertThat(ledger.findByIdempotencyKey(adjustment.idempotencyKey().value())).isEmpty();
+    assertThat(ledger.findByIdempotencyKey(deposit.idempotencyKey().value())).hasSize(2);
   }
 
   @Test
