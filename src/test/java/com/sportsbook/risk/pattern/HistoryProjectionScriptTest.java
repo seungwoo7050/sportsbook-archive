@@ -38,6 +38,22 @@ class HistoryProjectionScriptTest extends RedisTestSupport {
     assertThat(redis.hasKey(KEYS.get(2))).isFalse();
   }
 
+  @Test
+  void trimsHotHistoriesAndRefreshesIdleRetention() {
+    RedisScript<List> script = script("history-record.lua");
+    execute(script, 1, "bet-a", "bet-a|10");
+    execute(script, 2, "bet-b", "bet-b|20");
+    execute(script, 3, "bet-c", "bet-c|30");
+    execute(script, 4, "bet-d", "bet-d|40");
+
+    assertThat(redis.opsForZSet().range(KEYS.get(1), 0, -1))
+        .containsExactly("bet-b|20", "bet-c|30", "bet-d|40");
+    assertThat(redis.getExpire(KEYS.get(0))).isPositive();
+    execute(script, 60002, "bet-e", "bet-e|50");
+    assertThat(redis.opsForZSet().range(KEYS.get(0), 0, -1))
+        .containsExactly("bet-c", "bet-d", "bet-e");
+  }
+
   @SuppressWarnings("unchecked")
   private List<String> execute(
       RedisScript<List> script, long now, String betMember, String stakeMember) {
