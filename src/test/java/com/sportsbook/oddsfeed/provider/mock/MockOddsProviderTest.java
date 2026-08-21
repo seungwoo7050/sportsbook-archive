@@ -6,8 +6,10 @@ import com.sportsbook.oddsfeed.config.MockProperties;
 import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
 import com.sportsbook.protocol.domain.MarketType;
+import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.value.MarketId;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.protocol.value.SelectionId;
@@ -17,6 +19,7 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
 
@@ -134,6 +137,34 @@ class MockOddsProviderTest {
             .block();
 
     assertThat(firstOdds).containsExactlyElementsOf(secondOdds);
+  }
+
+  @Test
+  void finishedLifecycleExposesGradedOutcomeImmediately() {
+    MockOddsProvider provider = newProvider(424242L);
+    provider.seed();
+    var event = provider.listEvents(Sport.FOOTBALL).get(0);
+    AtomicReference<MatchFinalStatus> observedStatus = new AtomicReference<>();
+    provider
+        .streamEvents(event.eventId())
+        .ofType(ProviderEvent.LifecycleUpdated.class)
+        .filter(update -> update.status() == EventLifecycleStatus.FINISHED)
+        .subscribe(
+            ignored ->
+                observedStatus.set(
+                    provider.getMatchResult(event.eventId()).orElseThrow().finalStatus()));
+
+    provider.tick(event.scheduledStartAt());
+    provider.tick(event.scheduledStartAt().plusSeconds(90));
+
+    var outcome = provider.getMatchResult(event.eventId()).orElseThrow();
+    assertThat(observedStatus).hasValue(MatchFinalStatus.COMPLETED);
+    assertThat(outcome.detail()).hasSize(3);
+    assertThat(outcome.detail().values())
+        .containsExactlyInAnyOrder(
+            SettlementResult.WON.name(),
+            SettlementResult.LOST.name(),
+            SettlementResult.LOST.name());
   }
 
   private static MockOddsProvider newProvider(long seed) {
