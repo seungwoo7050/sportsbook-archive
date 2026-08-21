@@ -1,10 +1,12 @@
 package com.sportsbook.wallet.outbox;
 
+import com.sportsbook.wallet.config.KafkaProducerConfig;
 import com.sportsbook.wallet.persistence.OutboxDeliveryRepository;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -14,6 +16,9 @@ import org.springframework.stereotype.Component;
 @Component
 @ConditionalOnProperty(name = "wallet.outbox.scheduling-enabled", havingValue = "true")
 public class OutboxPublisher {
+
+  private static final Duration COMPLETION_MARGIN = Duration.ofSeconds(5);
+  private static final int MAXIMUM_OWNER_LENGTH = 128;
 
   private final OutboxDeliveryRepository delivery;
   private final OutboxDispatcher dispatcher;
@@ -36,6 +41,16 @@ public class OutboxPublisher {
     if (batchSize < 1 || maximumInFlight < 1 || batchSize > maximumInFlight) {
       throw new IllegalArgumentException("invalid outbox delivery limits");
     }
+    if (owner == null || owner.isBlank() || owner.length() > MAXIMUM_OWNER_LENGTH) {
+      throw new IllegalArgumentException("invalid outbox owner");
+    }
+    Duration minimumLease =
+        KafkaProducerConfig.MAX_BLOCK_TIME
+            .plus(KafkaProducerConfig.DELIVERY_TIMEOUT)
+            .plus(COMPLETION_MARGIN);
+    if (leaseDuration == null || leaseDuration.compareTo(minimumLease) <= 0) {
+      throw new IllegalArgumentException("outbox lease must exceed delivery timeout and margin");
+    }
     this.delivery = delivery;
     this.dispatcher = dispatcher;
     this.retryPolicy = retryPolicy;
@@ -46,7 +61,14 @@ public class OutboxPublisher {
     this.inFlight = new Semaphore(maximumInFlight);
   }
 
-  @Scheduled(fixedDelayString = "${wallet.outbox.poll-interval:PT0.1S}")
+  @Autowired
+  void validatePollInterval(@Value("${wallet.outbox.poll-interval:PT1S}") Duration pollInterval) {
+    if (pollInterval == null || pollInterval.toMillis() < 1L) {
+      throw new IllegalArgumentException("outbox poll interval must be at least one millisecond");
+    }
+  }
+
+  @Scheduled(fixedDelayString = "${wallet.outbox.poll-interval:PT1S}")
   public synchronized void poll() {
     int capacity = Math.min(batchSize, inFlight.availablePermits());
     if (capacity == 0) {
