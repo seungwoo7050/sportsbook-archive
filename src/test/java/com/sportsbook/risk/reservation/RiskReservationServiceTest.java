@@ -10,6 +10,7 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.SelectionId;
 import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.service.RiskCheckCommand;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -22,7 +23,8 @@ class RiskReservationServiceTest {
   @Test
   void delegatesTypedReservationOperations() {
     RiskReservationStore store = mock(RiskReservationStore.class);
-    RiskReservationService service = new RiskReservationService(store);
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RiskReservationService service = new RiskReservationService(store, meters);
     RiskCheckCommand command = command();
     ReservationDecision decision =
         ReservationDecision.approved(
@@ -34,6 +36,31 @@ class RiskReservationServiceTest {
     assertThat(service.reserve(command)).isSameAs(decision);
     assertThat(service.commit(BET, "a".repeat(64), NOW)).isEqualTo(ReservationTransition.APPLIED);
     assertThat(service.release(BET, NOW)).isEqualTo(ReservationTransition.REPLAYED);
+    assertThat(meters.counter("risk.reservation.requests", "result", "created").count())
+        .isEqualTo(1.0);
+  }
+
+  @Test
+  void recordsOnlyBoundedDecisionResults() {
+    RiskReservationStore store = mock(RiskReservationStore.class);
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RiskReservationService service = new RiskReservationService(store, meters);
+    RiskCheckCommand command = command();
+    when(store.reserve(command))
+        .thenReturn(
+            ReservationDecision.rejected("STAKE_DAILY_LIMIT_EXCEEDED", false, List.of()),
+            ReservationDecision.approved(
+                ReservationState.RESERVED, NOW.plusSeconds(60), "a".repeat(64), true, List.of()),
+            ReservationDecision.conflict());
+
+    service.reserve(command);
+    service.reserve(command);
+    service.reserve(command);
+
+    for (String result : List.of("rejected", "replayed", "conflict")) {
+      assertThat(meters.counter("risk.reservation.requests", "result", result).count())
+          .isEqualTo(1.0);
+    }
   }
 
   private static RiskCheckCommand command() {
