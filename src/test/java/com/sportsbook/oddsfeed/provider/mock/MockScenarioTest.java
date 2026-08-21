@@ -110,4 +110,36 @@ class MockScenarioTest {
               assertThat(update.occurredAt()).isEqualTo(NOW);
             });
   }
+
+  @Test
+  void lateGoalOnlyAppliesNearTheEndOfPlay() {
+    LateGoal scenario = new LateGoal();
+    assertThat(scenario.canApply(event, NOW)).isFalse();
+
+    provider.tick(event.kickoffAt);
+    Instant nearEnd = event.endAt.minusSeconds(1);
+    List<ProviderEvent.OddsUpdated> updates = new ArrayList<>();
+    var subscription =
+        provider
+            .streamEvents(event.summary.eventId())
+            .ofType(ProviderEvent.OddsUpdated.class)
+            .subscribe(updates::add);
+    updates.clear();
+
+    assertThat(scenario.canApply(event, nearEnd)).isTrue();
+    scenario.apply(event, nearEnd, new Random(1), provider);
+    subscription.dispose();
+
+    assertThat(updates)
+        .singleElement()
+        .satisfies(update -> assertThat(update.newOdds()).isNotEqualTo(update.previousOdds()));
+  }
+
+  @Test
+  void scenarioSetIsClosedToFourDisruptions() {
+    assertThat(MockScenario.class.getPermittedSubclasses())
+        .extracting(Class::getSimpleName)
+        .containsExactlyInAnyOrder(
+            "LateGoal", "MatchPostponed", "OddsCrash", "SuddenMarketSuspend");
+  }
 }
