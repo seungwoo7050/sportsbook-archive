@@ -1,6 +1,7 @@
 package com.sportsbook.gateway.events;
 
 import com.sportsbook.gateway.kafka.GatewayEventContractException;
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.OddsChanged;
@@ -34,6 +35,24 @@ public final class GatewayEventContract {
     BetVoided event = StrictAvroDecoder.decode(record.value(), BetVoided.class);
     requireBetIdentity(event.getBetId(), event.getUserId(), event.getEventId());
     requirePartitionKey(record.key(), event.getEventId(), record.topic());
+    return event;
+  }
+
+  public static BetResolutionRevised betResolutionRevised(ConsumerRecord<byte[], byte[]> record) {
+    BetResolutionRevised event =
+        StrictAvroDecoder.decode(record.value(), BetResolutionRevised.class);
+    requireCanonicalUuid(event.getRevisionId(), "revisionId");
+    requireBetIdentity(event.getBetId(), event.getUserId(), event.getEventId());
+    if (event.getRevisionNumber() < 1) {
+      throw new GatewayEventContractException("revisionNumber must be positive");
+    }
+    if (!event.getPreviousPayout().getCurrency().equals(event.getNewPayout().getCurrency())) {
+      throw new GatewayEventContractException("revision payout currencies must match");
+    }
+    if (event.getSourceResultSettledAt().isAfter(event.getRevisedAt())) {
+      throw new GatewayEventContractException("revisedAt cannot precede sourceResultSettledAt");
+    }
+    requirePartitionKey(record.key(), event.getBetId(), record.topic());
     return event;
   }
 
