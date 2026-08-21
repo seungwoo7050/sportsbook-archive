@@ -1,18 +1,23 @@
 package com.sportsbook.wallet.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletAdjustment;
 import com.sportsbook.wallet.domain.WalletCaller;
+import com.sportsbook.wallet.domain.WalletFailureCode;
+import com.sportsbook.wallet.domain.WalletFailureSnapshot;
 import com.sportsbook.wallet.domain.WalletOperation;
 import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.WalletOperationStatus;
+import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import com.sportsbook.wallet.persistence.WalletAdjustmentRepository;
 import com.sportsbook.wallet.service.command.AdjustmentCommand;
 import java.util.Optional;
@@ -65,6 +70,22 @@ class WalletAdjustmentServiceTest {
             eq(Money.krw(300L)),
             eq(fingerprint),
             any());
+  }
+
+  @Test
+  void rethrowsTheExactDurableRejectionWithoutReadingAProof() {
+    AdjustmentCommand command = command();
+    WalletFailureSnapshot failure =
+        WalletFailureSnapshot.of(WalletFailureCode.ACCOUNT_NOT_FOUND, "missing account");
+    when(operations.execute(any(), any(), any(), any(), any(), any(), any())).thenReturn(outcome);
+    when(outcome.status()).thenReturn(WalletOperationStatus.REJECTED);
+    when(outcome.failure()).thenReturn(failure);
+
+    WalletRejectedException rejected =
+        catchThrowableOfType(() -> service.adjust(command), WalletRejectedException.class);
+
+    assertThat(rejected.failure()).isSameAs(failure);
+    verifyNoInteractions(adjustments);
   }
 
   private AdjustmentCommand command() {
