@@ -88,6 +88,16 @@ class WalletAdjustmentServiceTest {
     verifyNoInteractions(adjustments);
   }
 
+  @Test
+  void returnsStoredProofsWithoutReinterpretingTheirStatus() {
+    when(adjustments.findById(REVISION_ID)).thenReturn(Optional.of(proof));
+
+    assertThat(service.findProof(REVISION_ID)).containsSame(proof);
+
+    verify(adjustments).findById(REVISION_ID);
+    verifyNoInteractions(operations, firstWriter);
+  }
+
   private AdjustmentCommand command() {
     return new AdjustmentCommand(
         REVISION_ID, BET_ID, 1L, USER_ID, Money.krw(1_000L), Money.krw(700L), KEY);
