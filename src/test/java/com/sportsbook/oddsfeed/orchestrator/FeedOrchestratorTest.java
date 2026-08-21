@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.stream.RecordId;
@@ -182,6 +184,37 @@ class FeedOrchestratorTest {
     orchestrator.stop();
   }
 
+  @Test
+  void retriesFailedStreamsAfterABoundedBackoff() throws InterruptedException {
+    List<String> order = new ArrayList<>();
+    EventSummary summary = event(UUID.randomUUID(), EventLifecycleStatus.SCHEDULED);
+    ProviderEvent lifecycle =
+        new ProviderEvent.LifecycleUpdated(
+            summary.eventId(),
+            EventLifecycleStatus.CANCELLED,
+            summary.scheduledStartAt(),
+            Instant.EPOCH);
+    RetryProvider provider = new RetryProvider(summary, lifecycle);
+    RetryQueue queue = new RetryQueue(order);
+    FeedOrchestrator orchestrator =
+        new FeedOrchestrator(
+            provider,
+            new RecordingCache(Map.of(), order, Map.of()),
+            new RecordingPublisher(order),
+            new EventCatalog(),
+            queue);
+    long startedAt = System.nanoTime();
+
+    orchestrator.refresh();
+
+    assertThat(queue.delivered.await(3, TimeUnit.SECONDS)).isTrue();
+    long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+    assertThat(elapsedMillis).isBetween(500L, 3000L);
+    assertThat(provider.subscriptions).hasValue(2);
+    assertThat(order).containsExactly("snapshot", "enqueue", "snapshot", "enqueue", "close");
+    orchestrator.stop();
+  }
+
   private static void assertMarketOrder(
       MarketStatus next, boolean failEnqueue, String... expected) {
     List<String> order = new ArrayList<>();
@@ -281,6 +314,36 @@ class FeedOrchestratorTest {
           () -> {
             subscriptions.incrementAndGet();
             return events.asFlux();
+          });
+    }
+
+    @Override
+    public Optional<MatchOutcome> getMatchResult(EventId eventId) {
+      return Optional.empty();
+    }
+  }
+
+  private static final class RetryProvider implements OddsProvider {
+    private final EventSummary summary;
+    private final ProviderEvent event;
+    private final AtomicInteger subscriptions = new AtomicInteger();
+
+    private RetryProvider(EventSummary summary, ProviderEvent event) {
+      this.summary = summary;
+      this.event = event;
+    }
+
+    @Override
+    public List<EventSummary> listEvents(Sport sport) {
+      return sport == summary.sport() ? List.of(summary) : List.of();
+    }
+
+    @Override
+    public Flux<ProviderEvent> streamEvents(EventId eventId) {
+      return Flux.defer(
+          () -> {
+            subscriptions.incrementAndGet();
+            return Flux.just(event);
           });
     }
 
@@ -398,6 +461,31 @@ class FeedOrchestratorTest {
         throw new IllegalStateException("Redis unavailable");
       }
       return RecordId.of("1-0");
+    }
+  }
+
+  private static final class RetryQueue extends CriticalEventQueue {
+    private final List<String> order;
+    private final CountDownLatch delivered = new CountDownLatch(1);
+    private int attempts;
+
+    private RetryQueue(List<String> order) {
+      super(
+          new StringRedisTemplate(),
+          new ObjectMapper(),
+          new CriticalDeliveryProperties("stream", "group", "consumer", 1, Duration.ZERO),
+          new SimpleMeterRegistry());
+      this.order = order;
+    }
+
+    @Override
+    public RecordId enqueue(CriticalEvent event) {
+      order.add("enqueue");
+      if (++attempts == 1) {
+        throw new IllegalStateException("Redis unavailable");
+      }
+      delivered.countDown();
+      return RecordId.of("2-0");
     }
   }
 
