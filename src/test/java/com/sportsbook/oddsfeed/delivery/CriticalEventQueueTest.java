@@ -78,6 +78,21 @@ class CriticalEventQueueTest {
     assertThat(queue.poll()).isEmpty();
   }
 
+  @Test
+  void reclaimsPendingEventsForAReplacementConsumer() {
+    queue.enqueue(lifecycle(EventLifecycleStatus.SCHEDULED));
+    QueuedCriticalEvent firstDelivery = queue.poll().get(0);
+
+    CriticalEventQueue replacement = queue("publisher-2", Duration.ZERO);
+    QueuedCriticalEvent recovered = replacement.poll().get(0);
+
+    assertThat(firstDelivery.reclaimed()).isFalse();
+    assertThat(recovered.reclaimed()).isTrue();
+    assertThat(recovered.recordId()).isEqualTo(firstDelivery.recordId());
+    assertThat(recovered.event()).isEqualTo(firstDelivery.event());
+    assertThat(replacement.pendingCount()).isEqualTo(1);
+  }
+
   private CriticalEventQueue queue(String consumerName, Duration claimIdle) {
     return new CriticalEventQueue(
         redis,
