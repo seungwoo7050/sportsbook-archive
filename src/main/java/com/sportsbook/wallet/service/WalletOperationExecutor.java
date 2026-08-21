@@ -44,8 +44,28 @@ public class WalletOperationExecutor {
       UUID userId,
       Money amount,
       Function<String, WalletOperation> firstWriter) {
+    return execute(
+        key,
+        caller,
+        kind,
+        userId,
+        amount,
+        OperationFingerprint.transfer(caller, kind, userId, amount),
+        firstWriter);
+  }
+
+  @SuppressWarnings("checkstyle:ParameterNumber")
+  public WalletOperation execute(
+      IdempotencyKey key,
+      WalletCaller caller,
+      WalletOperationKind kind,
+      UUID userId,
+      Money amount,
+      OperationFingerprint requestFingerprint,
+      Function<String, WalletOperation> firstWriter) {
     Objects.requireNonNull(firstWriter, "firstWriter");
-    WalletRequestIdentity request = new WalletRequestIdentity(key, caller, kind, userId, amount);
+    WalletRequestIdentity request =
+        new WalletRequestIdentity(key, caller, kind, userId, amount, requestFingerprint);
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("Wallet operations require a non-transactional caller");
     }
