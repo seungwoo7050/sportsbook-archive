@@ -8,6 +8,9 @@ import com.sportsbook.wallet.domain.WalletOperationStatus;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import com.sportsbook.wallet.persistence.WalletAdjustmentRepository;
 import com.sportsbook.wallet.service.command.AdjustmentCommand;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /** Executes settlement corrections and returns their durable wallet proof. */
@@ -52,5 +55,9 @@ public class WalletAdjustmentService {
         .findById(command.revisionId())
         .filter(proof -> proof.idempotencyKey().equals(command.idempotencyKey().value()))
         .orElseThrow(() -> new IllegalStateException("Adjustment outcome has no matching proof"));
+  }
+
+  public Optional<WalletAdjustment> findProof(UUID revisionId) {
+    return adjustments.findById(Objects.requireNonNull(revisionId, "revisionId"));
   }
 }
