@@ -8,6 +8,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static com.jayway.jsonpath.JsonPath.read;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -220,6 +221,43 @@ class GatewayRoutingIntegrationTest {
       assertThatThrownBy(() -> new OddsFeedDownstreamProperties(URI.create(uri)))
           .isInstanceOf(IllegalArgumentException.class);
     }
+  }
+
+  @Test
+  void preservesDownstreamStatusHeadersAndBody() {
+    String problem = "{\"errorCode\":\"ODDS_MARKET_CLOSED\",\"detail\":\"closed\"}";
+    DOWNSTREAM.stubFor(
+        get(urlPathEqualTo("/api/v1/events/problem"))
+            .willReturn(
+                aResponse()
+                    .withStatus(409)
+                    .withHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                    .withHeader(HttpHeaders.LOCATION, "/api/v1/events/next")
+                    .withHeader(HttpHeaders.RETRY_AFTER, "7")
+                    .withBody(problem)));
+
+    ResponseEntity<String> response = http.getForEntity("/api/v1/events/problem", String.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    assertThat(response.getHeaders().getContentType())
+        .isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+    assertThat(response.getHeaders().getLocation()).hasToString("/api/v1/events/next");
+    assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("7");
+    assertThat(response.getBody()).isEqualTo(problem);
+  }
+
+  @Test
+  void mapsPublicProxyTimeoutWithoutReauthentication() {
+    DOWNSTREAM.stubFor(
+        get(urlPathEqualTo("/api/v1/events/timeout"))
+            .willReturn(aResponse().withFixedDelay(4_000).withStatus(200)));
+
+    ResponseEntity<String> timeout = http.getForEntity("/api/v1/events/timeout", String.class);
+
+    assertThat(timeout.getStatusCode()).isEqualTo(HttpStatus.GATEWAY_TIMEOUT);
+    assertThat(timeout.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+    assertThat(read(timeout.getBody(), "$.status").toString()).isEqualTo("504");
+    assertThat(read(timeout.getBody(), "$.errorCode").toString()).isEqualTo("GATEWAY_TIMEOUT");
   }
 
   @Test
