@@ -5,6 +5,8 @@ import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.oddsfeed.provider.Sport;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.value.EventId;
+import com.sportsbook.protocol.value.MarketId;
+import com.sportsbook.protocol.value.SelectionId;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -75,9 +77,8 @@ public class TheOddsApiProvider {
   }
 
   private EventSummary toSummary(TheOddsApiDtos.Event event, Sport sport) {
-    EventId id = new EventId(UUID.nameUUIDFromBytes(event.id().getBytes(StandardCharsets.UTF_8)));
     return new EventSummary(
-        id,
+        deriveEventId(event.id()),
         sport,
         event.sportTitle(),
         event.homeTeam(),
@@ -85,4 +86,23 @@ public class TheOddsApiProvider {
         event.commenceTime(),
         EventLifecycleStatus.SCHEDULED);
   }
+
+  static EventId deriveEventId(String upstreamId) {
+    return new EventId(named(upstreamId));
+  }
+
+  static MarketId deriveMarketId(EventId eventId, String marketKey) {
+    return new MarketId(named(eventId.value() + ":" + marketKey));
+  }
+
+  static SelectionId deriveSelectionId(EventId eventId, SelectionKey selection) {
+    return new SelectionId(
+        named(eventId.value() + ":" + selection.marketKey() + ":" + selection.outcomeName()));
+  }
+
+  private static UUID named(String value) {
+    return UUID.nameUUIDFromBytes(value.getBytes(StandardCharsets.UTF_8));
+  }
+
+  record SelectionKey(String marketKey, String outcomeName) {}
 }
