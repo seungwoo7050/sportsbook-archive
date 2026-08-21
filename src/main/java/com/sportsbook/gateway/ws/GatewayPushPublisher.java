@@ -19,4 +19,8 @@ public class GatewayPushPublisher {
   public void publishOdds(OddsChanged event) {
     messaging.convertAndSend("/topic/odds/" + event.getEventId(), OddsUpdate.from(event));
   }
+
+  public void publishBet(String userId, BetStatusUpdate update) {
+    messaging.convertAndSendToUser(userId, "/queue/bets", update);
+  }
 }
