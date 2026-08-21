@@ -1,6 +1,7 @@
 package com.sportsbook.wallet.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -148,6 +149,33 @@ class AdjustmentFirstWriterTest {
     assertThat(writer.write(command, "1".repeat(64))).isSameAs(outcome);
 
     verify(proofWriter).reject(command, "1".repeat(64), overflow, NOW);
+  }
+
+  @Test
+  void failsClosedWhenAFreezeHasNoBlockedHead() {
+    AdjustmentCommand command = command(700L, 1_000L);
+    when(adjustments.findByBetIdAndRevisionNumber(BET_ID, 1L)).thenReturn(Optional.empty());
+    when(accounts.findByUserIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
+    when(account.currency()).thenReturn(Currency.KRW);
+    when(account.isOutboundFrozen()).thenReturn(true);
+    when(adjustments.findOldestBlockedForUpdate(USER_ID)).thenReturn(Optional.empty());
+
+    assertThatIllegalStateException()
+        .isThrownBy(() -> writer.write(command, "2".repeat(64)))
+        .withMessageContaining("FIFO head disagree");
+  }
+
+  @Test
+  void failsClosedWhenABlockedHeadHasNoFreeze() {
+    AdjustmentCommand command = command(700L, 1_000L);
+    when(adjustments.findByBetIdAndRevisionNumber(BET_ID, 1L)).thenReturn(Optional.empty());
+    when(accounts.findByUserIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
+    when(account.currency()).thenReturn(Currency.KRW);
+    when(adjustments.findOldestBlockedForUpdate(USER_ID)).thenReturn(Optional.of(head));
+
+    assertThatIllegalStateException()
+        .isThrownBy(() -> writer.write(command, "3".repeat(64)))
+        .withMessageContaining("FIFO head disagree");
   }
 
   private void prepareUnfrozenAccount(Money available) {
