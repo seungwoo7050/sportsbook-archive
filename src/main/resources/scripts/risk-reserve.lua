@@ -177,6 +177,33 @@ if ARGV[20] == "1" then
     addPattern("RAPID_BETTING", rapidAction, "rapid betting threshold reached")
   end
 end
+for index = 1, selectionCount do
+  local activeKey = KEYS[18 + selectionCount + index]
+  local activeError = typeError(activeKey, "zset")
+  if activeError or redis.call("ZSCORE", activeKey, betId) then
+    return redis.error_reply(activeError or "orphan per-selection footprint")
+  end
+end
+if ARGV[28] == "1" then
+  local repeatedWindow, repeatedMax, repeatedAction =
+    tonumber(ARGV[29]), tonumber(ARGV[30]), action(ARGV[31])
+  if not repeatedWindow or not repeatedMax or not repeatedAction then
+    return redis.error_reply("invalid repeated policy")
+  end
+  for index, selectionId in ipairs(selections) do
+    local confirmedKey, activeKey = KEYS[18 + index], KEYS[18 + selectionCount + index]
+    local repeatedError = typeError(confirmedKey, "zset") or typeError(activeKey, "zset")
+    if repeatedError then return redis.error_reply(repeatedError) end
+    local cutoff = "(" .. (now - repeatedWindow)
+    local repeatedCount = redis.call("ZCOUNT", confirmedKey, cutoff, "+inf")
+      + redis.call("ZCOUNT", activeKey, cutoff, "+inf") + 1
+    if repeatedCount > repeatedMax then
+      addPattern("REPEATED_SAME_SELECTION", repeatedAction,
+        "repeated selection threshold reached: SelectionId[value=" .. selectionId .. "]")
+      break
+    end
+  end
+end
 local patternsJson = #patterns == 0 and "[]" or cjson.encode(patterns)
 if firstBlock then
   persist("REJECTED", patternsJson)
@@ -191,6 +218,10 @@ redis.call("ZADD", KEYS[2], now, betId); redis.call("ZADD", KEYS[3], now, betId 
 redis.call("SET", KEYS[4], string.format("%.0f", nextStake))
 redis.call("ZADD", KEYS[5], now, betId .. "|" .. countText)
 redis.call("SET", KEYS[6], string.format("%.0f", nextSelections))
+for index = 1, selectionCount do
+  local activeKey = KEYS[18 + selectionCount + index]
+  redis.call("ZADD", activeKey, now, betId)
+end
 redis.call("SET", KEYS[18], string.format("%.0f", nextGauge))
 return response({status = "APPROVED", state = "RESERVED",
   expiresAt = string.format("%.0f", expiresAt), token = fingerprint,
