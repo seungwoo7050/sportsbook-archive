@@ -68,4 +68,36 @@ class OutboxMigrationTest {
         .contains("topic, partition_key, stream_sequence")
         .contains("published_at IS NULL");
   }
+
+  @Test
+  void permitsObservationalOutboxTimestamps() {
+    jdbc.update(
+        """
+        INSERT INTO wallet_operation (
+          idempotency_key, caller_id, operation_kind, user_id, request_amount, request_currency,
+          request_fingerprint, status, requested_at, updated_at
+        ) VALUES ('outbox:clock', 'SETTLEMENT', 'BET_ADJUSTMENT',
+          '019b76da-a000-7000-8000-000000000026', 1, 'KRW', ?, 'BLOCKED_FUNDS', now(), now())
+        """,
+        "a".repeat(64));
+    jdbc.update("INSERT INTO outbox_stream(topic, partition_key) VALUES ('wallet.test', 'user-1')");
+    jdbc.update(
+        """
+        INSERT INTO outbox_event (
+          event_id, operation_key, topic, partition_key, schema_name, deduplication_key,
+          stream_sequence, payload, created_at, published_at
+        ) VALUES ('019b76da-a000-7000-8000-000000000027', 'outbox:clock', 'wallet.test',
+          'user-1', 'TestEvent', 'test-1', 1, decode('01', 'hex'),
+          TIMESTAMPTZ '2999-01-01 00:00:00Z', clock_timestamp())
+        """);
+
+    assertThat(
+            jdbc.queryForObject(
+                """
+                SELECT available_at < created_at AND published_at < created_at
+                FROM outbox_event WHERE operation_key='outbox:clock'
+                """,
+                Boolean.class))
+        .isTrue();
+  }
 }
