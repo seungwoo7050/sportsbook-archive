@@ -7,6 +7,8 @@ import com.sportsbook.oddsfeed.config.CacheProperties;
 import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
+import com.sportsbook.protocol.value.Odds;
+import com.sportsbook.protocol.value.SelectionId;
 import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -64,6 +66,25 @@ class RedisOddsCacheIntegrationTest {
     cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
 
     assertThat(cache().getRegisteredMarkets(eventId)).containsEntry(marketId, MarketStatus.OPEN);
+  }
+
+  @Test
+  void terminalMarketRejectsLateProviderAndOddsUpdates() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    SelectionId selectionId = new SelectionId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    cache.storeOdds(eventId, marketId, selectionId, Odds.ofDecimal("1.85"));
+
+    assertThat(cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.CLOSED))
+        .isEqualTo(MarketStatus.CLOSED);
+    assertThat(cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN))
+        .isEqualTo(MarketStatus.CLOSED);
+    cache.storeOdds(eventId, marketId, selectionId, Odds.ofDecimal("2.20"));
+
+    assertThat(cache.getOdds(eventId, marketId, selectionId)).contains(Odds.ofDecimal("1.85"));
+    assertThat(cache.getMarketStatus(eventId, marketId)).contains(MarketStatus.CLOSED);
+    assertThat(redis.getExpire(CacheKeys.marketTerminal(eventId, marketId))).isEqualTo(-1);
   }
 
   private RedisOddsCache cache() {
