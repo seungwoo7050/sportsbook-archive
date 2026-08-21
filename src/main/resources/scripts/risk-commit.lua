@@ -53,25 +53,66 @@ local base = "risk:reservations:user:{" .. userId .. "}"
 local bets, stakeEntries = base .. ":bets", base .. ":stakes:" .. string.lower(currency) .. ":entries"
 local stakeSum = base .. ":stakes:" .. string.lower(currency) .. ":sum"
 local selectionEntries, selectionSum = base .. ":selections:entries", base .. ":selections:sum"
-local errorText = typeError(bets, "zset") or typeError(stakeEntries, "zset")
-  or typeError(stakeSum, "string") or typeError(selectionEntries, "zset")
+local errorText = typeError(bets, "zset") or typeError(selectionEntries, "zset")
   or typeError(selectionSum, "string") or typeError(KEYS[2], "string")
-if errorText or not redis.call("ZSCORE", bets, betId)
-  or not redis.call("ZSCORE", stakeEntries, betId .. "|" .. stakeText)
-  or not redis.call("ZSCORE", selectionEntries, betId .. "|" .. countText) then
-  return redis.error_reply(errorText or "missing active reservation footprint")
+if errorText then return redis.error_reply(errorText) end
+local expectedStakes, expectedStakeCards, expectedSelectionCards = {}, {}, {}
+local expectedSelections, seenCurrent = 0, false
+local activeBetIds = redis.call("ZRANGE", bets, 0, -1)
+for _, activeBetId in ipairs(activeBetIds) do
+  local lifecycle = "risk:reservation:" .. activeBetId
+  if keyType(lifecycle) ~= "hash" then return redis.error_reply("missing active lifecycle") end
+  local oldStakeText = redis.call("HGET", lifecycle, "stake")
+  local oldCountText = redis.call("HGET", lifecycle, "selectionCount")
+  local oldCurrency = redis.call("HGET", lifecycle, "currency")
+  local oldStake, oldCount = exact(oldStakeText, true), exact(oldCountText, true)
+  local oldSelections = split(redis.call("HGET", lifecycle, "selections"), oldCount or -1)
+  if redis.call("HGET", lifecycle, "userId") ~= userId
+    or redis.call("HGET", lifecycle, "betId") ~= activeBetId or not oldStake or not oldCount
+    or not oldCurrency or not string.match(oldCurrency, "^[A-Z]+$") or not oldSelections then
+    return redis.error_reply("corrupt active lifecycle")
+  end
+  local prefix = base .. ":stakes:" .. string.lower(oldCurrency)
+  local entries, sum = prefix .. ":entries", prefix .. ":sum"
+  local footprintError = typeError(entries, "zset") or typeError(sum, "string")
+  if footprintError or not redis.call("ZSCORE", entries, activeBetId .. "|" .. oldStakeText)
+    or not redis.call("ZSCORE", selectionEntries, activeBetId .. "|" .. oldCountText) then
+    return redis.error_reply(footprintError or "missing active reservation footprint")
+  end
+  local expectedStake = expectedStakes[sum] or 0
+  if expectedStake > maxExact - oldStake or expectedSelections > maxExact - oldCount then
+    return redis.error_reply("active aggregate exceeds exact range")
+  end
+  expectedStakes[sum], expectedSelections = expectedStake + oldStake, expectedSelections + oldCount
+  expectedStakeCards[entries] = (expectedStakeCards[entries] or 0) + 1
+  for _, selectionId in ipairs(oldSelections) do
+    local key = base .. ":selection:" .. selectionId
+    local itemError = typeError(key, "zset")
+    if itemError or not redis.call("ZSCORE", key, activeBetId) then
+      return redis.error_reply(itemError or "missing per-selection footprint")
+    end
+    expectedSelectionCards[key] = (expectedSelectionCards[key] or 0) + 1
+  end
+  if activeBetId == betId then seenCurrent = true end
 end
-for _, selectionId in ipairs(selections) do
-  local key, itemError = base .. ":selection:" .. selectionId
-  itemError = typeError(key, "zset")
-  if itemError or not redis.call("ZSCORE", key, betId) then
-    return redis.error_reply(itemError or "missing per-selection footprint")
+if not seenCurrent then return redis.error_reply("missing active reservation footprint") end
+for sum, expected in pairs(expectedStakes) do
+  if exact(redis.call("GET", sum), false) ~= expected then
+    return redis.error_reply("inconsistent active stake aggregate")
   end
 end
-local stakeTotal, selectionTotal = exact(redis.call("GET", stakeSum), false), exact(redis.call("GET", selectionSum), false)
+for entries, expected in pairs(expectedStakeCards) do
+  if redis.call("ZCARD", entries) ~= expected then return redis.error_reply("orphan active stake entry") end
+end
+if exact(redis.call("GET", selectionSum), false) ~= expectedSelections
+  or redis.call("ZCARD", selectionEntries) ~= #activeBetIds then
+  return redis.error_reply("inconsistent active selection aggregate")
+end
+for key, expected in pairs(expectedSelectionCards) do
+  if redis.call("ZCARD", key) ~= expected then return redis.error_reply("orphan active selection entry") end
+end
 local gauge = exact(redis.call("GET", KEYS[2]), false)
-if not stakeTotal or stakeTotal < stake or not selectionTotal or selectionTotal < count
-  or not gauge or gauge < 1 then return redis.error_reply("corrupt active total") end
+if not gauge or gauge < #activeBetIds then return redis.error_reply("corrupt active gauge") end
 
 local function removeActive()
   redis.call("ZREM", bets, betId); redis.call("ZREM", stakeEntries, betId .. "|" .. stakeText)
