@@ -2,6 +2,7 @@ package com.sportsbook.wallet.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
@@ -18,12 +19,15 @@ import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.WalletOperationStatus;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
+import com.sportsbook.wallet.domain.error.IdempotencyConflictException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
+import com.sportsbook.wallet.domain.error.WalletRejectedException;
 import com.sportsbook.wallet.service.WalletOperationExecutor;
 import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
 import com.sportsbook.wallet.service.WalletTransferExecutor;
 import com.sportsbook.wallet.service.WalletTransferWriter;
+import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -341,6 +345,48 @@ class WalletPersistenceTest {
     assertThat(second.join().userId()).isEqualTo(userId);
     assertThat(accounts.findAll().stream().filter(account -> account.userId().equals(userId)))
         .hasSize(1);
+  }
+
+  @Test
+  void commitsAndExactlyReplaysOneDeposit() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000014");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    DepositCommand command =
+        new DepositCommand(userId, Money.krw(500L), IdempotencyKey.of("deposit:durable"));
+
+    var first = wallet.deposit(command);
+    var replay = wallet.deposit(command);
+
+    assertThat(replay).isEqualTo(first);
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(500L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
+    assertThat(operations.findById(command.idempotencyKey().value()).orElseThrow().status())
+        .isEqualTo(WalletOperationStatus.SUCCEEDED);
+    assertThatThrownBy(
+            () ->
+                wallet.deposit(
+                    new DepositCommand(userId, Money.krw(501L), command.idempotencyKey())))
+        .isInstanceOf(IdempotencyConflictException.class);
+  }
+
+  @Test
+  void replaysACommittedRejectionAfterFactsChange() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000015");
+    DepositCommand command =
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:missing"));
+
+    WalletRejectedException first =
+        catchThrowableOfType(() -> wallet.deposit(command), WalletRejectedException.class);
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    WalletRejectedException replay =
+        catchThrowableOfType(() -> wallet.deposit(command), WalletRejectedException.class);
+
+    assertThat(replay.failure().code()).isEqualTo(WalletFailureCode.ACCOUNT_NOT_FOUND);
+    assertThat(replay.failure().detail()).isEqualTo(first.failure().detail());
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(0L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(operations.findById(command.idempotencyKey().value()).orElseThrow().status())
+        .isEqualTo(WalletOperationStatus.REJECTED);
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {
