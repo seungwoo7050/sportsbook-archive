@@ -219,6 +219,49 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void durablyRejectsFrozenWithdrawalsAndDebits() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000157");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(200L), IdempotencyKey.of("deposit:freeze-seed")));
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000158");
+    adjustmentService.adjust(
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-000000000159"),
+            1L,
+            userId,
+            Money.krw(500L),
+            Money.krw(200L),
+            IdempotencyKey.of("settlement:revision:" + revisionId)));
+    WithdrawCommand withdraw =
+        new WithdrawCommand(userId, Money.krw(1L), IdempotencyKey.of("withdraw:frozen"));
+    DebitCommand debit = new DebitCommand(userId, Money.krw(1L), IdempotencyKey.of("debit:frozen"));
+
+    WalletRejectedException withdrawFailure =
+        catchThrowableOfType(() -> wallet.withdraw(withdraw), WalletRejectedException.class);
+    WalletRejectedException debitFailure =
+        catchThrowableOfType(() -> wallet.debit(debit), WalletRejectedException.class);
+    WalletRejectedException debitReplay =
+        catchThrowableOfType(() -> wallet.debit(debit), WalletRejectedException.class);
+
+    assertThat(withdrawFailure.failure().httpStatus()).isEqualTo(423);
+    assertThat(withdrawFailure.failure().code().wireCode())
+        .isEqualTo("WALLET_ACCOUNT_RECOVERY_BLOCKED");
+    assertThat(debitFailure.failure().code()).isEqualTo(WalletFailureCode.ACCOUNT_SUSPENDED);
+    assertThat(debitReplay.failure().detail()).isEqualTo(debitFailure.failure().detail());
+    assertThat(ledger.findByIdempotencyKey(withdraw.idempotencyKey().value())).isEmpty();
+    assertThat(ledger.findByIdempotencyKey(debit.idempotencyKey().value())).isEmpty();
+    var message = outboxFor(debit.idempotencyKey()).get(0);
+    var event =
+        com.sportsbook.wallet.outbox.AvroSerializer.deserialize(
+            message.payload(), com.sportsbook.protocol.event.WalletDebitFailed.class);
+    assertThat(outboxFor(debit.idempotencyKey())).hasSize(1);
+    assertThat(event.getReason())
+        .isEqualTo(com.sportsbook.protocol.event.WalletDebitFailureReason.ACCOUNT_SUSPENDED);
+  }
+
+  @Test
   void migratesFinalConstraintsAndAdjustmentReason() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000010");
     jdbc.update(
