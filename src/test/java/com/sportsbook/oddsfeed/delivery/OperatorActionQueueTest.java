@@ -13,6 +13,7 @@ import com.sportsbook.protocol.value.MarketId;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -310,6 +311,71 @@ class OperatorActionQueueTest {
 
     assertThat(reclaimed.action()).isEqualTo(delivered.action());
     assertThat(reclaimed.reclaimed()).isTrue();
+  }
+
+  @Test
+  void completionAdvancesPredecessorsAndExpiresFinishedMappings() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    UUID firstActionId = UUID.randomUUID();
+    IdempotencyKey firstKey = IdempotencyKey.of("completed-first");
+    queue.submit(firstKey, firstActionId, eventId, marketId, MarketStatus.SUSPENDED, "first", NOW);
+    queue.submit(
+        IdempotencyKey.of("completed-second"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.CLOSED,
+        "second",
+        NOW);
+    List<QueuedOperatorMarketAction> actions = queue.poll();
+
+    assertThat(queue.deliveryState(actions.get(1).action()))
+        .isEqualTo(OperatorActionQueue.DeliveryState.BLOCKED);
+    assertThat(queue.complete(actions.get(0).action()))
+        .isEqualTo(OperatorActionQueue.Completion.SUPERSEDED);
+    assertThat(redis.getExpire(OperatorActionQueue.sequenceKey(eventId, marketId))).isEqualTo(-1);
+    assertThat(redis.getExpire(OperatorActionQueue.committedKey(eventId, marketId))).isEqualTo(-1);
+    assertThat(queue.deliveryState(actions.get(1).action()))
+        .isEqualTo(OperatorActionQueue.DeliveryState.READY);
+    assertThat(queue.complete(actions.get(1).action()))
+        .isEqualTo(OperatorActionQueue.Completion.APPLIED);
+
+    assertThat(redis.getExpire(OperatorActionQueue.idempotencyRedisKey(firstKey)))
+        .isBetween(Duration.ofDays(6).toSeconds(), Duration.ofDays(7).toSeconds());
+    assertThat(redis.getExpire("oddsfeed:operator:action:" + firstActionId))
+        .isBetween(Duration.ofDays(6).toSeconds(), Duration.ofDays(7).toSeconds());
+    assertThat(redis.getExpire(OperatorActionQueue.sequenceKey(eventId, marketId)))
+        .isBetween(Duration.ofDays(6).toSeconds(), Duration.ofDays(7).toSeconds());
+    assertThat(redis.getExpire(OperatorActionQueue.committedKey(eventId, marketId)))
+        .isBetween(Duration.ofDays(6).toSeconds(), Duration.ofDays(7).toSeconds());
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+  }
+
+  @Test
+  void completionSurvivesACrashBeforeStreamAcknowledgement() {
+    OperatorActionQueue original = queue("before-crash", Duration.ZERO);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    original.submit(
+        IdempotencyKey.of("crash-key"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.SUSPENDED,
+        "incident",
+        NOW);
+    QueuedOperatorMarketAction delivered = original.poll().get(0);
+    original.complete(delivered.action());
+
+    OperatorActionQueue replacement = queue("after-restart", Duration.ZERO);
+    QueuedOperatorMarketAction reclaimed = replacement.poll().get(0);
+    assertThat(replacement.deliveryState(reclaimed.action()))
+        .isEqualTo(OperatorActionQueue.DeliveryState.COMPLETED);
+    replacement.cleanup(reclaimed);
+    assertThat(redis.opsForStream().size(STREAM)).isZero();
   }
 
   private OperatorActionQueue queue() {
