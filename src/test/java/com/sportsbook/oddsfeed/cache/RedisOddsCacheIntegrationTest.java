@@ -195,6 +195,51 @@ class RedisOddsCacheIntegrationTest {
     assertThat(redis.getExpire(CacheKeys.marketTerminal(eventId, marketId))).isEqualTo(-1);
   }
 
+  @Test
+  void restrictiveOpenPreviewsRegisterUnknownMarketsWithoutPublicOpening() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId overriddenMarket = new MarketId(UUID.randomUUID());
+    MarketId heldMarket = new MarketId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, overriddenMarket), MarketStatus.CLOSED.name());
+    redis.opsForValue().set(CacheKeys.marketFeedHold(eventId, heldMarket), "1750000000000");
+
+    assertThat(cache.prepareProviderOpen(eventId, overriddenMarket)).isEqualTo(MarketStatus.CLOSED);
+    assertThat(cache.prepareProviderOpen(eventId, heldMarket)).isEqualTo(MarketStatus.SUSPENDED);
+
+    assertThat(redis.opsForValue().get(CacheKeys.providerMarket(eventId, overriddenMarket)))
+        .isEqualTo(MarketStatus.OPEN.name());
+    assertThat(redis.opsForValue().get(CacheKeys.providerMarket(eventId, heldMarket)))
+        .isEqualTo(MarketStatus.OPEN.name());
+    assertThat(cache.getRegisteredMarkets(eventId))
+        .containsEntry(overriddenMarket, MarketStatus.CLOSED)
+        .containsEntry(heldMarket, MarketStatus.SUSPENDED);
+    assertThat(redis.getExpire(CacheKeys.eventMarkets(eventId))).isPositive();
+  }
+
+  @Test
+  void providerClosedPreviewCreatesAPermanentLatchWithoutReopening() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    redis
+        .opsForValue()
+        .set(
+            CacheKeys.providerMarket(eventId, marketId),
+            MarketStatus.CLOSED.name(),
+            Duration.ofHours(1));
+
+    assertThat(cache.isMarketTerminal(eventId, marketId)).isFalse();
+    assertThat(cache.prepareProviderOpen(eventId, marketId)).isEqualTo(MarketStatus.CLOSED);
+
+    assertThat(cache.isMarketTerminal(eventId, marketId)).isTrue();
+    assertThat(redis.getExpire(CacheKeys.marketTerminal(eventId, marketId))).isEqualTo(-1);
+    assertThat(redis.opsForValue().get(CacheKeys.providerMarket(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+  }
+
   private RedisOddsCache cache() {
     return new RedisOddsCache(
         redis,
