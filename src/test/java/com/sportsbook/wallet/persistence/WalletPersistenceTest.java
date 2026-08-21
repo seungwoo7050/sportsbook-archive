@@ -86,6 +86,7 @@ class WalletPersistenceTest {
   @Autowired AccountRepository accounts;
   @Autowired LedgerEntryRepository ledger;
   @Autowired WalletOperationRepository operations;
+  @Autowired OutboxEventRepository outboxEvents;
   @Autowired IdempotencyKeyLock idempotencyLocks;
   @Autowired WalletService wallet;
   @Autowired CommitFault commitFault;
@@ -558,6 +559,53 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void exactlyReplaysDebitSuccessAndItsSingleOutboxMessage() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000001b");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:debit-success")));
+    DebitCommand command =
+        new DebitCommand(userId, Money.krw(60L), IdempotencyKey.of("debit:success"));
+
+    var first = wallet.debit(command);
+    var replay = wallet.debit(command);
+
+    assertThat(replay).isEqualTo(first);
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(40L));
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(60L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
+    assertThat(outboxFor(command.idempotencyKey()))
+        .singleElement()
+        .extracting(com.sportsbook.wallet.outbox.OutboxEvent::topic)
+        .isEqualTo(com.sportsbook.wallet.outbox.WalletEventFactory.DEBITED_TOPIC);
+  }
+
+  @Test
+  void exactlyReplaysATerminalDebitFailureAfterFundsArrive() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000001c");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    DebitCommand command =
+        new DebitCommand(userId, Money.krw(60L), IdempotencyKey.of("debit:terminal-failure"));
+
+    WalletRejectedException first =
+        catchThrowableOfType(() -> wallet.debit(command), WalletRejectedException.class);
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:after-rejection")));
+    WalletRejectedException replay =
+        catchThrowableOfType(() -> wallet.debit(command), WalletRejectedException.class);
+
+    assertThat(replay.failure().code()).isEqualTo(WalletFailureCode.INSUFFICIENT_BALANCE);
+    assertThat(replay.failure().detail()).isEqualTo(first.failure().detail());
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(100L));
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(0L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(outboxFor(command.idempotencyKey()))
+        .singleElement()
+        .extracting(com.sportsbook.wallet.outbox.OutboxEvent::topic)
+        .isEqualTo(com.sportsbook.wallet.outbox.WalletEventFactory.DEBIT_FAILED_TOPIC);
+  }
+
+  @Test
   void convergesOneHundredConcurrentRequestsForOneKey() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000019");
     wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
@@ -608,5 +656,11 @@ class WalletPersistenceTest {
       Thread.currentThread().interrupt();
       throw new IllegalStateException(interrupted);
     }
+  }
+
+  private java.util.List<com.sportsbook.wallet.outbox.OutboxEvent> outboxFor(IdempotencyKey key) {
+    return outboxEvents.findAll().stream()
+        .filter(event -> event.operationKey().equals(key.value()))
+        .toList();
   }
 }
