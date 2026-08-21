@@ -3,6 +3,9 @@ package com.sportsbook.oddsfeed.delivery;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -106,6 +109,37 @@ class CriticalEventProcessorTest {
             eventId, marketId, MarketStatus.SUSPENDED, MarketStatus.OPEN, "resumed", Instant.EPOCH);
     order.verify(cache).storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
     order.verify(queue).acknowledge(queued);
+  }
+
+  @Test
+  void operatorOverrideSuppressesProviderOpenPublication() {
+    assertRestrictivePreviewSuppressesOpen("operator override");
+  }
+
+  @Test
+  void feedHoldSuppressesProviderOpenPublication() {
+    assertRestrictivePreviewSuppressesOpen("feed hold");
+  }
+
+  private static void assertRestrictivePreviewSuppressesOpen(String reason) {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.marketStatus(
+            eventId, marketId, MarketStatus.SUSPENDED, MarketStatus.OPEN, reason, Instant.EPOCH);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("2-2"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.prepareProviderOpen(eventId, marketId)).thenReturn(MarketStatus.SUSPENDED);
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    verify(cache).prepareProviderOpen(eventId, marketId);
+    verify(cache, never()).storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+    verifyNoInteractions(publisher);
+    verify(queue).acknowledge(queued);
   }
 
   private static final class RecoveringProcessor extends CriticalEventProcessor {
