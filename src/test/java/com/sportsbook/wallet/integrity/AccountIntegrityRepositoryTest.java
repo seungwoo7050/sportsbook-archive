@@ -66,4 +66,36 @@ class AccountIntegrityRepositoryTest {
               assertThat(drift.availableLedgerNet()).isEqualTo(BigInteger.TEN);
             });
   }
+
+  @Test
+  void reportsOnlyNonSystemLedgerAccountsWithoutSnapshots() {
+    UUID orphan = UUID.fromString("019b76da-a000-7000-8000-0000000001a7");
+    UUID house = UUID.fromString("00000000-0000-7000-8000-000000000001");
+    UUID external = UUID.fromString("00000000-0000-7000-8000-000000000002");
+    UUID systemGroup = UUID.randomUUID();
+    UUID orphanGroup = UUID.randomUUID();
+    jdbc.update(
+        """
+        INSERT INTO ledger_entry(entry_id, account_id, bucket, side, amount, currency,
+          reason, idempotency_key, operation_group_id, created_at) VALUES
+        (?, ?, 'AVAILABLE', 'DEBIT', 10, 'KRW', 'BET_ADJUSTMENT', 'system:pair', ?, now()),
+        (?, ?, 'AVAILABLE', 'CREDIT', 10, 'KRW', 'BET_ADJUSTMENT', 'system:pair', ?, now()),
+        (?, ?, 'AVAILABLE', 'DEBIT', 10, 'KRW', 'BET_ADJUSTMENT', 'orphan:pair', ?, now()),
+        (?, ?, 'AVAILABLE', 'CREDIT', 10, 'KRW', 'BET_ADJUSTMENT', 'orphan:pair', ?, now())
+        """,
+        UUID.randomUUID(),
+        house,
+        systemGroup,
+        UUID.randomUUID(),
+        external,
+        systemGroup,
+        UUID.randomUUID(),
+        orphan,
+        orphanGroup,
+        UUID.randomUUID(),
+        house,
+        orphanGroup);
+
+    assertThat(integrity.findOrphanLedgerAccountIds()).containsExactly(orphan);
+  }
 }
