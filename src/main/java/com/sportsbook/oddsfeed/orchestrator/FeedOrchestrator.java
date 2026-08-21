@@ -15,14 +15,20 @@ import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 
 @Component
 public class FeedOrchestrator {
@@ -32,6 +38,7 @@ public class FeedOrchestrator {
   private final OddsFeedPublisher publisher;
   private final EventCatalog catalog;
   private final CriticalEventQueue criticalQueue;
+  private final Map<EventId, Disposable> subscriptions = new ConcurrentHashMap<>();
 
   public FeedOrchestrator(OddsProvider provider, RedisOddsCache cache, EventCatalog catalog) {
     this(provider, cache, null, catalog, null);
@@ -64,6 +71,12 @@ public class FeedOrchestrator {
     refresh();
   }
 
+  @PreDestroy
+  void stop() {
+    subscriptions.values().forEach(Disposable::dispose);
+    subscriptions.clear();
+  }
+
   @Scheduled(
       fixedRateString = "${oddsfeed.orchestrator.refresh-interval-seconds:30}",
       timeUnit = TimeUnit.SECONDS)
@@ -71,6 +84,7 @@ public class FeedOrchestrator {
     for (Sport sport : Sport.values()) {
       for (EventSummary summary : provider.listEvents(sport)) {
         seedProjection(summary);
+        ensureSubscribed(summary.eventId());
       }
     }
   }
@@ -83,6 +97,40 @@ public class FeedOrchestrator {
     EventSummary initial = cached.orElse(providerSummary);
     if (catalog.putIfAbsent(initial) && cached.isEmpty()) {
       cache.storeEvent(initial);
+    }
+  }
+
+  private void ensureSubscribed(EventId eventId) {
+    Disposable existing = subscriptions.get(eventId);
+    if (existing != null && !existing.isDisposed()) {
+      return;
+    }
+    if (existing != null) {
+      subscriptions.remove(eventId, existing);
+    }
+    AtomicBoolean terminated = new AtomicBoolean();
+    AtomicReference<Disposable> self = new AtomicReference<>();
+    Flux<ProviderEvent> stream =
+        Flux.defer(() -> provider.streamEvents(eventId))
+            .doOnNext(event -> dispatch(eventId, event))
+            .doFinally(
+                signal -> {
+                  terminated.set(true);
+                  Disposable registered = self.get();
+                  if (registered != null) {
+                    subscriptions.remove(eventId, registered);
+                  }
+                });
+    Disposable created = stream.subscribe(ignored -> {}, error -> {});
+    self.set(created);
+    if (created.isDisposed() || terminated.get()) {
+      return;
+    }
+    Disposable raced = subscriptions.putIfAbsent(eventId, created);
+    if (raced != null) {
+      created.dispose();
+    } else if (terminated.get() || created.isDisposed()) {
+      subscriptions.remove(eventId, created);
     }
   }
 
