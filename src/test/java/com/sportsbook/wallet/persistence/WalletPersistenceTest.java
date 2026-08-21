@@ -713,6 +713,77 @@ class WalletPersistenceTest {
         .isEqualTo(1L);
   }
 
+  @Test
+  void serializesOneHundredConcurrentBusinessRejections() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000001d");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    DebitCommand command =
+        new DebitCommand(userId, Money.krw(77L), IdempotencyKey.of("debit:hundred-rejections"));
+    var start = new java.util.concurrent.CountDownLatch(1);
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(20);
+    Supplier<WalletRejectedException> reject =
+        () -> {
+          try {
+            wallet.debit(command);
+            throw new AssertionError("Debit unexpectedly succeeded");
+          } catch (WalletRejectedException rejected) {
+            return rejected;
+          }
+        };
+    try {
+      var attempts =
+          java.util.stream.IntStream.range(0, 100)
+              .mapToObj(
+                  ignored ->
+                      CompletableFuture.supplyAsync(
+                          () -> {
+                            await(start);
+                            return retryableAttempt(reject);
+                          },
+                          pool))
+              .toList();
+      start.countDown();
+      CompletableFuture.allOf(attempts.toArray(CompletableFuture[]::new)).join();
+
+      var initial = attempts.stream().map(CompletableFuture::join).toList();
+      var converged = initial.stream().map(outcome -> outcome.orElseGet(reject)).toList();
+      WalletRejectedException winner = converged.get(0);
+      assertThat(converged)
+          .hasSize(100)
+          .allSatisfy(
+              rejection ->
+                  assertThat(rejection.failure())
+                      .usingRecursiveComparison()
+                      .isEqualTo(winner.failure()));
+      assertThat(operations.findById(command.idempotencyKey().value()))
+          .get()
+          .satisfies(
+              operation -> {
+                assertThat(operation.status()).isEqualTo(WalletOperationStatus.REJECTED);
+                assertThat(operation.failure())
+                    .usingRecursiveComparison()
+                    .isEqualTo(winner.failure());
+              });
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(0L));
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(0L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(outboxFor(command.idempotencyKey())).hasSize(1);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT last_sequence FROM outbox_stream WHERE topic=? AND partition_key=?",
+                Long.class,
+                com.sportsbook.wallet.outbox.WalletEventFactory.DEBIT_FAILED_TOPIC,
+                userId.toString()))
+        .isEqualTo(1L);
+    assertThat(operations.findById(command.idempotencyKey().value()))
+        .get()
+        .extracting(WalletOperation::status)
+        .isEqualTo(WalletOperationStatus.REJECTED);
+  }
+
   private static void await(java.util.concurrent.CountDownLatch latch) {
     try {
       latch.await();
