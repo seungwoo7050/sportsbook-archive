@@ -1,0 +1,80 @@
+package com.sportsbook.oddsfeed.provider.real;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.sportsbook.oddsfeed.config.RealProperties;
+import com.sportsbook.oddsfeed.provider.Sport;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+class TheOddsApiProviderTest {
+
+  private static final String EVENTS =
+      """
+      [{
+        "id": "abc123",
+        "sport_key": "soccer_epl",
+        "sport_title": "EPL",
+        "commence_time": "2026-06-01T18:00:00Z",
+        "home_team": "Manchester United",
+        "away_team": "Chelsea",
+        "bookmakers": []
+      }]
+      """;
+
+  @Test
+  void listsConfiguredSportAndConsumesOneQuotaUnit() {
+    RecordingQuota quota = new RecordingQuota();
+    WebClient client =
+        WebClient.builder()
+            .exchangeFunction(
+                request ->
+                    Mono.just(
+                        ClientResponse.create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                            .body(EVENTS)
+                            .build()))
+            .build();
+    var properties =
+        new RealProperties(
+            "key",
+            "https://odds.example",
+            List.of("soccer_epl"),
+            new RealProperties.RateLimit(5),
+            500,
+            60);
+    var clock = Clock.fixed(Instant.parse("2026-05-28T10:00:00Z"), ZoneOffset.UTC);
+    var provider = new TheOddsApiProvider(client, properties, new RateLimiter(5, clock), quota);
+
+    var events = provider.listEvents(Sport.FOOTBALL);
+
+    assertThat(events).hasSize(1);
+    assertThat(events.get(0).competition()).isEqualTo("EPL");
+    assertThat(events.get(0).status()).isEqualTo(EventLifecycleStatus.SCHEDULED);
+    assertThat(quota.current()).isEqualTo(1);
+  }
+
+  private static final class RecordingQuota implements QuotaCounter {
+    private long used;
+
+    @Override
+    public long increment() {
+      return ++used;
+    }
+
+    @Override
+    public long current() {
+      return used;
+    }
+  }
+}
