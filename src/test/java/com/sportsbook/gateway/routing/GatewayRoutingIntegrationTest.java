@@ -23,10 +23,16 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -261,6 +267,62 @@ class GatewayRoutingIntegrationTest {
   }
 
   @Test
+  void isolatesConcurrentIdentityIdempotencyAndTraceTuples() throws Exception {
+    int clients = 24;
+    DOWNSTREAM.stubFor(
+        post(urlPathEqualTo("/internal/v1/bets"))
+            .willReturn(aResponse().withStatus(201).withBody("{\"accepted\":true}")));
+    ExecutorService pool = Executors.newFixedThreadPool(clients);
+    CyclicBarrier start = new CyclicBarrier(clients);
+    List<Future<ResponseEntity<String>>> responses = new ArrayList<>();
+    try {
+      for (int index = 0; index < clients; index++) {
+        int request = index;
+        responses.add(
+            pool.submit(
+                () -> {
+                  start.await(5, TimeUnit.SECONDS);
+                  HttpHeaders headers = authenticated(new UUID(0, request + 1));
+                  headers.setContentType(MediaType.APPLICATION_JSON);
+                  headers.set("Idempotency-Key", "fixture-" + request);
+                  headers.set("traceparent", traceparent(request));
+                  headers.set("X-User-Id", new UUID(-1, request + 1).toString());
+                  headers.set("X-User-Roles", "ADMIN");
+                  headers.set("X-Internal-Service", "attacker");
+                  headers.set("X-Internal-Api-Key", "attacker-key");
+                  return http.exchange(
+                      "/api/v1/bets",
+                      HttpMethod.POST,
+                      new HttpEntity<>(requestBody(request), headers),
+                      String.class);
+                }));
+      }
+      for (Future<ResponseEntity<String>> response : responses) {
+        assertThat(response.get(30, TimeUnit.SECONDS).getStatusCode())
+            .isEqualTo(HttpStatus.CREATED);
+      }
+    } finally {
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    DOWNSTREAM.verify(clients, postRequestedFor(urlPathEqualTo("/internal/v1/bets")));
+    for (int index = 0; index < clients; index++) {
+      DOWNSTREAM.verify(
+          1,
+          postRequestedFor(urlPathEqualTo("/internal/v1/bets"))
+              .withHeader("X-User-Id", equalTo(new UUID(0, index + 1).toString()))
+              .withHeader("X-User-Roles", equalTo("USER"))
+              .withHeader("Idempotency-Key", equalTo("fixture-" + index))
+              .withHeader("traceparent", equalTo(traceparent(index)))
+              .withoutHeader(HttpHeaders.AUTHORIZATION)
+              .withoutHeader("X-Internal-Service")
+              .withoutHeader("X-Internal-Api-Key")
+              .withRequestBody(equalTo(requestBody(index))));
+    }
+  }
+
+  @Test
   void rejectsUnsafeBettingBaseUris() {
     assertThatThrownBy(() -> bettingUri("ftp://betting.internal"))
         .isInstanceOf(IllegalArgumentException.class);
@@ -316,5 +378,13 @@ class GatewayRoutingIntegrationTest {
 
   private static BettingDownstreamProperties bettingUri(String value) {
     return new BettingDownstreamProperties(URI.create(value));
+  }
+
+  private static String requestBody(int index) {
+    return "{\"request\":" + index + "}";
+  }
+
+  private static String traceparent(int index) {
+    return String.format("00-%032x-%016x-01", index + 1, index + 1);
   }
 }
