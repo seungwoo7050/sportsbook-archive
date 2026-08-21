@@ -1,0 +1,10 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "Money",
+  "doc": "Monetary amount in long minor units paired with an ISO currency code; mirrors com.sportsbook.protocol.value.Money on the wire.",
+  "fields": [
+    {"name": "amount", "type": "long", "doc": "Minor units (e.g. cents, won)."},
+    {"name": "currency", "type": "string", "doc": "ISO 4217 code such as KRW or USD."}
+  ]
+}
