@@ -26,6 +26,9 @@ server:
 gateway:
   downstream:
     betting-uri: ${GATEWAY_BETTING_URI:http://localhost:8082}
+    wallet:
+      uri: ${GATEWAY_WALLET_URI:http://localhost:8081}
+      api-key: ${GATEWAY_WALLET_API_KEY:}
   security:
     jwt:
       public-key: ${GATEWAY_JWT_PUBLIC_KEY:}
