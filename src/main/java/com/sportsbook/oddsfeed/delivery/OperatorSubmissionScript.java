@@ -28,6 +28,9 @@ final class OperatorSubmissionScript {
             redis.call('SET', KEYS[8], 'MARKET_CLOSED', 'NX')
             terminal = true
           end
+          if requested == 'OPEN' and terminal then
+            return 'TERMINAL'
+          end
 
           local previous = redis.call('GET', KEYS[3]) or 'OPEN'
           local announced = requested
@@ -35,7 +38,11 @@ final class OperatorSubmissionScript {
             previous = 'CLOSED'
             announced = 'CLOSED'
           elseif requested == 'OPEN' then
-            announced = provider
+            if redis.call('EXISTS', KEYS[6]) == 1 then
+              announced = 'SUSPENDED'
+            else
+              announced = provider
+            end
           end
 
           if requested ~= 'OPEN' then

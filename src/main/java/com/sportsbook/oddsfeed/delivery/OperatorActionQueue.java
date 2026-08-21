@@ -73,6 +73,9 @@ public class OperatorActionQueue {
     if ("CONFLICT".equals(result)) {
       throw new IdempotencyConflictException();
     }
+    if ("TERMINAL".equals(result)) {
+      throw new TerminalMarketReopenException();
+    }
     return OperatorActionSubmission.fromRedis(result);
   }
 
