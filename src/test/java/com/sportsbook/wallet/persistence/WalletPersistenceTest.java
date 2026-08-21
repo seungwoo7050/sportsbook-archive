@@ -3,8 +3,12 @@ package com.sportsbook.wallet.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.Account;
+import com.sportsbook.wallet.domain.BalanceBucket;
+import com.sportsbook.wallet.domain.LedgerEntry;
+import com.sportsbook.wallet.domain.SystemAccountIds;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -31,6 +35,7 @@ class WalletPersistenceTest {
 
   @Autowired JdbcTemplate jdbc;
   @Autowired AccountRepository accounts;
+  @Autowired LedgerEntryRepository ledger;
   @Autowired javax.sql.DataSource dataSource;
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
@@ -121,5 +126,30 @@ class WalletPersistenceTest {
     } finally {
       transactions.rollback(status);
     }
+  }
+
+  @Test
+  void queriesLedgerPairsByIdempotencyKeyAndOperationGroup() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000012");
+    UUID groupId = UUID.fromString("019b76da-a000-7000-8000-000000000013");
+    IdempotencyKey key = IdempotencyKey.of("ledger:query-pair");
+    LedgerEntry.Pair pair =
+        LedgerEntry.pair(
+            new LedgerEntry.TransferLeg(userId, BalanceBucket.AVAILABLE),
+            new LedgerEntry.TransferLeg(SystemAccountIds.EXTERNAL_PAYMENT, BalanceBucket.AVAILABLE),
+            Money.krw(25L),
+            com.sportsbook.wallet.domain.LedgerReason.DEPOSIT,
+            key,
+            groupId,
+            Instant.parse("2026-01-01T00:00:00Z"));
+
+    ledger.saveAllAndFlush(java.util.List.of(pair.debit(), pair.credit()));
+
+    assertThat(ledger.findByIdempotencyKey(key.value()))
+        .extracting(LedgerEntry::entryId)
+        .containsExactlyInAnyOrder(pair.debit().entryId(), pair.credit().entryId());
+    assertThat(ledger.findByOperationGroupId(groupId))
+        .extracting(LedgerEntry::entryId)
+        .containsExactlyInAnyOrder(pair.debit().entryId(), pair.credit().entryId());
   }
 }
