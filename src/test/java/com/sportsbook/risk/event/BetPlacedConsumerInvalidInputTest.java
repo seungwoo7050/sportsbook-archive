@@ -1,8 +1,10 @@
 package com.sportsbook.risk.event;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -55,5 +57,21 @@ class BetPlacedConsumerInvalidInputTest {
             BetPlacedEventFixture.OTHER_USER_ID, payload, BetPlacedFailureReason.KEY_MISMATCH);
     verify(acknowledgment).acknowledge();
     verify(reconciler, never()).reconcile(any());
+  }
+
+  @Test
+  void failedDeadLetterPublishLeavesTheSourceOffsetUnacknowledged() {
+    byte[] payload = BetPlacedEventFixture.payload();
+    doThrow(new IllegalStateException("broker unavailable"))
+        .when(deadLetters)
+        .publishAndAwait(any(), any(), any());
+
+    assertThatThrownBy(
+            () ->
+                consumer.onBetPlaced(payload, BetPlacedEventFixture.OTHER_USER_ID, acknowledgment))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("broker unavailable");
+
+    verify(acknowledgment, never()).acknowledge();
   }
 }
