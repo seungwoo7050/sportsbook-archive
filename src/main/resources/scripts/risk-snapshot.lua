@@ -76,11 +76,35 @@ local limits = {
   SELECTIONS_PER_MINUTE = limitSlot(capture(KEYS[7], KEYS[8], tonumber(ARGV[6])),
     "SELECTIONS_PER_MINUTE")
 }
+
+local function confirmedCount(key, enabled, window)
+  if not enabled then return {ok = true, value = "0"} end
+  local errorText = typeError(key, "zset")
+  if errorText then return failure(errorText) end
+  local value = redis.call("ZCOUNT", key, "(" .. (now - window), "+inf")
+  if value > maxExact then return failure("pattern count exceeds exact range") end
+  return {ok = true, value = string.format("%.0f", value)}
+end
+
+local function confirmedStakes()
+  if ARGV[9] ~= "1" then return {ok = true, value = ""} end
+  local errorText = typeError(KEYS[16], "zset")
+  if errorText then return failure(errorText) end
+  local raw = redis.call("ZREVRANGE", KEYS[16], 0, tonumber(ARGV[10]) - 1)
+  local values = cjson.decode("[]")
+  for index = #raw, 1, -1 do
+    local encoded = string.match(raw[index], "|([0-9]+)$")
+    if not exact(encoded, true) then return failure("corrupt stake history member") end
+    table.insert(values, encoded)
+  end
+  return {ok = true, value = table.concat(values, ",")}
+end
+
+local rapid = confirmedCount(KEYS[15], ARGV[7] == "1", tonumber(ARGV[8]))
 local selectionFacts = cjson.decode("[]")
 for index = 1, count do
   table.insert(selectionFacts, {selectionId = ARGV[15 + index],
-    slot = {ok = true, value = "0"}})
+    slot = confirmedCount(KEYS[17 + index], ARGV[11] == "1", tonumber(ARGV[12]))})
 end
 return cjson.encode({version = "1", expired = "0", limits = limits,
-  patterns = {rapid = {ok = true, value = "0"},
-    stakes = {ok = true, value = ""}, selections = selectionFacts}})
+  patterns = {rapid = rapid, stakes = confirmedStakes(), selections = selectionFacts}})
