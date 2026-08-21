@@ -62,6 +62,10 @@ public class CriticalEventProcessor {
       applyMarketTransition(event);
       return;
     }
+    if (event.type() == CriticalEvent.Type.MATCH_RESULT) {
+      publishMatchResult(event, new EventId(event.eventId()));
+      return;
+    }
     throw new IllegalStateException("Unsupported critical event type: " + event.type());
   }
 
@@ -97,9 +101,6 @@ public class CriticalEventProcessor {
           .closeEventMarkets(eventId, event.lifecycleStatus())
           .forEach(terminalMarkets::putIfAbsent);
     }
-    if (event.matchFinalStatus() != null) {
-      throw new IllegalStateException("Embedded match results are not deliverable yet");
-    }
     publisher.publishEventLifecycle(
         eventId, event.lifecycleStatus(), event.scheduledStartAt(), event.occurredAt());
     cache
@@ -127,6 +128,18 @@ public class CriticalEventProcessor {
                 MarketStatus.CLOSED,
                 "EVENT_" + event.lifecycleStatus(),
                 event.occurredAt()));
+    if (event.matchFinalStatus() != null) {
+      publishMatchResult(event, eventId);
+    }
+  }
+
+  private void publishMatchResult(CriticalEvent event, EventId eventId) {
+    publisher.publishMatchResult(
+        eventId,
+        event.score(),
+        event.matchFinalStatus(),
+        event.resultDetail(),
+        event.resultSettledAt());
   }
 
   private void publishMarketTransition(

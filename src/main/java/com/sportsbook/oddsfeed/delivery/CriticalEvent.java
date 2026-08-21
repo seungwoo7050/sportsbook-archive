@@ -29,7 +29,8 @@ public record CriticalEvent(
 
   public enum Type {
     MARKET_STATUS,
-    EVENT_LIFECYCLE
+    EVENT_LIFECYCLE,
+    MATCH_RESULT
   }
 
   public static CriticalEvent marketStatus(
@@ -100,5 +101,28 @@ public record CriticalEvent(
         Map.copyOf(resultDetail),
         settledAt,
         occurredAt);
+  }
+
+  public static CriticalEvent matchResult(
+      EventId eventId,
+      String score,
+      MatchFinalStatus finalStatus,
+      Map<String, String> resultDetail,
+      Instant settledAt) {
+    return new CriticalEvent(
+        Type.MATCH_RESULT,
+        eventId.value(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        Map.of(),
+        score,
+        finalStatus,
+        Map.copyOf(resultDetail),
+        settledAt,
+        settledAt);
   }
 }
