@@ -20,11 +20,13 @@ import com.sportsbook.risk.policy.RapidBettingPolicy;
 import com.sportsbook.risk.policy.RepeatedSelectionPolicy;
 import com.sportsbook.risk.policy.RiskPatternProperties;
 import com.sportsbook.risk.policy.SuddenStakePolicy;
+import com.sportsbook.risk.reservation.ReservationKeys;
 import com.sportsbook.risk.reservation.RiskReservationProperties;
 import com.sportsbook.risk.support.RedisTestSupport;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
@@ -106,6 +108,51 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
     assertThat(patterns.path("rapid").path("value").asText()).isEqualTo("1");
     assertThat(patterns.path("stakes").path("value").asText()).isEqualTo("100");
     assertThat(patterns.path("selections").get(0).path("slot").path("value").asText())
+        .isEqualTo("1");
+  }
+
+  @Test
+  void includesLiveCapacityInLimitsAndPatternFacts() throws Exception {
+    String bet = BET.value().toString();
+    long score = NOW.toEpochMilli() - 1;
+    redis
+        .opsForHash()
+        .putAll(
+            ReservationKeys.lifecycle(BET),
+            Map.of(
+                "state",
+                "RESERVED",
+                "userId",
+                USER.value().toString(),
+                "stake",
+                "50",
+                "currency",
+                "KRW",
+                "selectionCount",
+                "1",
+                "selections",
+                SELECTION.value().toString(),
+                "expiresAt",
+                Long.toString(NOW.plusSeconds(30).toEpochMilli())));
+    redis.opsForZSet().add(ReservationKeys.activeBets(USER), bet, score);
+    LimitKeys.Keys activeStakes = ReservationKeys.activeStakes(USER, Currency.KRW);
+    redis.opsForZSet().add(activeStakes.entries(), bet + "|50", score);
+    redis.opsForValue().set(activeStakes.sum(), "50");
+    LimitKeys.Keys activeSelections = ReservationKeys.activeSelections(USER);
+    redis.opsForZSet().add(activeSelections.entries(), bet + "|1", score);
+    redis.opsForValue().set(activeSelections.sum(), "1");
+    redis.opsForZSet().add(ReservationKeys.activeSelection(USER, SELECTION), bet, score);
+    redis.opsForValue().set(ReservationKeys.ACTIVE_COUNT, "1");
+
+    JsonNode result = execute();
+
+    assertThat(result.path("limits").path("STAKE_DAILY").path("active").asText()).isEqualTo("50");
+    assertThat(result.path("limits").path("SELECTIONS_PER_MINUTE").path("active").asText())
+        .isEqualTo("1");
+    assertThat(result.path("patterns").path("rapid").path("value").asText()).isEqualTo("1");
+    assertThat(result.path("patterns").path("stakes").path("value").asText()).isEqualTo("50");
+    assertThat(
+            result.path("patterns").path("selections").get(0).path("slot").path("value").asText())
         .isEqualTo("1");
   }
 
