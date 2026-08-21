@@ -262,6 +262,35 @@ class OperatorActionQueueTest {
     assertThat(redis.getExpire(OperatorActionQueue.sequenceKey(eventId, marketId))).isEqualTo(-1);
   }
 
+  @Test
+  void pollDecodesAndAtomicallyCleansUpNewActions() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    UUID actionId = UUID.randomUUID();
+    queue.submit(
+        IdempotencyKey.of("poll-key"),
+        actionId,
+        eventId,
+        marketId,
+        MarketStatus.SUSPENDED,
+        "incident",
+        NOW);
+
+    QueuedOperatorMarketAction queued = queue.poll().get(0);
+
+    assertThat(queued.reclaimed()).isFalse();
+    assertThat(queued.action().actionId()).isEqualTo(actionId);
+    assertThat(queued.action().eventId()).isEqualTo(eventId);
+    assertThat(queued.action().marketId()).isEqualTo(marketId);
+    assertThat(queued.action().announcedStatus()).isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(queued.action().sequence()).isEqualTo(1);
+    assertThat(queued.action().predecessor()).isZero();
+    queue.cleanup(queued);
+    assertThat(redis.opsForStream().size(STREAM)).isZero();
+    assertThat(redis.opsForStream().pending(STREAM, "group").getTotalPendingMessages()).isZero();
+  }
+
   private OperatorActionQueue queue() {
     return new OperatorActionQueue(
         redis,
