@@ -133,6 +133,35 @@ public class WalletAdjustment {
     updatedAt = now;
   }
 
+  public void deferUntil(Instant attemptedAt, Instant retryAt) {
+    requireBlocked();
+    Objects.requireNonNull(attemptedAt, "attemptedAt");
+    Objects.requireNonNull(retryAt, "retryAt");
+    if (retryAt.isBefore(attemptedAt)) {
+      throw new IllegalArgumentException("Recovery retry timestamps are out of order");
+    }
+    retryCount = Math.incrementExact(retryCount);
+    nextAttemptAt = retryAt;
+    updatedAt = attemptedAt;
+  }
+
+  public void completeRecovery(UUID groupId, Instant now) {
+    requireBlocked();
+    Objects.requireNonNull(now, "now");
+    UUID completedGroupId = Objects.requireNonNull(groupId, "groupId");
+    status = AdjustmentStatus.APPLIED;
+    operationGroupId = completedGroupId;
+    appliedAt = now;
+    nextAttemptAt = null;
+    updatedAt = now;
+  }
+
+  private void requireBlocked() {
+    if (status != AdjustmentStatus.BLOCKED) {
+      throw new IllegalStateException("Only blocked adjustments can change recovery state");
+    }
+  }
+
   public UUID revisionId() {
     return revisionId;
   }
