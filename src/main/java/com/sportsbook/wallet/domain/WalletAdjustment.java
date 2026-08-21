@@ -122,6 +122,17 @@ public class WalletAdjustment {
     return proof;
   }
 
+  public void wake(Instant now) {
+    if (status != AdjustmentStatus.BLOCKED) {
+      throw new IllegalStateException("Only blocked adjustments can be woken");
+    }
+    Objects.requireNonNull(now, "now");
+    if (now.isBefore(nextAttemptAt)) {
+      nextAttemptAt = now;
+    }
+    updatedAt = now;
+  }
+
   public UUID revisionId() {
     return revisionId;
   }
