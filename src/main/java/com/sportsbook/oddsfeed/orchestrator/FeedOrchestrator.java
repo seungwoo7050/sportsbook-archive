@@ -16,6 +16,7 @@ import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -29,9 +30,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
 
 @Component
 public class FeedOrchestrator {
+
+  private static final Duration RECONNECT_INITIAL_BACKOFF = Duration.ofSeconds(1);
+  private static final Duration RECONNECT_MAX_BACKOFF = Duration.ofSeconds(30);
+  private static final double RECONNECT_JITTER = 0.2;
 
   private final OddsProvider provider;
   private final RedisOddsCache cache;
@@ -113,6 +119,10 @@ public class FeedOrchestrator {
     Flux<ProviderEvent> stream =
         Flux.defer(() -> provider.streamEvents(eventId))
             .doOnNext(event -> dispatch(eventId, event))
+            .retryWhen(
+                Retry.backoff(Long.MAX_VALUE, RECONNECT_INITIAL_BACKOFF)
+                    .maxBackoff(RECONNECT_MAX_BACKOFF)
+                    .jitter(RECONNECT_JITTER))
             .doFinally(
                 signal -> {
                   terminated.set(true);
