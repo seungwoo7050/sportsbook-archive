@@ -41,10 +41,28 @@ if ARGV[1] ~= "1" or not exact(ARGV[2], false) or not exact(ARGV[3], true)
   or #KEYS ~= 18 + selectionCount * 2 or #ARGV ~= 33 + selectionCount then
   return redis.error_reply("invalid reservation request")
 end
+for _, index in ipairs({8, 10, 16, 17, 18, 19, 21, 22, 25, 26, 29, 30, 32, 33}) do
+  if not exact(ARGV[index], true) then return redis.error_reply("invalid reservation number") end
+end
+for index = 11, 15 do
+  if not exact(ARGV[index], false) then return redis.error_reply("invalid reservation limit") end
+end
+for _, index in ipairs({20, 24, 28}) do
+  if ARGV[index] ~= "0" and ARGV[index] ~= "1" then
+    return redis.error_reply("invalid reservation policy flag")
+  end
+end
+if not string.match(userId or "", "^[0-9a-f%-]+$")
+  or not string.match(betId or "", "^[0-9a-f%-]+$")
+  or not string.match(currency or "", "^[A-Z]+$") then
+  return redis.error_reply("invalid reservation identity")
+end
 local selections, seen = {}, {}
 for index = 1, selectionCount do
   local selectionId = ARGV[33 + index]
-  if not selectionId or seen[selectionId] then return redis.error_reply("invalid selection") end
+  if not selectionId or seen[selectionId] or not string.match(selectionId, "^[0-9a-f%-]+$") then
+    return redis.error_reply("invalid selection")
+  end
   seen[selectionId] = true; table.insert(selections, selectionId)
 end
 local errorText = typeError(KEYS[1], "hash") or typeError(KEYS[2], "zset")
@@ -72,6 +90,7 @@ for _, activeBetId in ipairs(redis.call("ZRANGE", KEYS[2], 0, -1)) do
       or not oldCount or not oldCurrency or not oldSelections then
       return redis.error_reply("corrupt active lifecycle")
     end
+    if not string.match(oldCurrency, "^[A-Z]+$") then return redis.error_reply("corrupt currency") end
     local stakeBase = activeBase .. ":stakes:" .. string.lower(oldCurrency)
     local entries, sum = stakeBase .. ":entries", stakeBase .. ":sum"
     local cleanupError = typeError(entries, "zset") or typeError(sum, "string")
@@ -88,8 +107,11 @@ for _, activeBetId in ipairs(redis.call("ZRANGE", KEYS[2], 0, -1)) do
     end
     table.insert(cleanups, {activeBetId, lifecycle, state, oldStakeText, oldCountText,
       entries, sum, oldSelections})
-    stakeDecrements[sum] = (stakeDecrements[sum] or 0) + oldStake
-    selectionDecrement = selectionDecrement + oldCount
+    local previous = stakeDecrements[sum] or 0
+    if previous > maxExact - oldStake or selectionDecrement > maxExact - oldCount then
+      return redis.error_reply("active cleanup exceeds exact range")
+    end
+    stakeDecrements[sum] = previous + oldStake; selectionDecrement = selectionDecrement + oldCount
   end
 end
 for sum, value in pairs(stakeDecrements) do
@@ -120,6 +142,9 @@ if selectionDecrement > 0 then decrement(KEYS[6], selectionDecrement) end
 if #cleanups > 0 then decrement(KEYS[18], #cleanups) end
 if redis.call("ZCARD", KEYS[2]) == 0 then redis.call("DEL", KEYS[2]) end
 if redis.call("ZCARD", KEYS[5]) == 0 then redis.call("DEL", KEYS[5]) end
+for _, item in ipairs(cleanups) do
+  if redis.call("ZCARD", item[6]) == 0 then redis.call("DEL", item[6]) end
+end
 local existing = redis.call("HGET", KEYS[1], "state")
 if existing then
   if redis.call("HGET", KEYS[1], "fingerprint") ~= fingerprint then
@@ -201,6 +226,10 @@ local nextGauge = gauge and checkedAdd(gauge, 1) or nil
 local expiresAt = checkedAdd(now, lease)
 if not nextStake or not nextSelections or not nextGauge or not expiresAt then
   return redis.error_reply("active reservation total exceeds exact range")
+end
+if redis.call("ZSCORE", KEYS[2], betId) or redis.call("ZSCORE", KEYS[3], betId .. "|" .. stakeText)
+  or redis.call("ZSCORE", KEYS[5], betId .. "|" .. countText) then
+  return redis.error_reply("orphan active reservation footprint")
 end
 local names = {"STAKE_DAILY", "STAKE_WEEKLY", "STAKE_MONTHLY"}
 for index = 1, 3 do
