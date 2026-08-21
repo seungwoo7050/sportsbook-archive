@@ -87,6 +87,28 @@ class RedisOddsCacheIntegrationTest {
     assertThat(redis.getExpire(CacheKeys.marketTerminal(eventId, marketId))).isEqualTo(-1);
   }
 
+  @Test
+  void operatorOverridePrecedesProviderUntilCleared() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+
+    assertThat(cache.storeOperatorMarketStatus(eventId, marketId, MarketStatus.SUSPENDED))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN))
+        .isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(cache.getMarketOverride(eventId, marketId)).contains(MarketStatus.SUSPENDED);
+
+    assertThat(cache.storeOperatorMarketStatus(eventId, marketId, MarketStatus.OPEN))
+        .isEqualTo(MarketStatus.OPEN);
+    assertThat(cache.getMarketOverride(eventId, marketId)).isEmpty();
+
+    cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.CLOSED);
+    assertThat(cache.storeOperatorMarketStatus(eventId, marketId, MarketStatus.OPEN))
+        .isEqualTo(MarketStatus.CLOSED);
+  }
+
   private RedisOddsCache cache() {
     return new RedisOddsCache(
         redis,
