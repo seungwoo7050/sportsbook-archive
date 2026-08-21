@@ -13,6 +13,7 @@ import com.sportsbook.risk.service.RiskCheckCommand;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -59,6 +60,34 @@ class RiskReservationServiceTest {
 
     for (String result : List.of("rejected", "replayed", "conflict")) {
       assertThat(meters.counter("risk.reservation.requests", "result", result).count())
+          .isEqualTo(1.0);
+    }
+  }
+
+  @Test
+  void recordsOnlyBoundedTransitionResults() {
+    RiskReservationStore store = mock(RiskReservationStore.class);
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RiskReservationService service = new RiskReservationService(store, meters);
+    String token = "a".repeat(64);
+
+    for (ReservationTransition transition : ReservationTransition.values()) {
+      when(store.commit(BET, token, NOW)).thenReturn(transition);
+      when(store.release(BET, NOW)).thenReturn(transition);
+
+      assertThat(service.commit(BET, token, NOW)).isEqualTo(transition);
+      assertThat(service.release(BET, NOW)).isEqualTo(transition);
+
+      String result = transition.name().toLowerCase(Locale.ROOT);
+      assertThat(
+              meters
+                  .counter("risk.reservation.transitions", "operation", "commit", "result", result)
+                  .count())
+          .isEqualTo(1.0);
+      assertThat(
+              meters
+                  .counter("risk.reservation.transitions", "operation", "release", "result", result)
+                  .count())
           .isEqualTo(1.0);
     }
   }
