@@ -1,17 +1,26 @@
 package com.sportsbook.oddsfeed.delivery;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sportsbook.oddsfeed.api.EventCatalog;
+import com.sportsbook.oddsfeed.cache.RedisOddsCache;
 import com.sportsbook.oddsfeed.config.CriticalDeliveryProperties;
+import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
+import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
+import com.sportsbook.protocol.value.MarketId;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -36,6 +45,67 @@ class CriticalEventProcessorTest {
     assertThat(processor.isHealthy()).isTrue();
     assertThat(queue.acknowledgements).isEqualTo(1);
     assertThat(queue.poll()).isEmpty();
+  }
+
+  @Test
+  void restrictiveProjectionPrecedesKafkaAndStreamAcknowledgement() {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.marketStatus(
+            eventId,
+            marketId,
+            MarketStatus.OPEN,
+            MarketStatus.SUSPENDED,
+            "incident",
+            Instant.EPOCH);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("2-0"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.SUSPENDED))
+        .thenReturn(MarketStatus.SUSPENDED);
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    InOrder order = inOrder(cache, publisher, queue);
+    order.verify(cache).storeProviderMarketStatus(eventId, marketId, MarketStatus.SUSPENDED);
+    order
+        .verify(publisher)
+        .publishMarketStatusChanged(
+            eventId,
+            marketId,
+            MarketStatus.OPEN,
+            MarketStatus.SUSPENDED,
+            "incident",
+            Instant.EPOCH);
+    order.verify(queue).acknowledge(queued);
+  }
+
+  @Test
+  void providerOpenProjectsOnlyAfterKafkaAcknowledgement() {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.marketStatus(
+            eventId, marketId, MarketStatus.SUSPENDED, MarketStatus.OPEN, "resumed", Instant.EPOCH);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("2-1"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.prepareProviderOpen(eventId, marketId)).thenReturn(MarketStatus.OPEN);
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    InOrder order = inOrder(publisher, cache, queue);
+    order
+        .verify(publisher)
+        .publishMarketStatusChanged(
+            eventId, marketId, MarketStatus.SUSPENDED, MarketStatus.OPEN, "resumed", Instant.EPOCH);
+    order.verify(cache).storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+    order.verify(queue).acknowledge(queued);
   }
 
   private static final class RecoveringProcessor extends CriticalEventProcessor {
