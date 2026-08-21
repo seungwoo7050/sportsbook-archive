@@ -8,12 +8,15 @@ import com.sportsbook.wallet.domain.error.WalletAdjustmentNotFoundException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
 import com.sportsbook.wallet.domain.error.WalletOperationNotFoundException;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
+import com.sportsbook.wallet.persistence.PostgresFailureTranslator;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.ServletRequestBindingException;
@@ -43,14 +46,7 @@ public class WalletExceptionHandler {
 
   @ExceptionHandler(WalletBusyException.class)
   ResponseEntity<ProblemDetail> busy(WalletBusyException exception, HttpServletRequest request) {
-    ProblemDetail problem =
-        atRequest(
-            WalletProblems.from(
-                WalletError.WALLET_BUSY, "Retry the wallet request after one second"),
-            request);
-    return ResponseEntity.status(WalletError.WALLET_BUSY.httpStatus())
-        .header(HttpHeaders.RETRY_AFTER, "1")
-        .body(problem);
+    return busyResponse(request);
   }
 
   @ExceptionHandler(AccountNotFoundException.class)
@@ -119,6 +115,27 @@ public class WalletExceptionHandler {
     return atRequest(
         WalletProblems.from(WalletError.INTERNAL_ERROR, "Wallet request could not be completed"),
         request);
+  }
+
+  @ExceptionHandler({DataAccessException.class, TransactionException.class})
+  ResponseEntity<ProblemDetail> databaseFailure(
+      RuntimeException exception, HttpServletRequest request) {
+    if (PostgresFailureTranslator.isRetryable(exception)) {
+      return busyResponse(request);
+    }
+    return ResponseEntity.status(WalletError.INTERNAL_ERROR.httpStatus())
+        .body(internalError(exception, request));
+  }
+
+  private ResponseEntity<ProblemDetail> busyResponse(HttpServletRequest request) {
+    ProblemDetail problem =
+        atRequest(
+            WalletProblems.from(
+                WalletError.WALLET_BUSY, "Retry the wallet request after one second"),
+            request);
+    return ResponseEntity.status(WalletError.WALLET_BUSY.httpStatus())
+        .header(HttpHeaders.RETRY_AFTER, "1")
+        .body(problem);
   }
 
   private ProblemDetail atRequest(ProblemDetail problem, HttpServletRequest request) {
