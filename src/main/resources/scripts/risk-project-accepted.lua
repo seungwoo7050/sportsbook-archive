@@ -121,3 +121,23 @@ for _, plan in ipairs(plans) do
   redis.call("SET", plan[2], string.format("%.0f", plan[5]), "PX", plan[3] + 300000)
   redis.call("PEXPIRE", plan[1], plan[3] + 300000)
 end
+
+local rapidWindow, repeatedWindow = tonumber(ARGV[15]), tonumber(ARGV[16])
+local historyTtl, stakeLimit = tonumber(ARGV[17]), tonumber(ARGV[18])
+redis.call("ZREMRANGEBYSCORE", historyBets, "-inf", now - rapidWindow)
+redis.call("ZADD", historyBets, now, betId)
+redis.call("ZADD", historyStakes, now, betId .. "|" .. ARGV[7])
+local stakeCard = redis.call("ZCARD", historyStakes)
+if stakeCard > stakeLimit then
+  redis.call("ZREMRANGEBYRANK", historyStakes, 0, stakeCard - stakeLimit - 1)
+end
+for _, selectionId in ipairs(selections) do
+  local selectionKey = historyBase .. ":selection:" .. selectionId
+  redis.call("ZREMRANGEBYSCORE", selectionKey, "-inf", now - repeatedWindow)
+  redis.call("ZADD", selectionKey, now, betId)
+  redis.call("PEXPIRE", selectionKey, historyTtl)
+end
+redis.call("PEXPIRE", historyBets, historyTtl)
+redis.call("PEXPIRE", historyStakes, historyTtl)
+redis.call("SET", KEYS[2], fingerprint, "PX", retention)
+return "APPLIED"
