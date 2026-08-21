@@ -41,7 +41,33 @@ local errorText = typeError(KEYS[1], "hash") or typeError(KEYS[2], "zset")
   or typeError(KEYS[5], "zset") or typeError(KEYS[6], "string")
   or typeError(KEYS[7], "hash") or typeError(KEYS[18], "string")
 if errorText then return redis.error_reply(errorText) end
-if redis.call("EXISTS", KEYS[1]) == 1 then return redis.error_reply("reservation already exists") end
+local existing = redis.call("HGET", KEYS[1], "state")
+if existing then
+  if redis.call("HGET", KEYS[1], "fingerprint") ~= fingerprint then
+    return response({status = "CONFLICT", replayed = false})
+  end
+  local patternsJson = redis.call("HGET", KEYS[1], "patternsJson") or "[]"
+  local decoded, patterns = pcall(cjson.decode, patternsJson)
+  if not decoded or type(patterns) ~= "table" or string.sub(patternsJson, 1, 1) ~= "[" then
+    return redis.error_reply("corrupt reservation patterns")
+  end
+  if existing == "RESERVED" or existing == "COMMITTED" then
+    return response({status = "APPROVED", state = existing,
+      expiresAt = redis.call("HGET", KEYS[1], "expiresAt"), token = fingerprint,
+      replayed = true, patternsJson = patternsJson})
+  end
+  if existing == "REJECTED" then
+    local rejection = redis.call("HGET", KEYS[1], "rejection")
+    if not rejection then return redis.error_reply("corrupt reservation rejection") end
+    return response({status = "REJECTED", rejection = rejection,
+      replayed = true, patternsJson = patternsJson})
+  end
+  if existing == "EXPIRED" or existing == "RELEASED" then
+    return response({status = "REJECTED", rejection = "RISK_RESERVATION_" .. existing,
+      replayed = true, patternsJson = patternsJson})
+  end
+  return redis.error_reply("unknown reservation state")
+end
 
 local singleRaw = redis.call("HGET", KEYS[7], "SINGLE_BET_MAX:" .. currency) or ARGV[11]
 local singleLimit = exact(singleRaw, false)
