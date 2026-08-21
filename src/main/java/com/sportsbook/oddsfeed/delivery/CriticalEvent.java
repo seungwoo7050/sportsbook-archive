@@ -2,9 +2,13 @@ package com.sportsbook.oddsfeed.delivery;
 
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 public record CriticalEvent(
@@ -16,6 +20,11 @@ public record CriticalEvent(
     String reason,
     EventLifecycleStatus lifecycleStatus,
     Instant scheduledStartAt,
+    Map<UUID, MarketStatus> terminalMarkets,
+    String score,
+    MatchFinalStatus matchFinalStatus,
+    Map<String, String> resultDetail,
+    Instant resultSettledAt,
     Instant occurredAt) {
 
   public enum Type {
@@ -39,6 +48,11 @@ public record CriticalEvent(
         reason,
         null,
         null,
+        Map.of(),
+        null,
+        null,
+        Map.of(),
+        null,
         occurredAt);
   }
 
@@ -53,6 +67,38 @@ public record CriticalEvent(
         null,
         status,
         scheduledStartAt,
+        Map.of(),
+        null,
+        null,
+        Map.of(),
+        null,
+        occurredAt);
+  }
+
+  public static CriticalEvent terminalLifecycle(
+      EventId eventId,
+      EventLifecycleStatus status,
+      Instant scheduledStartAt,
+      Instant occurredAt,
+      Map<UUID, MarketStatus> terminalMarkets,
+      String score,
+      MatchFinalStatus finalStatus,
+      Map<String, String> resultDetail,
+      Instant settledAt) {
+    return new CriticalEvent(
+        Type.EVENT_LIFECYCLE,
+        eventId.value(),
+        null,
+        null,
+        null,
+        null,
+        status,
+        scheduledStartAt,
+        Collections.unmodifiableMap(new LinkedHashMap<>(terminalMarkets)),
+        score,
+        finalStatus,
+        Map.copyOf(resultDetail),
+        settledAt,
         occurredAt);
   }
 }
