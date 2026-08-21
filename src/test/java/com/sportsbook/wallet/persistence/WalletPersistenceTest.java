@@ -439,6 +439,40 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void forfeitsLockedFundsWhileRecoveryKeepsOutboundFundsFrozen() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000016e");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(500L), IdempotencyKey.of("deposit:forfeit-freeze")));
+    wallet.debit(
+        new DebitCommand(userId, Money.krw(200L), IdempotencyKey.of("debit:forfeit-freeze")));
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-00000000016f");
+    adjustmentService.adjust(
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-000000000170"),
+            1L,
+            userId,
+            Money.krw(400L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + revisionId)));
+    ForfeitCommand forfeit =
+        new ForfeitCommand(userId, Money.krw(100L), IdempotencyKey.of("forfeit:during-recovery"));
+
+    wallet.forfeit(forfeit);
+
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(300L));
+              assertThat(account.locked()).isEqualTo(Money.krw(100L));
+              assertThat(account.recoveryDebtAmount()).isEqualTo(BigInteger.valueOf(400L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
+    assertThat(ledger.findByIdempotencyKey(forfeit.idempotencyKey().value())).hasSize(2);
+  }
+
+  @Test
   void migratesFinalConstraintsAndAdjustmentReason() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000010");
     jdbc.update(
