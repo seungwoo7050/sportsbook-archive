@@ -20,15 +20,42 @@ final class OperatorSubmissionScript {
             return 'CONFLICT'
           end
 
+          local requested = ARGV[5]
+          local provider = redis.call('GET', KEYS[4]) or 'OPEN'
+          local terminal = redis.call('EXISTS', KEYS[7]) == 1
+            or redis.call('EXISTS', KEYS[8]) == 1
+          if provider == 'CLOSED' then
+            redis.call('SET', KEYS[8], 'MARKET_CLOSED', 'NX')
+            terminal = true
+          end
+
+          local previous = redis.call('GET', KEYS[3]) or 'OPEN'
+          local announced = requested
+          if terminal then
+            previous = 'CLOSED'
+            announced = 'CLOSED'
+          elseif requested == 'OPEN' then
+            announced = provider
+          end
+
+          if requested ~= 'OPEN' then
+            redis.call('SET', KEYS[5], requested)
+            redis.call('PSETEX', KEYS[3], ARGV[8], announced)
+            redis.call('HSET', KEYS[9], ARGV[4], announced)
+          else
+            redis.call('HSETNX', KEYS[9], ARGV[4], previous)
+          end
+          redis.call('PEXPIRE', KEYS[9], ARGV[8])
+
           local record = redis.call(
-            'XADD', KEYS[3], '*',
+            'XADD', KEYS[10], '*',
             'fingerprint', ARGV[1],
             'actionId', ARGV[2],
             'eventId', ARGV[3],
             'marketId', ARGV[4],
-            'requestedStatus', ARGV[5],
-            'previousStatus', 'OPEN',
-            'announcedStatus', ARGV[5],
+            'requestedStatus', requested,
+            'previousStatus', previous,
+            'announcedStatus', announced,
             'reason', ARGV[6],
             'occurredAt', ARGV[7],
             'sequence', '0',

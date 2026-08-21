@@ -1,5 +1,6 @@
 package com.sportsbook.oddsfeed.delivery;
 
+import com.sportsbook.oddsfeed.cache.CacheKeys;
 import com.sportsbook.oddsfeed.config.CacheProperties;
 import com.sportsbook.oddsfeed.config.OperatorDeliveryProperties;
 import com.sportsbook.protocol.event.MarketStatus;
@@ -23,6 +24,7 @@ public class OperatorActionQueue {
 
   private final StringRedisTemplate redis;
   private final OperatorDeliveryProperties properties;
+  private final long marketTtlMillis;
 
   public OperatorActionQueue(
       StringRedisTemplate redis,
@@ -31,6 +33,7 @@ public class OperatorActionQueue {
       MeterRegistry meterRegistry) {
     this.redis = redis;
     this.properties = properties;
+    this.marketTtlMillis = cacheProperties.ttl().toMillis();
   }
 
   public OperatorActionSubmission submit(
@@ -49,14 +52,24 @@ public class OperatorActionQueue {
         redis.execute(
             OperatorSubmissionScript.INSTANCE,
             List.of(
-                idempotencyRedisKey(idempotencyKey), actionKey(actionId), properties.streamKey()),
+                idempotencyRedisKey(idempotencyKey),
+                actionKey(actionId),
+                CacheKeys.market(eventId, marketId),
+                CacheKeys.providerMarket(eventId, marketId),
+                CacheKeys.marketOverride(eventId, marketId),
+                CacheKeys.marketFeedHold(eventId, marketId),
+                CacheKeys.eventTerminal(eventId),
+                CacheKeys.marketTerminal(eventId, marketId),
+                CacheKeys.eventMarkets(eventId),
+                properties.streamKey()),
             fingerprint,
             actionId.toString(),
             eventId.value().toString(),
             marketId.value().toString(),
             requestedStatus.name(),
             normalizedReason,
-            Long.toString(occurredAt.toEpochMilli()));
+            Long.toString(occurredAt.toEpochMilli()),
+            Long.toString(marketTtlMillis));
     if ("CONFLICT".equals(result)) {
       throw new IdempotencyConflictException();
     }
