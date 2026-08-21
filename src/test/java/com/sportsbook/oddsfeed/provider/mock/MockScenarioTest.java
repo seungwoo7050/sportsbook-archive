@@ -142,4 +142,24 @@ class MockScenarioTest {
         .containsExactlyInAnyOrder(
             "LateGoal", "MatchPostponed", "OddsCrash", "SuddenMarketSuspend");
   }
+
+  @Test
+  void rotatorAppliesOneEligibleScenario() {
+    ScenarioRotator rotator =
+        new ScenarioRotator(PROPERTIES, provider, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    rotator.rotateOnce(NOW);
+
+    assertThat(rotator.scenarios())
+        .extracting(MockScenario::id)
+        .containsExactly("LateGoal", "MatchPostponed", "SuddenMarketSuspend", "OddsCrash");
+    boolean changed = false;
+    for (MockOddsProvider.MockEvent candidate : provider.activeEvents()) {
+      changed |=
+          candidate.status != EventLifecycleStatus.SCHEDULED
+              || candidate.markets.values().stream()
+                  .anyMatch(market -> market.status != MarketStatus.OPEN);
+    }
+    assertThat(changed).isTrue();
+  }
 }
