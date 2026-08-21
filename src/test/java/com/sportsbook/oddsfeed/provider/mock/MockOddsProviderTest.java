@@ -3,6 +3,7 @@ package com.sportsbook.oddsfeed.provider.mock;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.oddsfeed.config.MockProperties;
+import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
 import com.sportsbook.protocol.domain.MarketType;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import reactor.test.StepVerifier;
 
 class MockOddsProviderTest {
 
@@ -55,6 +57,28 @@ class MockOddsProviderTest {
                 .toList());
     assertThat(first.listEvents(Sport.FOOTBALL))
         .allMatch(summary -> summary.status() == EventLifecycleStatus.SCHEDULED);
+  }
+
+  @Test
+  void streamReplaysEventsEmittedBeforeSubscription() {
+    MockOddsProvider provider = newProvider(424242L);
+    provider.seed();
+    var event = provider.listEvents(Sport.FOOTBALL).get(0);
+    ProviderEvent update =
+        new ProviderEvent.MarketStatusUpdated(
+            event.eventId(),
+            new MarketId(UUID.randomUUID()),
+            MarketStatus.OPEN,
+            MarketStatus.SUSPENDED,
+            "manual review",
+            NOW);
+
+    provider.emit(event.eventId(), update);
+
+    StepVerifier.create(provider.streamEvents(event.eventId()))
+        .expectNext(update)
+        .thenCancel()
+        .verify();
   }
 
   private static MockOddsProvider newProvider(long seed) {
