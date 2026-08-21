@@ -21,6 +21,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -129,6 +131,61 @@ class CriticalEventProcessorTest {
   @Test
   void operatorClosePublishesAnEffectiveCloseForProviderSuspension() {
     assertProviderSuspensionPublishesEffectiveClose("operator close");
+  }
+
+  @Test
+  void closesTerminalMarketsBeforePublishingLifecycleAndClosures() {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId embeddedMarket = new MarketId(UUID.randomUUID());
+    MarketId recoveredMarket = new MarketId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.terminalLifecycle(
+            eventId,
+            EventLifecycleStatus.FINISHED,
+            Instant.EPOCH,
+            Instant.EPOCH,
+            Map.of(embeddedMarket.value(), MarketStatus.SUSPENDED),
+            null,
+            null,
+            Map.of(),
+            null);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("3-0"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.closeEventMarkets(eventId, EventLifecycleStatus.FINISHED))
+        .thenReturn(Map.of(recoveredMarket.value(), MarketStatus.OPEN));
+    when(cache.getEvent(eventId)).thenReturn(Optional.empty());
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    InOrder order = inOrder(cache, publisher, queue);
+    order.verify(cache).closeEventMarkets(eventId, EventLifecycleStatus.FINISHED);
+    order
+        .verify(publisher)
+        .publishEventLifecycle(
+            eventId, EventLifecycleStatus.FINISHED, Instant.EPOCH, Instant.EPOCH);
+    order.verify(cache).getEvent(eventId);
+    order
+        .verify(publisher)
+        .publishMarketStatusChanged(
+            eventId,
+            embeddedMarket,
+            MarketStatus.SUSPENDED,
+            MarketStatus.CLOSED,
+            "EVENT_FINISHED",
+            Instant.EPOCH);
+    order
+        .verify(publisher)
+        .publishMarketStatusChanged(
+            eventId,
+            recoveredMarket,
+            MarketStatus.OPEN,
+            MarketStatus.CLOSED,
+            "EVENT_FINISHED",
+            Instant.EPOCH);
+    order.verify(queue).acknowledge(queued);
   }
 
   private static void assertRestrictivePreviewSuppressesOpen(String reason) {
