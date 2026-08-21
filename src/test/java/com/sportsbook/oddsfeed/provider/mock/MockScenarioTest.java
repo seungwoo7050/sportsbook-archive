@@ -4,10 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.oddsfeed.config.MockProperties;
 import com.sportsbook.oddsfeed.provider.EventSummary;
+import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
+import com.sportsbook.protocol.event.MarketStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,5 +56,30 @@ class MockScenarioTest {
     provider.tick(event.endAt.plusSeconds(1));
 
     assertThat(event.status).isEqualTo(EventLifecycleStatus.POSTPONED);
+  }
+
+  @Test
+  void suddenSuspensionChangesOneOpenMarket() {
+    List<ProviderEvent.MarketStatusUpdated> updates = new ArrayList<>();
+    var subscription =
+        provider
+            .streamEvents(event.summary.eventId())
+            .ofType(ProviderEvent.MarketStatusUpdated.class)
+            .subscribe(updates::add);
+
+    new SuddenMarketSuspend().apply(event, NOW, new Random(0), provider);
+    subscription.dispose();
+
+    assertThat(event.markets.values())
+        .extracting(market -> market.status)
+        .containsExactly(MarketStatus.SUSPENDED);
+    assertThat(updates)
+        .singleElement()
+        .satisfies(
+            update -> {
+              assertThat(update.previousStatus()).isEqualTo(MarketStatus.OPEN);
+              assertThat(update.newStatus()).isEqualTo(MarketStatus.SUSPENDED);
+              assertThat(update.reason()).isNotBlank();
+            });
   }
 }
