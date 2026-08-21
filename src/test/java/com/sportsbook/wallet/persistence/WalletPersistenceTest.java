@@ -302,6 +302,59 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void lockedAndHouseCreditsWakeWithoutCollectingRecoveryDebt() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000164");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(500L), IdempotencyKey.of("deposit:credit-wake")));
+    wallet.debit(new DebitCommand(userId, Money.krw(200L), IdempotencyKey.of("debit:credit-wake")));
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000165");
+    adjustmentService.adjust(
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-000000000166"),
+            1L,
+            userId,
+            Money.krw(400L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + revisionId)));
+    CreditCommand locked =
+        new CreditCommand(
+            userId,
+            Money.krw(100L),
+            CreditCommand.Source.USER_LOCKED,
+            CreditReason.VOID,
+            IdempotencyKey.of("credit:wake-locked"));
+    CreditCommand house =
+        new CreditCommand(
+            userId,
+            Money.krw(100L),
+            CreditCommand.Source.HOUSE_POOL,
+            CreditReason.PAYOUT,
+            IdempotencyKey.of("credit:wake-house"));
+    jdbc.update(
+        "UPDATE wallet_adjustment SET next_attempt_at=now()+interval '1 hour' WHERE revision_id=?",
+        revisionId);
+    Instant firstDelay = adjustmentProofs.findById(revisionId).orElseThrow().nextAttemptAt();
+
+    wallet.credit(WalletCaller.SETTLEMENT, locked);
+    Instant firstWake = adjustmentProofs.findById(revisionId).orElseThrow().nextAttemptAt();
+    jdbc.update(
+        "UPDATE wallet_adjustment SET next_attempt_at=now()+interval '1 hour' WHERE revision_id=?",
+        revisionId);
+    Instant secondDelay = adjustmentProofs.findById(revisionId).orElseThrow().nextAttemptAt();
+    wallet.credit(WalletCaller.SETTLEMENT, house);
+
+    assertThat(firstWake).isBefore(firstDelay);
+    assertThat(adjustmentProofs.findById(revisionId).orElseThrow().nextAttemptAt())
+        .isBefore(secondDelay);
+    assertThat(accounts.findById(userId).orElseThrow().recoveryDebtAmount())
+        .isEqualTo(BigInteger.valueOf(400L));
+    assertThat(ledger.findByIdempotencyKey(locked.idempotencyKey().value())).hasSize(2);
+    assertThat(ledger.findByIdempotencyKey(house.idempotencyKey().value())).hasSize(2);
+  }
+
+  @Test
   void migratesFinalConstraintsAndAdjustmentReason() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000010");
     jdbc.update(
