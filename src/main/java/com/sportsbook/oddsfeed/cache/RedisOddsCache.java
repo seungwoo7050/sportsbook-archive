@@ -83,6 +83,45 @@ public class RedisOddsCache {
           """,
           String.class);
 
+  private static final RedisScript<String> STORE_OPERATOR_MARKET_STATUS =
+      new DefaultRedisScript<>(
+          """
+          local requested = ARGV[1]
+          local eventTerminal = redis.call('EXISTS', KEYS[6]) == 1
+          if eventTerminal then
+            redis.call('SET', KEYS[5], 'EVENT_' .. redis.call('GET', KEYS[6]), 'NX')
+          end
+          if requested == 'OPEN' then
+            redis.call('DEL', KEYS[3])
+          else
+            redis.call('SET', KEYS[3], requested)
+          end
+          local provider = redis.call('GET', KEYS[2]) or 'OPEN'
+          if provider == 'CLOSED' and not eventTerminal then
+            redis.call('SET', KEYS[5], 'MARKET_CLOSED')
+          end
+          local terminal = eventTerminal or redis.call('EXISTS', KEYS[5]) == 1
+          local effective
+          if terminal then
+            effective = 'CLOSED'
+          elseif requested ~= 'OPEN' then
+            effective = requested
+          elseif redis.call('EXISTS', KEYS[4]) == 1 then
+            effective = 'SUSPENDED'
+          else
+            effective = provider
+          end
+          redis.call('PSETEX', KEYS[1], ARGV[2], effective)
+          if eventTerminal then
+            redis.call('HSETNX', KEYS[7], ARGV[3], 'OPEN')
+          else
+            redis.call('HSET', KEYS[7], ARGV[3], effective)
+          end
+          redis.call('PEXPIRE', KEYS[7], ARGV[2])
+          return effective
+          """,
+          String.class);
+
   private final StringRedisTemplate redis;
   private final ObjectMapper objectMapper;
   private final Duration ttl;
@@ -144,6 +183,22 @@ public class RedisOddsCache {
             status.name(),
             ttlMillis(),
             marketId.value().toString()));
+  }
+
+  public MarketStatus storeOperatorMarketStatus(
+      EventId eventId, MarketId marketId, MarketStatus status) {
+    return requireStatus(
+        redis.execute(
+            STORE_OPERATOR_MARKET_STATUS,
+            marketKeys(eventId, marketId),
+            status.name(),
+            ttlMillis(),
+            marketId.value().toString()));
+  }
+
+  public Optional<MarketStatus> getMarketOverride(EventId eventId, MarketId marketId) {
+    String value = redis.opsForValue().get(CacheKeys.marketOverride(eventId, marketId));
+    return value == null ? Optional.empty() : Optional.of(MarketStatus.valueOf(value));
   }
 
   public Optional<MarketStatus> getMarketStatus(EventId eventId, MarketId marketId) {
