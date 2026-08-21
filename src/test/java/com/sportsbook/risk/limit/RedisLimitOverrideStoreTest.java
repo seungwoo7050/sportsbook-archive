@@ -1,10 +1,12 @@
 package com.sportsbook.risk.limit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.counter.LimitType;
+import com.sportsbook.risk.policy.SafeRedisNumber;
 import com.sportsbook.risk.support.RedisTestSupport;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -31,5 +33,22 @@ class RedisLimitOverrideStoreTest extends RedisTestSupport {
     store.clear(USER, krw);
     assertThat(store.find(USER, krw)).isEmpty();
     assertThat(store.find(USER, usd)).hasValue(10);
+  }
+
+  @Test
+  void failsClosedForUnsafeWritesAndCorruptStoredValues() {
+    RedisLimitOverrideStore store = new RedisLimitOverrideStore(redis);
+    LimitOverrideField field = LimitOverrideField.monetary(LimitType.STAKE_MONTHLY, Currency.KRW);
+
+    assertThatThrownBy(() -> store.set(USER, field, -1))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> store.set(USER, field, SafeRedisNumber.MAX_VALUE + 1))
+        .isInstanceOf(IllegalArgumentException.class);
+    redis.opsForHash().put(RedisLimitOverrideStore.key(USER), field.redisField(), "corrupt");
+    assertThatThrownBy(() -> store.find(USER, field))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("stored override is not an integer");
+    redis.opsForHash().put(RedisLimitOverrideStore.key(USER), field.redisField(), "-1");
+    assertThatThrownBy(() -> store.find(USER, field)).isInstanceOf(IllegalArgumentException.class);
   }
 }
