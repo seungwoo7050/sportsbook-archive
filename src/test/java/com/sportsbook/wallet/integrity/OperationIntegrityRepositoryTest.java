@@ -2,6 +2,7 @@ package com.sportsbook.wallet.integrity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +69,61 @@ class OperationIntegrityRepositoryTest {
     assertThat(integrity.findGroupDriftKeys()).containsExactly(key);
   }
 
+  @Test
+  void acceptsEverySupportedLedgerTopology() {
+    UUID user = UUID.fromString("019b76da-a000-7000-8000-0000000001b0");
+    UUID house = UUID.fromString("00000000-0000-7000-8000-000000000001");
+    UUID external = UUID.fromString("00000000-0000-7000-8000-000000000002");
+    List<Topology> cases =
+        List.of(
+            new Topology("PLATFORM", "DEPOSIT", user, "AVAILABLE", external, "AVAILABLE"),
+            new Topology("PLATFORM", "WITHDRAW", external, "AVAILABLE", user, "AVAILABLE"),
+            new Topology("BETTING", "BET_DEBIT", user, "LOCKED", user, "AVAILABLE"),
+            new Topology("SETTLEMENT", "BET_PAYOUT", user, "AVAILABLE", house, "AVAILABLE"),
+            new Topology("SETTLEMENT", "BET_REFUND", user, "AVAILABLE", user, "LOCKED"),
+            new Topology("SETTLEMENT", "BET_REFUND", user, "AVAILABLE", house, "AVAILABLE"),
+            new Topology("SETTLEMENT", "BET_FORFEIT", house, "AVAILABLE", user, "LOCKED"),
+            new Topology("SETTLEMENT", "BET_ADJUSTMENT", user, "AVAILABLE", house, "AVAILABLE"),
+            new Topology("SETTLEMENT", "BET_ADJUSTMENT", house, "AVAILABLE", user, "AVAILABLE"));
+
+    for (int index = 0; index < cases.size(); index++) {
+      Topology topology = cases.get(index);
+      String key = "integrity:topology:" + index;
+      UUID group = UUID.randomUUID();
+      jdbc.update(
+          """
+          INSERT INTO wallet_operation(idempotency_key, caller_id, operation_kind, user_id,
+            request_amount, request_currency, request_fingerprint, status, operation_group_id,
+            requested_at, updated_at, completed_at)
+          VALUES (?, ?, ?, ?, 10, 'KRW', ?, 'SUCCEEDED', ?, now(), now(), now())
+          """,
+          key,
+          topology.caller(),
+          topology.kind(),
+          user,
+          "b".repeat(64),
+          group);
+      insertLeg(
+          UUID.randomUUID(),
+          topology.debit(),
+          topology.debitBucket(),
+          "DEBIT",
+          key,
+          group,
+          topology.kind());
+      insertLeg(
+          UUID.randomUUID(),
+          topology.credit(),
+          topology.creditBucket(),
+          "CREDIT",
+          key,
+          group,
+          topology.kind());
+    }
+
+    assertThat(integrity.findGroupDriftKeys()).isEmpty();
+  }
+
   private void insertLeg(String tail, UUID accountId, String side, String key, UUID groupId) {
     jdbc.update(
         """
@@ -82,4 +138,35 @@ class OperationIntegrityRepositoryTest {
         key,
         groupId);
   }
+
+  private void insertLeg(
+      UUID entryId,
+      UUID accountId,
+      String bucket,
+      String side,
+      String key,
+      UUID groupId,
+      String reason) {
+    jdbc.update(
+        """
+        INSERT INTO ledger_entry(entry_id, account_id, bucket, side, amount, currency,
+          reason, idempotency_key, operation_group_id, created_at)
+        VALUES (?, ?, ?, ?, 10, 'KRW', ?, ?, ?, now())
+        """,
+        entryId,
+        accountId,
+        bucket,
+        side,
+        reason,
+        key,
+        groupId);
+  }
+
+  private record Topology(
+      String caller,
+      String kind,
+      UUID debit,
+      String debitBucket,
+      UUID credit,
+      String creditBucket) {}
 }
