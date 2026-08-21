@@ -1,0 +1,24 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "BetSettled",
+  "doc": "Settlement outcome for a bet (ADR-0006 async settlement). Published by settlement-service after MatchResult; betting-service consumes to flip bet.status to SETTLED. Distinct from BetVoided (no-action refund).",
+  "fields": [
+    {"name": "betId", "type": "string", "doc": "Slip UUID — primary key in betting-service."},
+    {"name": "userId", "type": "string"},
+    {"name": "eventId", "type": "string", "doc": "Driving event whose MatchResult triggered this settlement."},
+    {
+      "name": "result",
+      "type": {
+        "type": "enum",
+        "name": "SettlementResultAvro",
+        "symbols": ["WON", "LOST", "PUSH", "VOID"]
+      },
+      "doc": "Mirrors the shared-protocol SettlementResult enum (ADR-0013). WON/PUSH pay out, LOST pays nothing, VOID refunds the stake."
+    },
+    {"name": "stake", "type": "Money", "doc": "Original wager amount; same Money record reused across the event schema family."},
+    {"name": "payout", "type": "Money", "doc": "Amount credited to the wallet. Positive for WON/PUSH (PUSH returns the stake), zero for LOST."},
+    {"name": "settledAt", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "resultDetail", "type": ["null", {"type": "map", "values": "string"}], "default": null, "doc": "Optional per-combination adjudication details (e.g. which legs of a SYSTEM slip won). Schema-less so new detail keys do not trigger Avro evolution."}
+  ]
+}
