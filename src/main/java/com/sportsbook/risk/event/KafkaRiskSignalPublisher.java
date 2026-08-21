@@ -2,13 +2,19 @@ package com.sportsbook.risk.event;
 
 import com.sportsbook.protocol.event.RiskLimitType;
 import com.sportsbook.protocol.event.RiskLimitViolated;
+import com.sportsbook.protocol.event.RiskPatternSuspected;
+import com.sportsbook.protocol.event.RiskPatternType;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.pattern.PatternMatch;
+import com.sportsbook.risk.pattern.rule.RapidBettingRule;
+import com.sportsbook.risk.pattern.rule.RepeatedSameSelectionRule;
+import com.sportsbook.risk.pattern.rule.SuddenStakeIncreaseRule;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Objects;
 import org.apache.avro.specific.SpecificRecordBase;
 import org.slf4j.Logger;
@@ -75,6 +81,17 @@ public final class KafkaRiskSignalPublisher implements RiskSignalPublisher {
     Objects.requireNonNull(userId, "userId");
     Objects.requireNonNull(match, "match");
     Objects.requireNonNull(occurredAt, "occurredAt");
+    RiskPatternType wireType = patternType(match.rule());
+    if (wireType == null) {
+      return;
+    }
+    RiskPatternSuspected event =
+        new RiskPatternSuspected(
+            userId.value().toString(),
+            wireType,
+            Map.of("action", match.action().name(), "reason", match.reason()),
+            occurredAt);
+    send(topics.patternSuspected(), userId.value().toString(), event);
   }
 
   private void send(String topic, String key, SpecificRecordBase record) {
@@ -101,6 +118,15 @@ public final class KafkaRiskSignalPublisher implements RiskSignalPublisher {
       case STAKE_DAILY -> RiskLimitType.STAKE_DAILY;
       case SELECTIONS_PER_MINUTE -> RiskLimitType.SELECTIONS_PER_MINUTE;
       case STAKE_WEEKLY, STAKE_MONTHLY -> null;
+    };
+  }
+
+  private static RiskPatternType patternType(String rule) {
+    return switch (rule) {
+      case RapidBettingRule.NAME -> RiskPatternType.RAPID_BETTING;
+      case SuddenStakeIncreaseRule.NAME -> RiskPatternType.SUDDEN_STAKE_INCREASE;
+      case RepeatedSameSelectionRule.NAME -> RiskPatternType.REPEATED_SAME_SELECTION;
+      default -> null;
     };
   }
 }
