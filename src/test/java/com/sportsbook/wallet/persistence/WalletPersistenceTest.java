@@ -801,6 +801,36 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void creditsReferenceTheUserSideLedgerRowRatherThanTheOperationGroup() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000020");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    CreditCommand payout =
+        new CreditCommand(
+            userId,
+            Money.krw(250L),
+            CreditCommand.Source.HOUSE_POOL,
+            CreditReason.PAYOUT,
+            IdempotencyKey.of("credit:ledger-proof"));
+
+    var result = wallet.credit(com.sportsbook.wallet.domain.WalletCaller.SETTLEMENT, payout);
+    var message = outboxFor(payout.idempotencyKey()).get(0);
+    var event =
+        com.sportsbook.wallet.outbox.AvroSerializer.deserialize(
+            message.payload(), com.sportsbook.protocol.event.WalletCredited.class);
+    LedgerEntry userSide =
+        ledger.findByIdempotencyKey(payout.idempotencyKey().value()).stream()
+            .filter(entry -> entry.side() == com.sportsbook.wallet.domain.LedgerSide.DEBIT)
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(userSide.accountId()).isEqualTo(userId);
+    assertThat(userSide.bucket()).isEqualTo(BalanceBucket.AVAILABLE);
+    assertThat(event.getLedgerTxId()).isEqualTo(userSide.entryId().toString());
+    assertThat(event.getLedgerTxId()).isNotEqualTo(result.operationGroupId().toString());
+    assertThat(outboxFor(payout.idempotencyKey())).hasSize(1);
+  }
+
+  @Test
   void convergesOneHundredConcurrentRequestsForOneKey() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000019");
     wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
