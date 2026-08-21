@@ -3,6 +3,7 @@ package com.sportsbook.oddsfeed.delivery;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sportsbook.oddsfeed.cache.CacheKeys;
 import com.sportsbook.oddsfeed.config.CacheProperties;
 import com.sportsbook.oddsfeed.config.OperatorDeliveryProperties;
 import com.sportsbook.protocol.event.MarketStatus;
@@ -109,6 +110,55 @@ class OperatorActionQueueTest {
                     NOW))
         .isInstanceOf(IdempotencyConflictException.class);
     assertThat(redis.opsForStream().size(STREAM)).isOne();
+  }
+
+  @Test
+  void restrictiveSubmissionProjectsClosedStateBeforeReturn() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.market(eventId, marketId), MarketStatus.OPEN.name());
+
+    queue.submit(
+        IdempotencyKey.of("close-key"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.CLOSED,
+        " incident ",
+        NOW);
+
+    assertThat(redis.opsForValue().get(CacheKeys.marketOverride(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(redis.opsForHash().get(CacheKeys.eventMarkets(eventId), marketId.value().toString()))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(redis.opsForStream().size(STREAM)).isOne();
+  }
+
+  @Test
+  void terminalRestrictionRemainsEffectivelyClosed() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.eventTerminal(eventId), "FINISHED");
+
+    queue.submit(
+        IdempotencyKey.of("terminal-key"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.SUSPENDED,
+        "late suspension",
+        NOW);
+
+    assertThat(redis.opsForValue().get(CacheKeys.marketOverride(eventId, marketId)))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(redis.opsForHash().get(CacheKeys.eventMarkets(eventId), marketId.value().toString()))
+        .isEqualTo(MarketStatus.CLOSED.name());
   }
 
   private OperatorActionQueue queue() {
