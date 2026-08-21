@@ -72,3 +72,8 @@ logging:
 wallet:
   outbox:
     scheduling-enabled: ${WALLET_OUTBOX_ENABLED:false}
+  recovery:
+    scheduling-enabled: ${WALLET_RECOVERY_ENABLED:true}
+    poll-interval: ${WALLET_RECOVERY_POLL_INTERVAL:PT1S}
+    retry-base: ${WALLET_RECOVERY_RETRY_BASE:PT1S}
+    retry-cap: ${WALLET_RECOVERY_RETRY_CAP:PT60S}
