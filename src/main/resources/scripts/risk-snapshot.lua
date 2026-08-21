@@ -50,6 +50,15 @@ local function capture(entries, sum, window)
   end
   local total = exact(redis.call("GET", sum), false)
   if not total then return failure("missing or corrupt rolling sum") end
+  local calculated = 0
+  for _, member in ipairs(redis.call("ZRANGE", entries, 0, -1)) do
+    local value = amount(member)
+    if not value or calculated > maxExact - value then
+      return failure("corrupt rolling member")
+    end
+    calculated = calculated + value
+  end
+  if calculated ~= total then return failure("inconsistent rolling sum") end
   local expired = redis.call("ZRANGEBYSCORE", entries, "-inf", now - window)
   local removed = 0
   for _, member in ipairs(expired) do
