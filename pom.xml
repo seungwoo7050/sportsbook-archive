@@ -13,7 +13,7 @@
 
     <groupId>com.sportsbook</groupId>
     <artifactId>wallet-service</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>wallet-service</name>
     <description>Authoritative account and double-entry ledger service.</description>
 
