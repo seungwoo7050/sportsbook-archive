@@ -3,7 +3,8 @@ package com.sportsbook.oddsfeed.provider.mock;
 import java.time.Instant;
 import java.util.Random;
 
-public interface MockScenario {
+public sealed interface MockScenario
+    permits LateGoal, MatchPostponed, OddsCrash, SuddenMarketSuspend {
 
   String id();
 
