@@ -38,6 +38,7 @@ class AcceptedBetEnvelopeTest {
     assertThatThrownBy(() -> decode(malformed, USER)).isInstanceOf(IllegalArgumentException.class);
 
     assertThatThrownBy(() -> decode(validEvent(), "10000000-0000-4000-8000-000000000002"))
+        .isInstanceOf(BetPlacedKeyMismatchException.class)
         .hasMessageContaining("Kafka key");
   }
 
