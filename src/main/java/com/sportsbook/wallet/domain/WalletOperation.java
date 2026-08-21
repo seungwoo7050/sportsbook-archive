@@ -87,6 +87,7 @@ public class WalletOperation {
     }
     Objects.requireNonNull(caller, "caller");
     Objects.requireNonNull(kind, "kind");
+    requireAllowedCaller(caller, kind);
     this.idempotencyKey = Objects.requireNonNull(key, "key").value();
     this.caller = caller;
     this.kind = kind;
@@ -167,5 +168,25 @@ public class WalletOperation {
 
   public Instant completedAt() {
     return completedAt;
+  }
+
+  private static void requireAllowedCaller(WalletCaller caller, WalletOperationKind kind) {
+    boolean allowed =
+        switch (caller) {
+          case PLATFORM ->
+              kind == WalletOperationKind.DEPOSIT || kind == WalletOperationKind.WITHDRAW;
+          case BETTING ->
+              kind == WalletOperationKind.BET_DEBIT || kind == WalletOperationKind.BET_REFUND;
+          case SETTLEMENT ->
+              kind == WalletOperationKind.BET_PAYOUT
+                  || kind == WalletOperationKind.BET_REFUND
+                  || kind == WalletOperationKind.BET_FORFEIT
+                  || kind == WalletOperationKind.BET_ADJUSTMENT;
+          case ADMIN -> kind == WalletOperationKind.BET_REFUND;
+          case GATEWAY -> false;
+        };
+    if (!allowed) {
+      throw new IllegalArgumentException("Caller is not allowed to perform operation kind");
+    }
   }
 }
