@@ -68,3 +68,7 @@ logging:
     root: INFO
     com.sportsbook.wallet: INFO
     org.hibernate.SQL: WARN
+
+wallet:
+  outbox:
+    scheduling-enabled: ${WALLET_OUTBOX_ENABLED:false}
