@@ -63,5 +63,12 @@ oddsfeed:
       market-status-changed: market.status.changed
       event-lifecycle: event.lifecycle
       match-result: match.result
+  delivery:
+    stream-key: ${CRITICAL_EVENT_STREAM:oddsfeed:critical-events}
+    consumer-group: ${CRITICAL_EVENT_GROUP:oddsfeed-publisher}
+    consumer-name: ${HOSTNAME:oddsfeed-local}
+    batch-size: 50
+    claim-idle: ${CRITICAL_EVENT_CLAIM_IDLE:5s}
+    poll-interval-ms: ${CRITICAL_EVENT_POLL_INTERVAL_MS:250}
   cache:
     ttl: 24h
