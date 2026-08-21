@@ -146,6 +146,18 @@ public class WalletOperation {
     return operation;
   }
 
+  public void completeBlocked(UUID groupId, Instant now) {
+    if (status != WalletOperationStatus.BLOCKED_FUNDS) {
+      throw new IllegalStateException("Only blocked operations can be completed");
+    }
+    Objects.requireNonNull(now, "now");
+    UUID completedGroupId = Objects.requireNonNull(groupId, "groupId");
+    status = WalletOperationStatus.SUCCEEDED;
+    operationGroupId = completedGroupId;
+    updatedAt = now;
+    completedAt = now;
+  }
+
   public WalletOperationStatus status() {
     return status;
   }
