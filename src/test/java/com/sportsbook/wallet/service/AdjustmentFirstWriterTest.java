@@ -1,6 +1,8 @@
 package com.sportsbook.wallet.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,6 +13,9 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.Account;
 import com.sportsbook.wallet.domain.WalletAdjustment;
 import com.sportsbook.wallet.domain.WalletOperation;
+import com.sportsbook.wallet.domain.error.AccountNotFoundException;
+import com.sportsbook.wallet.domain.error.BalanceLimitExceededException;
+import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.persistence.AccountRepository;
 import com.sportsbook.wallet.persistence.AdjustmentPairLock;
 import com.sportsbook.wallet.persistence.DatabaseClock;
@@ -101,11 +106,57 @@ class AdjustmentFirstWriterTest {
     verify(proofWriter).block(command, "d".repeat(64), account, NOW);
   }
 
+  @Test
+  void rejectsMissingAccountsDurably() {
+    AdjustmentCommand command = command(1_000L, 700L);
+    when(adjustments.findByBetIdAndRevisionNumber(BET_ID, 1L)).thenReturn(Optional.empty());
+    when(accounts.findByUserIdForUpdate(USER_ID)).thenReturn(Optional.empty());
+    when(databaseClock.now()).thenReturn(NOW);
+    when(proofWriter.reject(eq(command), eq("e".repeat(64)), any(), eq(NOW))).thenReturn(outcome);
+
+    assertThat(writer.write(command, "e".repeat(64))).isSameAs(outcome);
+
+    verify(proofWriter)
+        .reject(eq(command), eq("e".repeat(64)), any(AccountNotFoundException.class), eq(NOW));
+  }
+
+  @Test
+  void rejectsCurrencyMismatchesDurably() {
+    AdjustmentCommand command = command(1_000L, 700L);
+    when(adjustments.findByBetIdAndRevisionNumber(BET_ID, 1L)).thenReturn(Optional.empty());
+    when(accounts.findByUserIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
+    when(account.currency()).thenReturn(Currency.USD);
+    when(databaseClock.now()).thenReturn(NOW);
+    when(proofWriter.reject(eq(command), eq("f".repeat(64)), any(), eq(NOW))).thenReturn(outcome);
+
+    assertThat(writer.write(command, "f".repeat(64))).isSameAs(outcome);
+
+    verify(proofWriter)
+        .reject(eq(command), eq("f".repeat(64)), any(CurrencyMismatchException.class), eq(NOW));
+  }
+
+  @Test
+  void rejectsPositiveBalanceOverflowDurably() {
+    AdjustmentCommand command = command(700L, 1_000L);
+    prepareUnfrozenAccount(null);
+    BalanceLimitExceededException overflow =
+        new BalanceLimitExceededException(USER_ID, Long.MAX_VALUE, 0L);
+    when(proofWriter.applyIncrease(command, "1".repeat(64), account, Optional.empty(), NOW))
+        .thenThrow(overflow);
+    when(proofWriter.reject(command, "1".repeat(64), overflow, NOW)).thenReturn(outcome);
+
+    assertThat(writer.write(command, "1".repeat(64))).isSameAs(outcome);
+
+    verify(proofWriter).reject(command, "1".repeat(64), overflow, NOW);
+  }
+
   private void prepareUnfrozenAccount(Money available) {
     when(adjustments.findByBetIdAndRevisionNumber(BET_ID, 1L)).thenReturn(Optional.empty());
     when(accounts.findByUserIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
     when(account.currency()).thenReturn(Currency.KRW);
-    when(account.available()).thenReturn(available);
+    if (available != null) {
+      when(account.available()).thenReturn(available);
+    }
     when(adjustments.findOldestBlockedForUpdate(USER_ID)).thenReturn(Optional.empty());
     when(databaseClock.now()).thenReturn(NOW);
   }
