@@ -13,8 +13,14 @@ import java.net.URI;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /** Maps durable and retryable wallet failures without exposing request credentials. */
 @RestControllerAdvice
@@ -88,6 +94,30 @@ public class WalletExceptionHandler {
     return atRequest(
         WalletProblems.from(
             WalletError.ACCESS_DENIED, "Authenticated caller cannot perform this wallet operation"),
+        request);
+  }
+
+  @ExceptionHandler({
+    MethodArgumentNotValidException.class,
+    HandlerMethodValidationException.class,
+    HttpMessageNotReadableException.class,
+    HttpMediaTypeNotSupportedException.class,
+    MethodArgumentTypeMismatchException.class,
+    ServletRequestBindingException.class,
+    IllegalArgumentException.class
+  })
+  ProblemDetail invalidRequest(Exception exception, HttpServletRequest request) {
+    return atRequest(
+        WalletProblems.from(
+            WalletError.INVALID_REQUEST,
+            "Wallet request is malformed or violates validation constraints"),
+        request);
+  }
+
+  @ExceptionHandler(Exception.class)
+  ProblemDetail internalError(Exception exception, HttpServletRequest request) {
+    return atRequest(
+        WalletProblems.from(WalletError.INTERNAL_ERROR, "Wallet request could not be completed"),
         request);
   }
 
