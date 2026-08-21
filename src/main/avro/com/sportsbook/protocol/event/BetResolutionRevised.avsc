@@ -1,0 +1,19 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "BetResolutionRevised",
+  "doc": "A completed SETTLED bet resolution revised after a corrected MatchResult. Carries the previous and full new result snapshots so consumers can project revisions independently of cross-topic delivery order. VOIDED lifecycle corrections are outside this V1 contract.",
+  "fields": [
+    {"name": "revisionId", "type": "string", "doc": "Stable UUID for this durable per-bet revision; retries and redeliveries keep the same value."},
+    {"name": "revisionNumber", "type": "long", "doc": "Strictly increasing per bet from 1. The initial BetSettled snapshot is logical revision 0."},
+    {"name": "betId", "type": "string", "doc": "Slip UUID and Kafka partition key."},
+    {"name": "userId", "type": "string", "doc": "Owning user UUID for private gateway fan-out."},
+    {"name": "eventId", "type": "string", "doc": "Event whose corrected MatchResult caused this revision."},
+    {"name": "previousResult", "type": "SettlementResultAvro", "doc": "Immediately preceding committed SETTLED result."},
+    {"name": "newResult", "type": "SettlementResultAvro", "doc": "Full replacement SETTLED result after correction."},
+    {"name": "previousPayout", "type": "Money", "doc": "Immediately preceding committed payout snapshot."},
+    {"name": "newPayout", "type": "Money", "doc": "Full replacement payout snapshot after wallet adjustment."},
+    {"name": "sourceResultSettledAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "MatchResult.settledAt for the corrected source result."},
+    {"name": "revisedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When wallet adjustment proof and the durable revision/outbox state were completed."}
+  ]
+}
