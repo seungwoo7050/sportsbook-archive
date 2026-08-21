@@ -2,10 +2,15 @@ package com.sportsbook.oddsfeed.delivery;
 
 import com.sportsbook.oddsfeed.api.EventCatalog;
 import com.sportsbook.oddsfeed.cache.RedisOddsCache;
+import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -49,9 +54,18 @@ public class CriticalEventProcessor {
   }
 
   void apply(CriticalEvent event) {
-    if (event.type() != CriticalEvent.Type.MARKET_STATUS) {
-      throw new IllegalStateException("Unsupported critical event type: " + event.type());
+    if (event.type() == CriticalEvent.Type.EVENT_LIFECYCLE) {
+      applyLifecycle(event);
+      return;
     }
+    if (event.type() == CriticalEvent.Type.MARKET_STATUS) {
+      applyMarketTransition(event);
+      return;
+    }
+    throw new IllegalStateException("Unsupported critical event type: " + event.type());
+  }
+
+  private void applyMarketTransition(CriticalEvent event) {
     EventId eventId = new EventId(event.eventId());
     MarketId marketId = new MarketId(event.marketId());
     if (event.nextMarketStatus() == MarketStatus.OPEN) {
@@ -67,6 +81,54 @@ public class CriticalEventProcessor {
     publishMarketTransition(event, eventId, marketId, effective);
   }
 
+  private void applyLifecycle(CriticalEvent event) {
+    EventId eventId = new EventId(event.eventId());
+    Map<UUID, MarketStatus> terminalMarkets = new LinkedHashMap<>();
+    event
+        .terminalMarkets()
+        .forEach(
+            (marketId, status) -> {
+              if (status != MarketStatus.CLOSED) {
+                terminalMarkets.put(marketId, status);
+              }
+            });
+    if (isTerminal(event.lifecycleStatus())) {
+      cache
+          .closeEventMarkets(eventId, event.lifecycleStatus())
+          .forEach(terminalMarkets::putIfAbsent);
+    }
+    if (event.matchFinalStatus() != null) {
+      throw new IllegalStateException("Embedded match results are not deliverable yet");
+    }
+    publisher.publishEventLifecycle(
+        eventId, event.lifecycleStatus(), event.scheduledStartAt(), event.occurredAt());
+    cache
+        .getEvent(eventId)
+        .ifPresent(
+            current -> {
+              EventSummary updated =
+                  new EventSummary(
+                      current.eventId(),
+                      current.sport(),
+                      current.competition(),
+                      current.homeTeam(),
+                      current.awayTeam(),
+                      current.scheduledStartAt(),
+                      event.lifecycleStatus());
+              cache.storeEvent(updated);
+              catalog.put(updated);
+            });
+    terminalMarkets.forEach(
+        (market, previous) ->
+            publisher.publishMarketStatusChanged(
+                eventId,
+                new MarketId(market),
+                previous,
+                MarketStatus.CLOSED,
+                "EVENT_" + event.lifecycleStatus(),
+                event.occurredAt()));
+  }
+
   private void publishMarketTransition(
       CriticalEvent event, EventId eventId, MarketId marketId, MarketStatus effectiveStatus) {
     publisher.publishMarketStatusChanged(
@@ -76,6 +138,12 @@ public class CriticalEventProcessor {
         effectiveStatus,
         event.reason(),
         event.occurredAt());
+  }
+
+  private static boolean isTerminal(EventLifecycleStatus status) {
+    return status == EventLifecycleStatus.FINISHED
+        || status == EventLifecycleStatus.CANCELLED
+        || status == EventLifecycleStatus.POSTPONED;
   }
 
   public boolean isHealthy() {
