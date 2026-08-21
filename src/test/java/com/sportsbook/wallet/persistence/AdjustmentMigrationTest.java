@@ -73,6 +73,60 @@ class AdjustmentMigrationTest {
         .contains("status", "'BLOCKED'");
   }
 
+  @Test
+  void permitsObservationalAdjustmentTimestamps() {
+    jdbc.update(
+        """
+        INSERT INTO wallet_operation (
+          idempotency_key, caller_id, operation_kind, user_id, request_amount, request_currency,
+          request_fingerprint, status, requested_at, updated_at
+        ) VALUES ('settlement:revision:019b76da-a000-7000-8000-000000000040',
+          'SETTLEMENT', 'BET_ADJUSTMENT', '019b76da-a000-7000-8000-000000000042',
+          5, 'KRW', repeat('a', 64), 'BLOCKED_FUNDS', now(), now())
+        """);
+    jdbc.update(
+        """
+        INSERT INTO wallet_adjustment (
+          revision_id, idempotency_key, bet_id, revision_number, user_id,
+          previous_payout_amount, new_payout_amount, delta_amount, currency, status,
+          queue_sequence, queued_at, next_attempt_at, created_at, updated_at
+        ) VALUES ('019b76da-a000-7000-8000-000000000040',
+          'settlement:revision:019b76da-a000-7000-8000-000000000040',
+          '019b76da-a000-7000-8000-000000000041', 1,
+          '019b76da-a000-7000-8000-000000000042', 10, 5, -5, 'KRW', 'BLOCKED', 1,
+          TIMESTAMPTZ '2025-01-02 00:00:00Z', TIMESTAMPTZ '2025-01-01 00:00:00Z',
+          TIMESTAMPTZ '2999-01-01 00:00:00Z', TIMESTAMPTZ '2025-01-01 00:00:00Z')
+        """);
+    assertThat(observations("next_attempt_at < queued_at AND updated_at < created_at")).isTrue();
+
+    jdbc.update(
+        """
+        UPDATE wallet_operation SET status='SUCCEEDED',
+          operation_group_id='019b76da-a000-7000-8000-000000000043',
+          completed_at=TIMESTAMPTZ '2024-01-01 00:00:00Z' WHERE idempotency_key=
+          'settlement:revision:019b76da-a000-7000-8000-000000000040'
+        """);
+    jdbc.update(
+        """
+        UPDATE wallet_adjustment SET status='APPLIED', next_attempt_at=NULL,
+          operation_group_id='019b76da-a000-7000-8000-000000000043',
+          applied_at=TIMESTAMPTZ '2024-01-01 00:00:00Z',
+          updated_at=TIMESTAMPTZ '2023-01-01 00:00:00Z'
+        WHERE revision_id='019b76da-a000-7000-8000-000000000040'
+        """);
+
+    assertThat(observations("applied_at < queued_at AND updated_at < created_at")).isTrue();
+  }
+
+  private Boolean observations(String predicate) {
+    return jdbc.queryForObject(
+        "SELECT "
+            + predicate
+            + " FROM wallet_adjustment WHERE revision_id="
+            + "'019b76da-a000-7000-8000-000000000040'",
+        Boolean.class);
+  }
+
   private String index(String name) {
     return jdbc.queryForObject(
         "SELECT indexdef FROM pg_indexes WHERE indexname = ?", String.class, name);
