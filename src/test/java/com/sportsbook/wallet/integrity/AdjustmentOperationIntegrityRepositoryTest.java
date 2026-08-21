@@ -34,6 +34,7 @@ class AdjustmentOperationIntegrityRepositoryTest {
   @Autowired WalletService wallet;
   @Autowired WalletAdjustmentService adjustments;
   @Autowired AdjustmentOperationIntegrityRepository integrity;
+  @Autowired AdjustmentFailureIntegrityRepository failures;
   @Autowired JdbcTemplate jdbc;
 
   @DynamicPropertySource
@@ -97,6 +98,76 @@ class AdjustmentOperationIntegrityRepositoryTest {
         WHERE idempotency_key = ?
         """,
         blocked.idempotencyKey().value());
+  }
+
+  @Test
+  void detectsImpossibleCorrectionFailureSnapshots() {
+    UUID missingUser = UUID.fromString("019b76da-a000-7000-8000-0000000001e0");
+    AdjustmentCommand rejected = command("1e1", "1e2", missingUser, 0L, 10L);
+    assertThatThrownBy(() -> adjustments.adjust(rejected))
+        .isInstanceOf(WalletRejectedException.class);
+    String key = rejected.idempotencyKey().value();
+    assertThat(failures.findFailureDriftKeys()).isEmpty();
+
+    updateFailure(key, "CURRENCY_MISMATCH", 422, "Currency mismatch", null, null, "USD");
+    assertThat(failures.findFailureDriftKeys()).isEmpty();
+    updateFailure(key, "CURRENCY_MISMATCH", 422, "Currency mismatch", null, null, "EUR");
+    assertThat(failures.findFailureDriftKeys()).containsExactly(key);
+    updateFailure(key, "CURRENCY_MISMATCH", 422, "Wrong title", null, null, "USD");
+    assertThat(failures.findFailureDriftKeys()).containsExactly(key);
+
+    updateFailure(key, "AMOUNT_OUT_OF_RANGE", 422, "Amount out of range", 10L, "KRW", null);
+    assertThat(failures.findFailureDriftKeys()).isEmpty();
+    updateFailure(key, "AMOUNT_OUT_OF_RANGE", 422, "Amount out of range", null, null, null);
+    assertThat(failures.findFailureDriftKeys()).containsExactly(key);
+    updateFailure(key, "ACCOUNT_SUSPENDED", 423, "Wallet account blocked", null, null, null);
+    assertThat(failures.findFailureDriftKeys()).containsExactly(key);
+    updateFailure(key, "ACCOUNT_NOT_FOUND", 404, "Account not found", null, null, null);
+
+    UUID anotherMissingUser = UUID.fromString("019b76da-a000-7000-8000-0000000001e3");
+    AdjustmentCommand decrease = command("1e4", "1e5", anotherMissingUser, 10L, 0L);
+    assertThatThrownBy(() -> adjustments.adjust(decrease))
+        .isInstanceOf(WalletRejectedException.class);
+    updateFailure(
+        decrease.idempotencyKey().value(),
+        "AMOUNT_OUT_OF_RANGE",
+        422,
+        "Amount out of range",
+        10L,
+        "KRW",
+        null);
+    assertThat(failures.findFailureDriftKeys()).containsExactly(decrease.idempotencyKey().value());
+    updateFailure(
+        decrease.idempotencyKey().value(),
+        "ACCOUNT_NOT_FOUND",
+        404,
+        "Account not found",
+        null,
+        null,
+        null);
+  }
+
+  private void updateFailure(
+      String key,
+      String code,
+      int status,
+      String title,
+      Long balance,
+      String balanceCurrency,
+      String expectedCurrency) {
+    jdbc.update(
+        """
+        UPDATE wallet_operation SET failure_code = ?, failure_http_status = ?, failure_title = ?,
+          failure_balance_amount = ?, failure_balance_currency = ?, failure_expected_currency = ?
+        WHERE idempotency_key = ?
+        """,
+        code,
+        status,
+        title,
+        balance,
+        balanceCurrency,
+        expectedCurrency,
+        key);
   }
 
   private static AdjustmentCommand command(
