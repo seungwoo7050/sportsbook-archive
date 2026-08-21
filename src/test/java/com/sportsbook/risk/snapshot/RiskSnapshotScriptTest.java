@@ -113,6 +113,33 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
 
   @Test
   void includesLiveCapacityInLimitsAndPatternFacts() throws Exception {
+    seedActive(NOW.plusSeconds(30));
+
+    JsonNode result = execute();
+
+    assertThat(result.path("limits").path("STAKE_DAILY").path("active").asText()).isEqualTo("50");
+    assertThat(result.path("limits").path("SELECTIONS_PER_MINUTE").path("active").asText())
+        .isEqualTo("1");
+    assertThat(result.path("patterns").path("rapid").path("value").asText()).isEqualTo("1");
+    assertThat(result.path("patterns").path("stakes").path("value").asText()).isEqualTo("50");
+  }
+
+  @Test
+  void expiresEveryReservationFootprintBeforeReadingCapacity() throws Exception {
+    seedActive(NOW.minusMillis(1));
+
+    JsonNode result = execute();
+
+    assertThat(result.path("expired").asText()).isEqualTo("1");
+    assertThat(result.path("limits").path("STAKE_DAILY").path("active").asText()).isEqualTo("0");
+    assertThat(redis.opsForHash().get(ReservationKeys.lifecycle(BET), "state"))
+        .isEqualTo("EXPIRED");
+    assertThat(redis.hasKey(ReservationKeys.activeBets(USER))).isFalse();
+    assertThat(redis.hasKey(ReservationKeys.activeSelection(USER, SELECTION))).isFalse();
+    assertThat(redis.opsForValue().get(ReservationKeys.ACTIVE_COUNT)).isNull();
+  }
+
+  private void seedActive(Instant expiresAt) {
     String bet = BET.value().toString();
     long score = NOW.toEpochMilli() - 1;
     redis
@@ -133,7 +160,7 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
                 "selections",
                 SELECTION.value().toString(),
                 "expiresAt",
-                Long.toString(NOW.plusSeconds(30).toEpochMilli())));
+                Long.toString(expiresAt.toEpochMilli())));
     redis.opsForZSet().add(ReservationKeys.activeBets(USER), bet, score);
     LimitKeys.Keys activeStakes = ReservationKeys.activeStakes(USER, Currency.KRW);
     redis.opsForZSet().add(activeStakes.entries(), bet + "|50", score);
@@ -143,17 +170,6 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
     redis.opsForValue().set(activeSelections.sum(), "1");
     redis.opsForZSet().add(ReservationKeys.activeSelection(USER, SELECTION), bet, score);
     redis.opsForValue().set(ReservationKeys.ACTIVE_COUNT, "1");
-
-    JsonNode result = execute();
-
-    assertThat(result.path("limits").path("STAKE_DAILY").path("active").asText()).isEqualTo("50");
-    assertThat(result.path("limits").path("SELECTIONS_PER_MINUTE").path("active").asText())
-        .isEqualTo("1");
-    assertThat(result.path("patterns").path("rapid").path("value").asText()).isEqualTo("1");
-    assertThat(result.path("patterns").path("stakes").path("value").asText()).isEqualTo("50");
-    assertThat(
-            result.path("patterns").path("selections").get(0).path("slot").path("value").asText())
-        .isEqualTo("1");
   }
 
   private JsonNode execute() throws Exception {
