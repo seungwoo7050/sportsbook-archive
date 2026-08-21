@@ -10,13 +10,18 @@ import com.sportsbook.protocol.value.MarketId;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
+import org.springframework.data.redis.connection.stream.PendingMessage;
+import org.springframework.data.redis.connection.stream.PendingMessages;
 import org.springframework.data.redis.connection.stream.ReadOffset;
+import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.connection.stream.StreamOffset;
 import org.springframework.data.redis.connection.stream.StreamReadOptions;
 import org.springframework.data.redis.core.RedisCallback;
@@ -97,16 +102,22 @@ public class OperatorActionQueue {
 
   public List<QueuedOperatorMarketAction> poll() {
     ensureGroup();
-    List<MapRecord<String, String, String>> records =
-        streamOperations()
-            .read(
-                Consumer.from(properties.consumerGroup(), properties.consumerName()),
-                StreamReadOptions.empty().count(properties.batchSize()),
-                StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
+    PendingMessages pending = pendingMessages();
+    List<MapRecord<String, String, String>> records = claimExpired(pending);
+    boolean reclaimed = !records.isEmpty();
+    if (records.isEmpty() && pending.isEmpty()) {
+      records =
+          streamOperations()
+              .read(
+                  Consumer.from(properties.consumerGroup(), properties.consumerName()),
+                  StreamReadOptions.empty().count(properties.batchSize()),
+                  StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
+    }
     if (records == null || records.isEmpty()) {
       return List.of();
     }
-    return records.stream().map(record -> codec.decode(record, false)).toList();
+    boolean reclaimedRecord = reclaimed;
+    return records.stream().map(record -> codec.decode(record, reclaimedRecord)).toList();
   }
 
   public void cleanup(QueuedOperatorMarketAction queued) {
@@ -169,6 +180,37 @@ public class OperatorActionQueue {
       }
     }
     groupReady.set(true);
+  }
+
+  private PendingMessages pendingMessages() {
+    return streamOperations()
+        .pending(
+            properties.streamKey(),
+            properties.consumerGroup(),
+            Range.unbounded(),
+            properties.batchSize());
+  }
+
+  private List<MapRecord<String, String, String>> claimExpired(PendingMessages pending) {
+    List<RecordId> claimable = new ArrayList<>();
+    for (PendingMessage message : pending) {
+      if (message.getElapsedTimeSinceLastDelivery().compareTo(properties.claimIdle()) < 0) {
+        break;
+      }
+      claimable.add(message.getId());
+    }
+    if (claimable.isEmpty()) {
+      return List.of();
+    }
+    List<MapRecord<String, String, String>> claimed =
+        streamOperations()
+            .claim(
+                properties.streamKey(),
+                properties.consumerGroup(),
+                properties.consumerName(),
+                properties.claimIdle(),
+                claimable.toArray(RecordId[]::new));
+    return claimed == null ? List.of() : claimed;
   }
 
   private StreamOperations<String, String, String> streamOperations() {
