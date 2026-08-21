@@ -1,0 +1,22 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "WalletCredited",
+  "doc": "Wallet credited as a payout, void refund, or other refund (ADR-0006 Saga + Outbox).",
+  "fields": [
+    {"name": "userId", "type": "string"},
+    {"name": "amount", "type": "Money", "doc": "Amount added to the user's available balance."},
+    {"name": "idempotencyKey", "type": "string", "doc": "Caller-supplied idempotency key (ADR-0005)."},
+    {"name": "ledgerTxId", "type": "string", "doc": "Ledger journal entry UUID."},
+    {
+      "name": "reason",
+      "type": {
+        "type": "enum",
+        "name": "WalletCreditReason",
+        "symbols": ["PAYOUT", "VOID", "REFUND"]
+      },
+      "doc": "Why the credit was issued — drives downstream reporting and ledger account selection."
+    },
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
