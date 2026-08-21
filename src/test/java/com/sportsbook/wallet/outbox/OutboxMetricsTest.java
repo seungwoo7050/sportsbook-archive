@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.wallet.persistence.OutboxDeliveryRepository;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class OutboxMetricsTest {
 
@@ -47,6 +49,41 @@ class OutboxMetricsTest {
     assertThat(count(registry, "wallet.outbox.lease.takeovers")).isEqualTo(1);
     assertThat(count(registry, "wallet.outbox.retried")).isEqualTo(1);
     assertThat(count(registry, "wallet.outbox.fenced.completion")).isEqualTo(1);
+  }
+
+  @Test
+  void cachesBacklogSoGaugeReadsDoNotQueryTheRepository() {
+    OutboxDeliveryRepository delivery = mock(OutboxDeliveryRepository.class);
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    OutboxMetrics metrics = new OutboxMetrics(registry);
+    OutboxBacklogSnapshot snapshot = new OutboxBacklogSnapshot(7, 2, 12.5);
+    when(delivery.snapshot()).thenReturn(snapshot);
+    OutboxBacklogSampler sampler = new OutboxBacklogSampler(delivery, metrics);
+
+    sampler.sample();
+
+    verify(delivery).snapshot();
+    assertThat(registry.get("wallet.outbox.pending").gauge().value()).isEqualTo(7);
+    assertThat(registry.get("wallet.outbox.leased").gauge().value()).isEqualTo(2);
+    assertThat(registry.get("wallet.outbox.oldest.pending.seconds").gauge().value())
+        .isEqualTo(12.5);
+    verifyNoMoreInteractions(delivery);
+  }
+
+  @Test
+  void createsTheBacklogSamplerOnlyWithOutboxScheduling() {
+    ApplicationContextRunner context =
+        new ApplicationContextRunner()
+            .withBean(OutboxDeliveryRepository.class, () -> mock(OutboxDeliveryRepository.class))
+            .withBean(OutboxMetrics.class, () -> new OutboxMetrics(new SimpleMeterRegistry()))
+            .withUserConfiguration(OutboxBacklogSampler.class);
+
+    context
+        .withPropertyValues("wallet.outbox.scheduling-enabled=false")
+        .run(disabled -> assertThat(disabled).doesNotHaveBean(OutboxBacklogSampler.class));
+    context
+        .withPropertyValues("wallet.outbox.scheduling-enabled=true")
+        .run(enabled -> assertThat(enabled).hasSingleBean(OutboxBacklogSampler.class));
   }
 
   private double count(SimpleMeterRegistry registry, String name) {
