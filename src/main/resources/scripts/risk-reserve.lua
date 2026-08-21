@@ -222,19 +222,24 @@ end
 local function readWindow(entries, sum, window)
   local errorText = typeError(entries, "zset") or typeError(sum, "string")
   if errorText then return nil, errorText end
-  if keyType(entries) == "none" then redis.call("DEL", sum); return 0, nil end
-  local total = exact(redis.call("GET", sum), false)
-  if not total then return nil, "missing or corrupt rolling sum" end
-  local expired, removed = redis.call("ZRANGEBYSCORE", entries, "-inf", now - window), 0
-  for _, member in ipairs(expired) do
-    local value = memberAmount(member)
-    if not value or removed > maxExact - value then return nil, "corrupt rolling member" end
-    removed = removed + value
+  local values, actual, removed = redis.call("ZRANGE", entries, 0, -1, "WITHSCORES"), 0, 0
+  local cutoff = now - window
+  for index = 1, #values, 2 do
+    local value, score = memberAmount(values[index]), tonumber(values[index + 1])
+    local nextActual = value and checkedAdd(actual, value) or nil
+    if not nextActual or not score then return nil, "corrupt rolling member" end
+    actual = nextActual
+    if score <= cutoff then
+      local nextRemoved = checkedAdd(removed, value)
+      if not nextRemoved then return nil, "corrupt rolling member" end
+      removed = nextRemoved
+    end
   end
-  if removed > total then return nil, "rolling sum underflow" end
-  if #expired > 0 then redis.call("ZREMRANGEBYSCORE", entries, "-inf", now - window) end
-  total = total - removed
-  if redis.call("ZCARD", entries) == 0 then redis.call("DEL", entries, sum); return 0, nil end
+  local stored = exact(redis.call("GET", sum) or "0", false)
+  if not stored or stored ~= actual then return nil, "corrupt rolling aggregate" end
+  if removed > 0 then redis.call("ZREMRANGEBYSCORE", entries, "-inf", cutoff) end
+  local total = actual - removed
+  if total == 0 then redis.call("DEL", entries, sum); return 0, nil end
   redis.call("SET", sum, string.format("%.0f", total), "PX", window + 300000)
   redis.call("PEXPIRE", entries, window + 300000)
   return total, nil
