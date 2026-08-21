@@ -119,6 +119,36 @@ class RecoveryQueueIntegrityRepositoryTest {
     deleteRecoveryFixture(userId);
   }
 
+  @Test
+  void detectsAnAppliedTailBehindABlockedHead() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-0000000001c0");
+    insertRecoveringAccount(userId, 30L, 3L);
+    insertBlocked("1c1", userId, 1L, 10L);
+    insertBlocked("1c2", userId, 2L, 20L);
+    String tailKey = "settlement:revision:019b76da-a000-7000-8000-0000000001c2";
+    UUID groupId = UUID.fromString("019b76da-a000-7000-8000-0000000001c3");
+    jdbc.update(
+        """
+        UPDATE wallet_operation SET status = 'SUCCEEDED', operation_group_id = ?,
+          completed_at = now(), updated_at = now() WHERE idempotency_key = ?
+        """,
+        groupId,
+        tailKey);
+    jdbc.update(
+        """
+        UPDATE wallet_adjustment SET status = 'APPLIED', operation_group_id = ?,
+          applied_at = now(), next_attempt_at = NULL, updated_at = now()
+        WHERE idempotency_key = ?
+        """,
+        groupId,
+        tailKey);
+    jdbc.update("UPDATE account SET recovery_debt_amount = 10 WHERE user_id = ?", userId);
+
+    assertThat(integrity.findQueueDriftUsers()).contains(userId);
+
+    deleteRecoveryFixture(userId);
+  }
+
   private static AdjustmentCommand command(
       String revisionTail, String betTail, long revisionNumber, UUID userId, long amount) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
