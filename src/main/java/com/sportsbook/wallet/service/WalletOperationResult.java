@@ -1,6 +1,7 @@
 package com.sportsbook.wallet.service;
 
 import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.domain.BalanceBucket;
 import com.sportsbook.wallet.domain.LedgerEntry;
 import com.sportsbook.wallet.domain.LedgerReason;
 import com.sportsbook.wallet.domain.LedgerSide;
@@ -51,11 +52,52 @@ public record WalletOperationResult(
           "Ledger result must identify exactly one user account (got " + userIds.size() + ")");
     }
 
+    UUID userId = userIds.iterator().next();
+    LedgerEntry debit =
+        pair.stream().filter(entry -> entry.side() == LedgerSide.DEBIT).findFirst().orElseThrow();
+    LedgerEntry credit =
+        pair.stream().filter(entry -> entry.side() == LedgerSide.CREDIT).findFirst().orElseThrow();
+    validateTopology(first.reason(), userId, debit, credit);
+
     return new WalletOperationResult(
-        first.operationGroupId(),
-        userIds.iterator().next(),
-        first.money(),
-        first.reason(),
-        first.createdAt());
+        first.operationGroupId(), userId, first.money(), first.reason(), first.createdAt());
+  }
+
+  private static void validateTopology(
+      LedgerReason reason, UUID userId, LedgerEntry debit, LedgerEntry credit) {
+    boolean valid =
+        switch (reason) {
+          case DEPOSIT ->
+              matches(debit, userId, BalanceBucket.AVAILABLE)
+                  && matches(credit, SystemAccountIds.EXTERNAL_PAYMENT, BalanceBucket.AVAILABLE);
+          case WITHDRAW ->
+              matches(debit, SystemAccountIds.EXTERNAL_PAYMENT, BalanceBucket.AVAILABLE)
+                  && matches(credit, userId, BalanceBucket.AVAILABLE);
+          case BET_DEBIT ->
+              matches(debit, userId, BalanceBucket.LOCKED)
+                  && matches(credit, userId, BalanceBucket.AVAILABLE);
+          case BET_PAYOUT ->
+              matches(debit, userId, BalanceBucket.AVAILABLE)
+                  && matches(credit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE);
+          case BET_REFUND ->
+              matches(debit, userId, BalanceBucket.AVAILABLE)
+                  && matches(credit, userId, BalanceBucket.LOCKED);
+          case BET_FORFEIT ->
+              matches(debit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE)
+                  && matches(credit, userId, BalanceBucket.LOCKED);
+          case BET_ADJUSTMENT ->
+              (matches(debit, userId, BalanceBucket.AVAILABLE)
+                      && matches(credit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE))
+                  || (matches(debit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE)
+                      && matches(credit, userId, BalanceBucket.AVAILABLE));
+        };
+    if (!valid) {
+      throw new IllegalStateException(
+          "Ledger result topology does not match reason " + reason.name());
+    }
+  }
+
+  private static boolean matches(LedgerEntry entry, UUID accountId, BalanceBucket bucket) {
+    return entry.accountId().equals(accountId) && entry.bucket() == bucket;
   }
 }
