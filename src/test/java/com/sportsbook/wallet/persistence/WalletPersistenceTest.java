@@ -583,6 +583,32 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void debitsReferenceTheUserLockedLedgerRowRatherThanTheOperationGroup() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000023");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:debit-proof")));
+    DebitCommand command =
+        new DebitCommand(userId, Money.krw(60L), IdempotencyKey.of("debit:ledger-proof"));
+
+    var result = wallet.debit(command);
+    var message = outboxFor(command.idempotencyKey()).get(0);
+    var event =
+        com.sportsbook.wallet.outbox.AvroSerializer.deserialize(
+            message.payload(), com.sportsbook.protocol.event.WalletDebited.class);
+    LedgerEntry userSide =
+        ledger.findByIdempotencyKey(command.idempotencyKey().value()).stream()
+            .filter(entry -> entry.side() == com.sportsbook.wallet.domain.LedgerSide.DEBIT)
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(userSide.accountId()).isEqualTo(userId);
+    assertThat(userSide.bucket()).isEqualTo(BalanceBucket.LOCKED);
+    assertThat(event.getLedgerTxId()).isEqualTo(userSide.entryId().toString());
+    assertThat(event.getLedgerTxId()).isNotEqualTo(result.operationGroupId().toString());
+  }
+
+  @Test
   void exactlyReplaysATerminalDebitFailureAfterFundsArrive() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000001c");
     wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
