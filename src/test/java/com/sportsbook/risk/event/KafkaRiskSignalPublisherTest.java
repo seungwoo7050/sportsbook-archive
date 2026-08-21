@@ -13,9 +13,16 @@ import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.event.RiskLimitType;
 import com.sportsbook.protocol.event.RiskLimitViolated;
+import com.sportsbook.protocol.event.RiskPatternSuspected;
+import com.sportsbook.protocol.event.RiskPatternType;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.counter.LimitType;
+import com.sportsbook.risk.pattern.PatternMatch;
+import com.sportsbook.risk.pattern.rule.RapidBettingRule;
+import com.sportsbook.risk.pattern.rule.RepeatedSameSelectionRule;
+import com.sportsbook.risk.pattern.rule.SuddenStakeIncreaseRule;
+import com.sportsbook.risk.policy.PatternAction;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.UUID;
@@ -89,6 +96,52 @@ class KafkaRiskSignalPublisherTest {
 
     assertThat(meters.get("risk.signal.delivery").tag("outcome", "failed").counter().count())
         .isEqualTo(2);
+  }
+
+  @Test
+  void mapsSupportedPatternSignalsWithStableEvidence() {
+    KafkaTemplate<String, byte[]> kafka = template();
+    KafkaRiskSignalPublisher publisher = new KafkaRiskSignalPublisher(kafka, TOPICS);
+    ArgumentCaptor<byte[]> payload = ArgumentCaptor.forClass(byte[].class);
+
+    publisher.publishPattern(
+        USER,
+        new PatternMatch(RapidBettingRule.NAME, PatternAction.SUSPECT, "rapid"),
+        Instant.EPOCH);
+    publisher.publishPattern(
+        USER,
+        new PatternMatch(SuddenStakeIncreaseRule.NAME, PatternAction.BLOCK, "sudden"),
+        Instant.EPOCH);
+    publisher.publishPattern(
+        USER,
+        new PatternMatch(RepeatedSameSelectionRule.NAME, PatternAction.SUSPECT, "repeated"),
+        Instant.EPOCH);
+
+    verify(kafka, times(3))
+        .send(eq(TOPICS.patternSuspected()), eq(USER.value().toString()), payload.capture());
+    assertThat(payload.getAllValues())
+        .extracting(value -> AvroCodec.decode(value, RiskPatternSuspected.class))
+        .extracting(RiskPatternSuspected::getPatternType)
+        .containsExactly(
+            RiskPatternType.RAPID_BETTING,
+            RiskPatternType.SUDDEN_STAKE_INCREASE,
+            RiskPatternType.REPEATED_SAME_SELECTION);
+    RiskPatternSuspected blocked =
+        AvroCodec.decode(payload.getAllValues().get(1), RiskPatternSuspected.class);
+    assertThat(blocked.getEvidence())
+        .containsEntry("action", "BLOCK")
+        .containsEntry("reason", "sudden");
+  }
+
+  @Test
+  void skipsUnknownPatternSignals() {
+    KafkaTemplate<String, byte[]> kafka = template();
+    KafkaRiskSignalPublisher publisher = new KafkaRiskSignalPublisher(kafka, TOPICS);
+
+    publisher.publishPattern(
+        USER, new PatternMatch("UNKNOWN", PatternAction.SUSPECT, "unknown"), Instant.EPOCH);
+
+    verify(kafka, times(0)).send(any(), any(), any());
   }
 
   @SuppressWarnings("unchecked")
