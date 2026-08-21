@@ -10,6 +10,8 @@ import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.persistence.AccountRepository;
+import com.sportsbook.wallet.service.command.CreditCommand;
+import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
@@ -111,6 +113,30 @@ public class WalletService {
               new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.LOCKED),
               new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
               LedgerReason.BET_DEBIT);
+        });
+  }
+
+  public WalletOperationResult credit(WalletCaller caller, CreditCommand command) {
+    return transferExecutor.executeCredit(
+        caller,
+        command,
+        (account, now) -> {
+          LedgerEntry.TransferLeg source;
+          if (command.source() == CreditCommand.Source.USER_LOCKED) {
+            account.moveLockedToAvailable(command.amount(), now);
+            source = new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.LOCKED);
+          } else {
+            account.increaseAvailable(command.amount(), now);
+            source = new LedgerEntry.TransferLeg(SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE);
+          }
+          LedgerReason reason =
+              command.reason() == CreditReason.PAYOUT
+                  ? LedgerReason.BET_PAYOUT
+                  : LedgerReason.BET_REFUND;
+          return new WalletTransferPlan(
+              new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
+              source,
+              reason);
         });
   }
 

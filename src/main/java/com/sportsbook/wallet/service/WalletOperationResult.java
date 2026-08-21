@@ -81,7 +81,8 @@ public record WalletOperationResult(
                   && matches(credit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE);
           case BET_REFUND ->
               matches(debit, userId, BalanceBucket.AVAILABLE)
-                  && matches(credit, userId, BalanceBucket.LOCKED);
+                  && (matches(credit, userId, BalanceBucket.LOCKED)
+                      || matches(credit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE));
           case BET_FORFEIT ->
               matches(debit, SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE)
                   && matches(credit, userId, BalanceBucket.LOCKED);
