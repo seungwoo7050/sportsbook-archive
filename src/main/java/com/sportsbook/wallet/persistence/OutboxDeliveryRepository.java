@@ -1,6 +1,7 @@
 package com.sportsbook.wallet.persistence;
 
 import com.sportsbook.wallet.outbox.LeasedOutboxMessage;
+import com.sportsbook.wallet.outbox.OutboxBacklogSnapshot;
 import com.sportsbook.wallet.outbox.OutboxLease;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -73,6 +74,18 @@ public class OutboxDeliveryRepository {
                 e.lease_owner, e.lease_version, e.lease_until
       """;
 
+  private static final String SNAPSHOT_SQL =
+      """
+      WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
+      SELECT COUNT(*) FILTER (WHERE e.published_at IS NULL) AS pending_count,
+             COUNT(*) FILTER (
+                 WHERE e.published_at IS NULL AND e.lease_until > c.now) AS leased_count,
+             GREATEST(COALESCE(EXTRACT(EPOCH FROM (
+                 MAX(c.now) - MIN(e.created_at) FILTER (WHERE e.published_at IS NULL))), 0), 0)
+                 AS oldest_pending_seconds
+      FROM outbox_event e CROSS JOIN db_clock c
+      """;
+
   private static final Comparator<LeasedOutboxMessage> DELIVERY_ORDER =
       Comparator.comparing(LeasedOutboxMessage::createdAt)
           .thenComparing(message -> message.lease().eventId());
@@ -115,6 +128,18 @@ public class OutboxDeliveryRepository {
     parameters.put("delayMillis", delay.toMillis());
     parameters.put("error", error);
     return jdbc.update(RETRY_SQL, parameters) == 1;
+  }
+
+  @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW, timeout = 5)
+  public OutboxBacklogSnapshot snapshot() {
+    return jdbc.queryForObject(
+        SNAPSHOT_SQL,
+        Map.of(),
+        (resultSet, rowNumber) ->
+            new OutboxBacklogSnapshot(
+                resultSet.getLong("pending_count"),
+                resultSet.getLong("leased_count"),
+                resultSet.getDouble("oldest_pending_seconds")));
   }
 
   private Map<String, Object> leaseParameters(OutboxLease lease) {
