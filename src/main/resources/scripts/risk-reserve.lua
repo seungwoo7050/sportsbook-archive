@@ -2,6 +2,7 @@ local maxExact = 9007199254740991
 local now, lease, retention = tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4])
 local fingerprint, userId, betId = ARGV[5], ARGV[6], ARGV[7]
 local stakeText, currency, countText = ARGV[8], ARGV[9], ARGV[10]
+local expiredCount = 0
 
 local function exact(text, positive)
   if not text or not string.match(text, "^%d+$") then return nil end
@@ -18,8 +19,18 @@ local function checkedAdd(left, right)
   if left > maxExact - right then return nil end
   return left + right
 end
+local function split(encoded, expected)
+  local values = {}
+  for value in string.gmatch(encoded or "", "[^,]+") do table.insert(values, value) end
+  if #values == expected then return values end
+end
+local function decrement(key, amount)
+  local nextValue = exact(redis.call("GET", key), false) - amount
+  if nextValue == 0 then redis.call("DEL", key)
+  else redis.call("SET", key, string.format("%.0f", nextValue)) end
+end
 local function response(payload)
-  payload.version, payload.expired = "1", "0"
+  payload.version, payload.expired = "1", string.format("%.0f", expiredCount)
   return cjson.encode(payload)
 end
 
@@ -41,6 +52,74 @@ local errorText = typeError(KEYS[1], "hash") or typeError(KEYS[2], "zset")
   or typeError(KEYS[5], "zset") or typeError(KEYS[6], "string")
   or typeError(KEYS[7], "hash") or typeError(KEYS[18], "string")
 if errorText then return redis.error_reply(errorText) end
+
+local activeBase, cleanups, stakeDecrements =
+  "risk:reservations:user:{" .. userId .. "}", {}, {}
+local selectionDecrement = 0
+for _, activeBetId in ipairs(redis.call("ZRANGE", KEYS[2], 0, -1)) do
+  local lifecycle = "risk:reservation:" .. activeBetId
+  if keyType(lifecycle) ~= "hash" then return redis.error_reply("missing active lifecycle") end
+  local state = redis.call("HGET", lifecycle, "state")
+  local expiresAt = exact(redis.call("HGET", lifecycle, "expiresAt"), false)
+  if not expiresAt then return redis.error_reply("corrupt active expiry") end
+  if state ~= "RESERVED" or expiresAt <= now then
+    local oldStakeText = redis.call("HGET", lifecycle, "stake")
+    local oldCountText = redis.call("HGET", lifecycle, "selectionCount")
+    local oldCurrency = redis.call("HGET", lifecycle, "currency")
+    local oldStake, oldCount = exact(oldStakeText, true), exact(oldCountText, true)
+    local oldSelections = split(redis.call("HGET", lifecycle, "selections"), oldCount or -1)
+    if redis.call("HGET", lifecycle, "userId") ~= userId or not oldStake
+      or not oldCount or not oldCurrency or not oldSelections then
+      return redis.error_reply("corrupt active lifecycle")
+    end
+    local stakeBase = activeBase .. ":stakes:" .. string.lower(oldCurrency)
+    local entries, sum = stakeBase .. ":entries", stakeBase .. ":sum"
+    local cleanupError = typeError(entries, "zset") or typeError(sum, "string")
+    if cleanupError or not redis.call("ZSCORE", entries, activeBetId .. "|" .. oldStakeText)
+      or not redis.call("ZSCORE", KEYS[5], activeBetId .. "|" .. oldCountText) then
+      return redis.error_reply(cleanupError or "missing active footprint")
+    end
+    for _, selectionId in ipairs(oldSelections) do
+      local key = activeBase .. ":selection:" .. selectionId
+      local selectionError = typeError(key, "zset")
+      if selectionError or not redis.call("ZSCORE", key, activeBetId) then
+        return redis.error_reply(selectionError or "missing selection footprint")
+      end
+    end
+    table.insert(cleanups, {activeBetId, lifecycle, state, oldStakeText, oldCountText,
+      entries, sum, oldSelections})
+    stakeDecrements[sum] = (stakeDecrements[sum] or 0) + oldStake
+    selectionDecrement = selectionDecrement + oldCount
+  end
+end
+for sum, value in pairs(stakeDecrements) do
+  local current = exact(redis.call("GET", sum), false)
+  if not current or current < value then return redis.error_reply("corrupt active stake sum") end
+end
+if #cleanups > 0 then
+  local selectionsTotal, gauge = exact(redis.call("GET", KEYS[6]), false),
+    exact(redis.call("GET", KEYS[18]), false)
+  if not selectionsTotal or selectionsTotal < selectionDecrement or not gauge or gauge < #cleanups then
+    return redis.error_reply("corrupt active totals")
+  end
+end
+for _, item in ipairs(cleanups) do
+  redis.call("ZREM", KEYS[2], item[1]); redis.call("ZREM", item[6], item[1] .. "|" .. item[4])
+  redis.call("ZREM", KEYS[5], item[1] .. "|" .. item[5])
+  for _, selectionId in ipairs(item[8]) do
+    local key = activeBase .. ":selection:" .. selectionId
+    redis.call("ZREM", key, item[1]); if redis.call("ZCARD", key) == 0 then redis.call("DEL", key) end
+  end
+  if item[3] == "RESERVED" then
+    redis.call("HSET", item[2], "state", "EXPIRED", "expiredAt", string.format("%.0f", now))
+    redis.call("PEXPIRE", item[2], retention); expiredCount = expiredCount + 1
+  end
+end
+for sum, value in pairs(stakeDecrements) do decrement(sum, value) end
+if selectionDecrement > 0 then decrement(KEYS[6], selectionDecrement) end
+if #cleanups > 0 then decrement(KEYS[18], #cleanups) end
+if redis.call("ZCARD", KEYS[2]) == 0 then redis.call("DEL", KEYS[2]) end
+if redis.call("ZCARD", KEYS[5]) == 0 then redis.call("DEL", KEYS[5]) end
 local existing = redis.call("HGET", KEYS[1], "state")
 if existing then
   if redis.call("HGET", KEYS[1], "fingerprint") ~= fingerprint then
