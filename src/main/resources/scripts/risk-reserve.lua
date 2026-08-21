@@ -159,10 +159,9 @@ end
 local function action(value)
   if value == "SUSPECT" or value == "REVIEW" or value == "BLOCK" then return value end
 end
-local patterns, firstBlock = {}, nil
+local matches = {}
 local function addPattern(rule, configuredAction, reason)
-  table.insert(patterns, {rule = rule, action = configuredAction, reason = reason})
-  if configuredAction == "BLOCK" and not firstBlock then firstBlock = rule end
+  matches[rule] = {rule = rule, action = configuredAction, reason = reason}
 end
 if ARGV[20] == "1" then
   local rapidError = typeError(KEYS[16], "zset") or typeError(KEYS[2], "zset")
@@ -268,6 +267,14 @@ if sudden then
   local suddenAction = action(ARGV[27])
   if not suddenAction then return redis.error_reply("invalid sudden action") end
   addPattern("SUDDEN_STAKE_INCREASE", suddenAction, "sudden stake threshold reached")
+end
+local patterns, firstBlock = {}, nil
+for _, rule in ipairs({"RAPID_BETTING", "SUDDEN_STAKE_INCREASE", "REPEATED_SAME_SELECTION"}) do
+  local match = matches[rule]
+  if match then
+    table.insert(patterns, match)
+    if match.action == "BLOCK" and not firstBlock then firstBlock = rule end
+  end
 end
 local patternsJson = #patterns == 0 and "[]" or cjson.encode(patterns)
 if firstBlock then
