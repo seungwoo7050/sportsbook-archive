@@ -24,17 +24,27 @@ import org.springframework.data.redis.connection.stream.StreamReadOptions;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 @Component
 public class CriticalEventQueue {
 
   private static final String PAYLOAD_FIELD = "payload";
+  private static final RedisScript<Long> ACKNOWLEDGE =
+      RedisScript.of(
+          """
+          local acknowledged = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
+          redis.call('XDEL', KEYS[1], ARGV[2])
+          return acknowledged
+          """,
+          Long.class);
 
   private final StringRedisTemplate redis;
   private final ObjectMapper objectMapper;
   private final CriticalDeliveryProperties properties;
   private final Counter enqueued;
+  private final Counter acknowledged;
   private final Counter reclaimed;
   private final Counter failures;
   private final AtomicBoolean healthy = new AtomicBoolean(true);
@@ -50,6 +60,7 @@ public class CriticalEventQueue {
     this.objectMapper = objectMapper;
     this.properties = properties;
     this.enqueued = meterRegistry.counter("oddsfeed.critical.delivery.enqueued");
+    this.acknowledged = meterRegistry.counter("oddsfeed.critical.delivery.acknowledged");
     this.reclaimed = meterRegistry.counter("oddsfeed.critical.delivery.reclaimed");
     this.failures = meterRegistry.counter("oddsfeed.critical.delivery.failure");
     meterRegistry.gauge("oddsfeed.critical.delivery.pending", pendingCount);
@@ -104,6 +115,26 @@ public class CriticalEventQueue {
       return records.stream().map(record -> decode(record, reclaimedRecord)).toList();
     } catch (RuntimeException error) {
       groupReady.set(false);
+      healthy.set(false);
+      failures.increment();
+      throw error;
+    }
+  }
+
+  public void acknowledge(QueuedCriticalEvent queued) {
+    try {
+      Long count =
+          redis.execute(
+              ACKNOWLEDGE,
+              List.of(properties.streamKey()),
+              properties.consumerGroup(),
+              queued.recordId().getValue());
+      if (count != null && count > 0) {
+        acknowledged.increment();
+        pendingCount.updateAndGet(current -> Math.max(0, current - 1));
+      }
+      healthy.set(true);
+    } catch (DataAccessException error) {
       healthy.set(false);
       failures.increment();
       throw error;
