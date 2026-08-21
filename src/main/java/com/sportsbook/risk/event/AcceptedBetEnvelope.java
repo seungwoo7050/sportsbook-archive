@@ -38,7 +38,7 @@ public record AcceptedBetEnvelope(RiskCheckCommand command, Instant requestedAt)
 
     UserId userId = UserId.of(uuid(event.getUserId(), "userId"));
     if (!userId.value().toString().equals(kafkaKey)) {
-      throw new IllegalArgumentException("Kafka key must equal userId");
+      throw new BetPlacedKeyMismatchException();
     }
     BetId betId = BetId.of(uuid(event.getBetId(), "betId"));
     List<SelectionId> selectionIds =
