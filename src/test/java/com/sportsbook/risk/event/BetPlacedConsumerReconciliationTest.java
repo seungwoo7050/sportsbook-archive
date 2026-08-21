@@ -9,13 +9,16 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.ZoneOffset;
+import java.util.Locale;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -25,17 +28,21 @@ class BetPlacedConsumerReconciliationTest {
   private final AcceptedBetReconciler reconciler = mock(AcceptedBetReconciler.class);
   private final BetPlacedDeadLetterPublisher deadLetters = mock(BetPlacedDeadLetterPublisher.class);
   private final Acknowledgment acknowledgment = mock(Acknowledgment.class);
+  private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
   private BetPlacedConsumer consumer;
 
   @BeforeEach
   void setUp() {
     Clock clock = Clock.fixed(BetPlacedEventFixture.OBSERVED_AT, ZoneOffset.UTC);
-    consumer = new BetPlacedConsumer(reconciler, deadLetters, clock);
+    consumer = new BetPlacedConsumer(reconciler, deadLetters, clock, meters);
   }
 
-  @Test
-  void successfulReconciliationAcknowledgesTheSourceEvent() {
-    when(reconciler.reconcile(any())).thenReturn(AcceptedBetReconciliation.CONFIRMED);
+  @ParameterizedTest
+  @EnumSource(
+      value = AcceptedBetReconciliation.class,
+      names = {"CONFIRMED", "PROJECTED", "REPLAYED"})
+  void successfulReconciliationAcknowledgesTheSourceEvent(AcceptedBetReconciliation result) {
+    when(reconciler.reconcile(any())).thenReturn(result);
 
     consumer.onBetPlaced(
         BetPlacedEventFixture.payload(), BetPlacedEventFixture.USER_ID, acknowledgment);
@@ -46,6 +53,7 @@ class BetPlacedConsumerReconciliationTest {
     assertThat(envelope.getValue().command().now()).isEqualTo(BetPlacedEventFixture.OBSERVED_AT);
     verify(deadLetters, never()).publishAndAwait(any(), any(), any());
     verify(acknowledgment).acknowledge();
+    assertThat(reconciliationCount(result)).isEqualTo(1.0);
   }
 
   @ParameterizedTest
@@ -60,6 +68,7 @@ class BetPlacedConsumerReconciliationTest {
     InOrder order = inOrder(deadLetters, acknowledgment);
     order.verify(deadLetters).publishAndAwait(BetPlacedEventFixture.USER_ID, payload, reason);
     order.verify(acknowledgment).acknowledge();
+    assertThat(reconciliationCount(result)).isEqualTo(1.0);
   }
 
   @Test
@@ -75,6 +84,13 @@ class BetPlacedConsumerReconciliationTest {
 
     verify(deadLetters, never()).publishAndAwait(any(), any(), any());
     verify(acknowledgment, never()).acknowledge();
+    assertThat(meters.find("risk.bet.placed.reconciliation").counters()).isEmpty();
+  }
+
+  private double reconciliationCount(AcceptedBetReconciliation result) {
+    return meters
+        .counter("risk.bet.placed.reconciliation", "result", result.name().toLowerCase(Locale.ROOT))
+        .count();
   }
 
   private static Stream<Arguments> permanentResults() {
