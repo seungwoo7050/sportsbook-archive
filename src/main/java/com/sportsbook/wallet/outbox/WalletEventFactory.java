@@ -1,11 +1,13 @@
 package com.sportsbook.wallet.outbox;
 
+import com.sportsbook.protocol.event.WalletCredited;
 import com.sportsbook.protocol.event.WalletDebitFailed;
 import com.sportsbook.protocol.event.WalletDebitFailureReason;
 import com.sportsbook.protocol.event.WalletDebited;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletFailureCode;
 import com.sportsbook.wallet.domain.WalletFailureSnapshot;
+import com.sportsbook.wallet.service.command.CreditCommand;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -17,6 +19,27 @@ public class WalletEventFactory {
 
   public static final String DEBITED_TOPIC = "wallet.debited.v1";
   public static final String DEBIT_FAILED_TOPIC = "wallet.debit-failed.v1";
+  public static final String CREDITED_TOPIC = "wallet.credited.v1";
+
+  public PendingOutboxMessage credited(
+      CreditCommand command, UUID destinationLedgerEntryId, Instant occurredAt) {
+    WalletCredited event =
+        new WalletCredited(
+            command.userId().toString(),
+            eventMoney(command.amount()),
+            command.idempotencyKey().value(),
+            destinationLedgerEntryId.toString(),
+            com.sportsbook.protocol.event.WalletCreditReason.valueOf(command.reason().name()),
+            wireTime(occurredAt));
+    return PendingOutboxMessage.create(
+        command.idempotencyKey().value(),
+        CREDITED_TOPIC,
+        command.userId().toString(),
+        WalletCredited.getClassSchema().getName(),
+        command.idempotencyKey().value(),
+        AvroSerializer.serialize(event),
+        occurredAt);
+  }
 
   public PendingOutboxMessage debited(
       DebitCommand command, UUID destinationLedgerEntryId, Instant occurredAt) {
