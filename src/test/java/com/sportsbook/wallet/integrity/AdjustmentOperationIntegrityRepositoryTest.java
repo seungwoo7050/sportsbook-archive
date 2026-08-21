@@ -216,6 +216,27 @@ class AdjustmentOperationIntegrityRepositoryTest {
         key);
   }
 
+  @Test
+  void detectsAdjustmentOperationsWithoutProofs() {
+    String key = "integrity:orphan-adjustment-operation";
+    jdbc.update(
+        """
+        INSERT INTO wallet_operation(idempotency_key, caller_id, operation_kind, user_id,
+          request_amount, request_currency, request_fingerprint, status,
+          failure_code, failure_http_status, failure_title, failure_detail,
+          requested_at, updated_at, completed_at)
+        VALUES (?, 'SETTLEMENT', 'BET_ADJUSTMENT', ?, 10, 'KRW', ?, 'REJECTED',
+          'ACCOUNT_NOT_FOUND', 404, 'Account not found', 'Missing account', now(), now(), now())
+        """,
+        key,
+        UUID.fromString("019b76da-a000-7000-8000-0000000001ce"),
+        "e".repeat(64));
+
+    assertThat(integrity.findOutcomeDriftKeys()).contains(key);
+
+    jdbc.update("DELETE FROM wallet_operation WHERE idempotency_key = ?", key);
+  }
+
   private static AdjustmentCommand command(
       String revisionTail, String betTail, UUID userId, long previous, long next) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
