@@ -121,6 +121,45 @@ public class Account {
     return nextAdjustmentSequence;
   }
 
+  public boolean isOutboundFrozen() {
+    return recoveryDebtAmount.signum() > 0;
+  }
+
+  public long queueRecoveryDebt(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    long sequence = nextAdjustmentSequence;
+    long nextSequence = Math.incrementExact(sequence);
+    BigInteger nextDebt = recoveryDebtAmount.add(BigInteger.valueOf(amount.amount()));
+    nextAdjustmentSequence = nextSequence;
+    recoveryDebtAmount = nextDebt;
+    if (recoveryFrozenAt == null) {
+      recoveryFrozenAt = now;
+    }
+    updatedAt = now;
+    return sequence;
+  }
+
+  public void recoverAvailable(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    if (available.amount() < amount.amount()) {
+      throw new InsufficientBalanceException(userId, amount, available.toMoney());
+    }
+    BigInteger nextDebt = recoveryDebtAmount.subtract(BigInteger.valueOf(amount.amount()));
+    if (nextDebt.signum() < 0) {
+      throw new IllegalArgumentException("Recovery payment exceeds outstanding debt");
+    }
+    available = new EmbeddedMoney(available.amount() - amount.amount(), currency());
+    recoveryDebtAmount = nextDebt;
+    if (nextDebt.signum() == 0) {
+      recoveryFrozenAt = null;
+    }
+    updatedAt = now;
+  }
+
   public void increaseAvailable(Money amount, Instant now) {
     requirePositive(amount);
     requireSameCurrency(amount);
