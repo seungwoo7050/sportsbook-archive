@@ -45,6 +45,12 @@ class WalletTransferTopologyTest {
             new Topology(
                 LedgerReason.BET_REFUND, USER, BalanceBucket.AVAILABLE, USER, BalanceBucket.LOCKED),
             new Topology(
+                LedgerReason.BET_REFUND,
+                USER,
+                BalanceBucket.AVAILABLE,
+                SystemAccountIds.HOUSE,
+                BalanceBucket.AVAILABLE),
+            new Topology(
                 LedgerReason.BET_FORFEIT,
                 SystemAccountIds.HOUSE,
                 BalanceBucket.AVAILABLE,
