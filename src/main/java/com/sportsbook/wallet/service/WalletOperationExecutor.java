@@ -23,14 +23,17 @@ public class WalletOperationExecutor {
   private final WalletOperationRepository operations;
   private final IdempotencyKeyLock keyLocks;
   private final TransactionTemplate writeTransaction;
+  private final IdempotencyCache cache;
 
   public WalletOperationExecutor(
       WalletOperationRepository operations,
       IdempotencyKeyLock keyLocks,
-      TransactionTemplate writeTransaction) {
+      TransactionTemplate writeTransaction,
+      IdempotencyCache cache) {
     this.operations = operations;
     this.keyLocks = keyLocks;
     this.writeTransaction = writeTransaction;
+    this.cache = cache;
   }
 
   @SuppressWarnings("checkstyle:ParameterNumber")
@@ -47,32 +50,58 @@ public class WalletOperationExecutor {
       throw new IllegalStateException("Wallet operations require a non-transactional caller");
     }
 
+    boolean hinted = cacheHint(key);
     Optional<WalletOperation> replay = findOutcome(key);
     if (replay.isPresent()) {
+      if (!hinted) {
+        cacheMark(key);
+      }
       return request.requireMatching(replay.get());
     }
 
     try {
-      return Objects.requireNonNull(
-          writeTransaction.execute(
-              ignored -> {
-                keyLocks.acquire(key);
-                String fingerprint = request.fingerprint();
-                Optional<WalletOperation> winner = findOutcome(key);
-                if (winner.isPresent()) {
-                  return request.requireMatching(winner.get());
-                }
-                WalletOperation created =
-                    Objects.requireNonNull(firstWriter.apply(fingerprint), "firstWriter outcome");
-                request.requireMatching(created);
-                return operations.saveAndFlush(created);
-              }));
+      WalletOperation outcome =
+          Objects.requireNonNull(
+              writeTransaction.execute(
+                  ignored -> {
+                    keyLocks.acquire(key);
+                    String fingerprint = request.fingerprint();
+                    Optional<WalletOperation> winner = findOutcome(key);
+                    if (winner.isPresent()) {
+                      return request.requireMatching(winner.get());
+                    }
+                    WalletOperation created =
+                        Objects.requireNonNull(
+                            firstWriter.apply(fingerprint), "firstWriter outcome");
+                    request.requireMatching(created);
+                    return operations.saveAndFlush(created);
+                  }));
+      cacheMark(key);
+      return outcome;
     } catch (RuntimeException failedAttempt) {
       Optional<WalletOperation> winner = findOutcome(key);
       if (winner.isEmpty()) {
         throw PostgresFailureTranslator.translate(key, failedAttempt);
       }
-      return request.requireMatching(winner.get());
+      WalletOperation outcome = request.requireMatching(winner.get());
+      cacheMark(key);
+      return outcome;
+    }
+  }
+
+  private boolean cacheHint(IdempotencyKey key) {
+    try {
+      return cache.mightContain(key);
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+  }
+
+  private void cacheMark(IdempotencyKey key) {
+    try {
+      cache.mark(key);
+    } catch (RuntimeException ignored) {
+      // Cache state cannot change a committed PostgreSQL outcome.
     }
   }
 
