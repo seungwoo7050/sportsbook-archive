@@ -6,6 +6,7 @@ import com.sportsbook.risk.pattern.RiskHistoryProperties;
 import com.sportsbook.risk.policy.RiskLimitProperties;
 import com.sportsbook.risk.policy.RiskPatternProperties;
 import com.sportsbook.risk.service.RiskCheckCommand;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
@@ -39,6 +40,7 @@ public final class RedisRiskReservationStore implements RiskReservationStore {
   private final Timer commitLatency;
   private final Timer acceptedProjectionLatency;
   private final Timer releaseLatency;
+  private final Counter expirations;
 
   @Autowired
   public RedisRiskReservationStore(
@@ -59,6 +61,7 @@ public final class RedisRiskReservationStore implements RiskReservationStore {
     this.commitLatency = timer(meters, "commit");
     this.acceptedProjectionLatency = timer(meters, "project-accepted");
     this.releaseLatency = timer(meters, "release");
+    this.expirations = Counter.builder("risk.reservation.expirations").register(meters);
   }
 
   RedisRiskReservationStore(
@@ -75,10 +78,12 @@ public final class RedisRiskReservationStore implements RiskReservationStore {
   public ReservationDecision reserve(RiskCheckCommand command) {
     ReservationScriptRequest request =
         ReservationScriptRequest.from(command, limits, patterns, reservations, history);
-    return reserveLatency
-        .record(
-            () -> mapper.map(redis.execute(RESERVE, request.keys(), request.arguments().toArray())))
-        .decision();
+    ReservationWireMapper.Decoded decoded =
+        reserveLatency.record(
+            () ->
+                mapper.map(redis.execute(RESERVE, request.keys(), request.arguments().toArray())));
+    expirations.increment(decoded.expired());
+    return decoded.decision();
   }
 
   @Override
