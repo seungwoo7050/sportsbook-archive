@@ -75,6 +75,26 @@ class AdjustmentProofWriterTest {
             });
   }
 
+  @Test
+  void commitsAnAffordableDecreaseWithoutPartialState() {
+    Account account = Account.openFor(USER_ID, Currency.KRW, NOW);
+    account.increaseAvailable(Money.krw(500L), NOW);
+    accounts.saveAndFlush(account);
+    AdjustmentCommand command = command(1_000L, 700L);
+    Account locked = accounts.findByUserIdForUpdate(USER_ID).orElseThrow();
+
+    WalletOperation operation = writer.applyDecrease(command, "b".repeat(64), locked, NOW);
+    operations.saveAndFlush(operation);
+    adjustments.flush();
+
+    assertThat(locked.available()).isEqualTo(Money.krw(200L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
+    assertThat(adjustments.findById(REVISION_ID))
+        .get()
+        .extracting(proof -> proof.deltaAmount(), proof -> proof.status())
+        .containsExactly(-300L, AdjustmentStatus.APPLIED);
+  }
+
   private AdjustmentCommand command(long previous, long next) {
     return new AdjustmentCommand(
         REVISION_ID,
