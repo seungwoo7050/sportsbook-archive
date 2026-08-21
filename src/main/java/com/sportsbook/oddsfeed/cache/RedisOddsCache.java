@@ -1,7 +1,9 @@
 package com.sportsbook.oddsfeed.cache;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.oddsfeed.config.CacheProperties;
+import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import com.sportsbook.protocol.value.Odds;
@@ -68,6 +70,28 @@ public class RedisOddsCache {
   public Optional<Odds> getOdds(EventId eventId, MarketId marketId, SelectionId selectionId) {
     String value = redis.opsForValue().get(CacheKeys.odds(eventId, marketId, selectionId));
     return value == null ? Optional.empty() : Optional.of(Odds.ofDecimal(value));
+  }
+
+  public void storeEvent(EventSummary summary) {
+    try {
+      redis
+          .opsForValue()
+          .set(CacheKeys.event(summary.eventId()), objectMapper.writeValueAsString(summary), ttl);
+    } catch (JsonProcessingException error) {
+      throw new IllegalStateException("Failed to serialize event summary", error);
+    }
+  }
+
+  public Optional<EventSummary> getEvent(EventId eventId) {
+    String json = redis.opsForValue().get(CacheKeys.event(eventId));
+    if (json == null) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(objectMapper.readValue(json, EventSummary.class));
+    } catch (JsonProcessingException error) {
+      throw new IllegalStateException("Failed to deserialize event summary", error);
+    }
   }
 
   private String ttlMillis() {
