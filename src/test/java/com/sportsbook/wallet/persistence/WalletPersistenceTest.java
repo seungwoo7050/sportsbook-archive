@@ -714,6 +714,51 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void allowsSettlementAndAdminRefundsFromTheirAuthorizedSources() {
+    UUID settlementUser = UUID.fromString("019b76da-a000-7000-8000-000000000024");
+    wallet.openAccount(
+        new OpenAccountCommand(settlementUser, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(
+            settlementUser, Money.krw(80L), IdempotencyKey.of("deposit:settlement-refund")));
+    wallet.debit(
+        new DebitCommand(
+            settlementUser, Money.krw(80L), IdempotencyKey.of("debit:settlement-refund")));
+
+    var settlementRefund =
+        wallet.credit(
+            WalletCaller.SETTLEMENT,
+            new CreditCommand(
+                settlementUser,
+                Money.krw(30L),
+                CreditCommand.Source.USER_LOCKED,
+                CreditReason.REFUND,
+                IdempotencyKey.of("credit:settlement-refund")));
+
+    assertThat(wallet.requireAccount(settlementUser).available()).isEqualTo(Money.krw(30L));
+    assertThat(wallet.requireAccount(settlementUser).locked()).isEqualTo(Money.krw(50L));
+    assertThat(settlementRefund.reason())
+        .isEqualTo(com.sportsbook.wallet.domain.LedgerReason.BET_REFUND);
+
+    UUID adminUser = UUID.fromString("019b76da-a000-7000-8000-000000000025");
+    wallet.openAccount(
+        new OpenAccountCommand(adminUser, com.sportsbook.protocol.value.Currency.KRW));
+    var adminRefund =
+        wallet.credit(
+            WalletCaller.ADMIN,
+            new CreditCommand(
+                adminUser,
+                Money.krw(45L),
+                CreditCommand.Source.HOUSE_POOL,
+                CreditReason.REFUND,
+                IdempotencyKey.of("credit:admin-refund")));
+
+    assertThat(wallet.requireAccount(adminUser).available()).isEqualTo(Money.krw(45L));
+    assertThat(adminRefund.reason())
+        .isEqualTo(com.sportsbook.wallet.domain.LedgerReason.BET_REFUND);
+  }
+
+  @Test
   void convergesOneHundredConcurrentRequestsForOneKey() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000019");
     wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
