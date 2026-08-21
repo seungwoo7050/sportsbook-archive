@@ -56,6 +56,16 @@ class RedisOddsCacheIntegrationTest {
     assertThat(cache.getRegisteredMarkets(eventId)).containsEntry(marketId, MarketStatus.SUSPENDED);
   }
 
+  @Test
+  void registrySurvivesCacheRestart() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+
+    assertThat(cache().getRegisteredMarkets(eventId)).containsEntry(marketId, MarketStatus.OPEN);
+  }
+
   private RedisOddsCache cache() {
     return new RedisOddsCache(
         redis,
