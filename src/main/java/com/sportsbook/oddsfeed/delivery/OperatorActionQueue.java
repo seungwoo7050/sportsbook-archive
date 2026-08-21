@@ -9,6 +9,7 @@ import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.MarketId;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +38,9 @@ public class OperatorActionQueue {
   private static final String ACTION_PREFIX = "oddsfeed:operator:action:";
   private static final String SEQUENCE_PREFIX = "oddsfeed:operator:sequence:";
   private static final String COMMITTED_PREFIX = "oddsfeed:operator:committed:";
+  private static final int MAPPING_RETENTION_DAYS = 7;
+  private static final long COMPLETED_MAPPING_TTL_MILLIS =
+      Duration.ofDays(MAPPING_RETENTION_DAYS).toMillis();
   private static final int MAX_REASON_LENGTH = 256;
 
   private final StringRedisTemplate redis;
@@ -130,6 +134,42 @@ public class OperatorActionQueue {
     if (result == null || !result.matches("[01]\\|[01]")) {
       throw new IllegalStateException("Malformed operator Stream cleanup result");
     }
+  }
+
+  public DeliveryState deliveryState(OperatorMarketAction action) {
+    String raw = redis.opsForValue().get(committedKey(action.eventId(), action.marketId()));
+    long committed = raw == null ? 0 : Long.parseLong(raw);
+    if (committed >= action.sequence()) {
+      return DeliveryState.COMPLETED;
+    }
+    return committed == action.predecessor() ? DeliveryState.READY : DeliveryState.BLOCKED;
+  }
+
+  public Completion complete(OperatorMarketAction action) {
+    String result =
+        redis.execute(
+            OperatorCompletionScript.INSTANCE,
+            List.of(
+                committedKey(action.eventId(), action.marketId()),
+                sequenceKey(action.eventId(), action.marketId()),
+                CacheKeys.market(action.eventId(), action.marketId()),
+                CacheKeys.providerMarket(action.eventId(), action.marketId()),
+                CacheKeys.marketOverride(action.eventId(), action.marketId()),
+                actionKey(action.actionId()),
+                CacheKeys.eventTerminal(action.eventId()),
+                CacheKeys.marketTerminal(action.eventId(), action.marketId()),
+                CacheKeys.marketFeedHold(action.eventId(), action.marketId()),
+                CacheKeys.eventMarkets(action.eventId())),
+            Long.toString(action.sequence()),
+            Long.toString(action.predecessor()),
+            action.requestedStatus().name(),
+            Long.toString(marketTtlMillis),
+            Long.toString(COMPLETED_MAPPING_TTL_MILLIS),
+            action.marketId().value().toString());
+    if (result == null) {
+      throw new IllegalStateException("Operator action completion returned no result");
+    }
+    return Completion.valueOf(result);
   }
 
   static String idempotencyRedisKey(IdempotencyKey key) {
@@ -226,5 +266,18 @@ public class OperatorActionQueue {
       current = current.getCause();
     }
     return false;
+  }
+
+  public enum DeliveryState {
+    READY,
+    BLOCKED,
+    COMPLETED
+  }
+
+  public enum Completion {
+    APPLIED,
+    SUPERSEDED,
+    COMPLETED,
+    BLOCKED
   }
 }
