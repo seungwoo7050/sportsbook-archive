@@ -44,6 +44,7 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewayRoutingIntegrationTest {
 
+  static final String WALLET_KEY = "fixture-wallet-key-32-characters-long";
   static final WireMockServer DOWNSTREAM = startDownstream();
   private static final KeyPair KEYS = keyPair();
 
@@ -54,6 +55,8 @@ class GatewayRoutingIntegrationTest {
     registry.add("gateway.security.jwt.public-key", GatewayRoutingIntegrationTest::publicKey);
     registry.add("gateway.ratelimit.enabled", () -> "false");
     registry.add("gateway.downstream.betting-uri", DOWNSTREAM::baseUrl);
+    registry.add("gateway.downstream.wallet.uri", DOWNSTREAM::baseUrl);
+    registry.add("gateway.downstream.wallet.api-key", () -> WALLET_KEY);
   }
 
   @BeforeEach
