@@ -74,6 +74,29 @@ class OperatorActionProcessorTest {
             queued.action().occurredAt());
   }
 
+  @Test
+  void publishesReopenUsingTheLatestRestrictiveProjection() {
+    OperatorActionQueue queue = mock(OperatorActionQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    QueuedOperatorMarketAction queued = queuedAction();
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(queue.deliveryDecision(queued.action()))
+        .thenReturn(decision(OperatorDeliveryDecision.Outcome.PUBLISH, MarketStatus.SUSPENDED));
+    when(queue.complete(queued.action())).thenReturn(OperatorActionQueue.Completion.APPLIED);
+
+    new OperatorActionProcessor(queue, publisher, new SimpleMeterRegistry()).drain();
+
+    verify(publisher)
+        .publishMarketStatusChanged(
+            queued.action().eventId(),
+            queued.action().marketId(),
+            queued.action().previousStatus(),
+            MarketStatus.SUSPENDED,
+            queued.action().reason(),
+            queued.action().occurredAt());
+    verify(queue).cleanup(queued);
+  }
+
   private static OperatorDeliveryDecision decision(
       OperatorDeliveryDecision.Outcome outcome, MarketStatus announcedStatus) {
     return new OperatorDeliveryDecision(outcome, announcedStatus);
