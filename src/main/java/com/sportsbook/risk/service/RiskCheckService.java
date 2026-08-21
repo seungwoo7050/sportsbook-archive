@@ -4,7 +4,9 @@ import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.event.RiskSignalPublisher;
 import com.sportsbook.risk.pattern.PatternContext;
+import com.sportsbook.risk.pattern.PatternMatch;
 import com.sportsbook.risk.pattern.RuleEngine;
+import com.sportsbook.risk.policy.PatternAction;
 import com.sportsbook.risk.policy.RiskLimitProperties;
 import com.sportsbook.risk.snapshot.LimitSnapshot;
 import com.sportsbook.risk.snapshot.RiskSnapshot;
@@ -53,7 +55,8 @@ public final class RiskCheckService {
       return reject(command, LimitRejection.single(currency, singleLimit, requested));
     }
 
-    RiskSnapshot snapshot = snapshots.read(PatternContext.from(command));
+    PatternContext context = PatternContext.from(command);
+    RiskSnapshot snapshot = snapshots.read(context);
     for (LimitType type : MONETARY_LIMITS) {
       LimitSnapshot.Value value = snapshot.limits().require(type);
       long current = value.current();
@@ -77,7 +80,16 @@ public final class RiskCheckService {
               selectionLimit,
               requestedSelections));
     }
-    return RiskCheckOutcome.approved(List.of());
+    List<PatternMatch> matches = rules.evaluate(context, snapshot.patterns());
+    for (PatternMatch match : matches) {
+      meters
+          .counter("risk.pattern.flags", "rule", match.rule(), "action", match.action().name())
+          .increment();
+      signals.publishPattern(command.userId(), match, command.now());
+    }
+    return matches.stream().anyMatch(match -> match.action() == PatternAction.BLOCK)
+        ? RiskCheckOutcome.rejectedByPattern(matches)
+        : RiskCheckOutcome.approved(matches);
   }
 
   private RiskCheckOutcome reject(RiskCheckCommand command, LimitRejection rejection) {
