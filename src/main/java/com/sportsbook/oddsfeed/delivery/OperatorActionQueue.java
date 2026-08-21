@@ -145,6 +145,23 @@ public class OperatorActionQueue {
     return committed == action.predecessor() ? DeliveryState.READY : DeliveryState.BLOCKED;
   }
 
+  public OperatorDeliveryDecision deliveryDecision(OperatorMarketAction action) {
+    String result =
+        redis.execute(
+            OperatorDeliveryDecisionScript.INSTANCE,
+            List.of(
+                committedKey(action.eventId(), action.marketId()),
+                sequenceKey(action.eventId(), action.marketId()),
+                CacheKeys.providerMarket(action.eventId(), action.marketId()),
+                CacheKeys.eventTerminal(action.eventId()),
+                CacheKeys.marketTerminal(action.eventId(), action.marketId()),
+                CacheKeys.marketFeedHold(action.eventId(), action.marketId())),
+            Long.toString(action.sequence()),
+            Long.toString(action.predecessor()),
+            action.requestedStatus().name());
+    return parseDeliveryDecision(result);
+  }
+
   public Completion complete(OperatorMarketAction action) {
     String result =
         redis.execute(
@@ -266,6 +283,18 @@ public class OperatorActionQueue {
       current = current.getCause();
     }
     return false;
+  }
+
+  private static OperatorDeliveryDecision parseDeliveryDecision(String result) {
+    if (result == null) {
+      throw new IllegalStateException("Operator delivery decision returned no result");
+    }
+    if (result.startsWith("PUBLISH|")) {
+      return new OperatorDeliveryDecision(
+          OperatorDeliveryDecision.Outcome.PUBLISH,
+          MarketStatus.valueOf(result.substring("PUBLISH|".length())));
+    }
+    return new OperatorDeliveryDecision(OperatorDeliveryDecision.Outcome.valueOf(result), null);
   }
 
   public enum DeliveryState {
