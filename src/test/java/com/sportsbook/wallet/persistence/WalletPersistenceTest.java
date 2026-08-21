@@ -22,6 +22,7 @@ import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.IdempotencyConflictException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
+import com.sportsbook.wallet.integrity.OperationCommitted;
 import com.sportsbook.wallet.service.WalletOperationExecutor;
 import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
@@ -34,10 +35,12 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -58,7 +61,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
   WalletOutcomeResolver.class,
   WalletService.class,
   WalletTransferExecutor.class,
-  WalletTransferWriter.class
+  WalletTransferWriter.class,
+  WalletPersistenceTest.CommitFault.class
 })
 class WalletPersistenceTest {
   @Container
@@ -70,6 +74,7 @@ class WalletPersistenceTest {
   @Autowired WalletOperationRepository operations;
   @Autowired IdempotencyKeyLock idempotencyLocks;
   @Autowired WalletService wallet;
+  @Autowired CommitFault commitFault;
   @Autowired javax.sql.DataSource dataSource;
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
@@ -387,6 +392,40 @@ class WalletPersistenceTest {
     assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
     assertThat(operations.findById(command.idempotencyKey().value()).orElseThrow().status())
         .isEqualTo(WalletOperationStatus.REJECTED);
+  }
+
+  @Test
+  void rollsBackOutcomeLedgerAndBalanceWhenTransferFails() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000001a");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    DepositCommand command =
+        new DepositCommand(userId, Money.krw(60L), IdempotencyKey.of("deposit:rollback"));
+    commitFault.failNext();
+
+    assertThatThrownBy(() -> wallet.deposit(command))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("injected commit notification failure");
+
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(0L));
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(operations.findById(command.idempotencyKey().value())).isEmpty();
+    wallet.deposit(command);
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(60L));
+  }
+
+  static final class CommitFault {
+    private final AtomicBoolean failNext = new AtomicBoolean();
+
+    void failNext() {
+      failNext.set(true);
+    }
+
+    @EventListener
+    public void afterTransfer(OperationCommitted ignored) {
+      if (failNext.compareAndSet(true, false)) {
+        throw new IllegalStateException("injected commit notification failure");
+      }
+    }
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {
