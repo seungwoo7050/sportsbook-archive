@@ -12,3 +12,12 @@ gateway:
   security:
     jwt:
       public-key: ${GATEWAY_JWT_PUBLIC_KEY:}
+  ratelimit:
+    enabled: ${GATEWAY_RATELIMIT_ENABLED:true}
+    user:
+      capacity: ${GATEWAY_RATELIMIT_USER_CAPACITY:120}
+      refill-period: ${GATEWAY_RATELIMIT_USER_PERIOD:1m}
+    ip:
+      capacity: ${GATEWAY_RATELIMIT_IP_CAPACITY:60}
+      refill-period: ${GATEWAY_RATELIMIT_IP_PERIOD:1m}
+    trusted-proxy-cidrs: ${GATEWAY_TRUSTED_PROXY_CIDRS:}
