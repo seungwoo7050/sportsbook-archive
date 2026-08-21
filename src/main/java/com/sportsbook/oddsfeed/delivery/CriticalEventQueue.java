@@ -6,13 +6,17 @@ import com.sportsbook.oddsfeed.config.CriticalDeliveryProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
+import org.springframework.data.redis.connection.stream.PendingMessage;
+import org.springframework.data.redis.connection.stream.PendingMessages;
 import org.springframework.data.redis.connection.stream.ReadOffset;
 import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.connection.stream.StreamOffset;
@@ -31,6 +35,7 @@ public class CriticalEventQueue {
   private final ObjectMapper objectMapper;
   private final CriticalDeliveryProperties properties;
   private final Counter enqueued;
+  private final Counter reclaimed;
   private final Counter failures;
   private final AtomicBoolean healthy = new AtomicBoolean(true);
   private final AtomicLong pendingCount = new AtomicLong();
@@ -45,6 +50,7 @@ public class CriticalEventQueue {
     this.objectMapper = objectMapper;
     this.properties = properties;
     this.enqueued = meterRegistry.counter("oddsfeed.critical.delivery.enqueued");
+    this.reclaimed = meterRegistry.counter("oddsfeed.critical.delivery.reclaimed");
     this.failures = meterRegistry.counter("oddsfeed.critical.delivery.failure");
     meterRegistry.gauge("oddsfeed.critical.delivery.pending", pendingCount);
   }
@@ -72,18 +78,30 @@ public class CriticalEventQueue {
   public List<QueuedCriticalEvent> poll() {
     try {
       ensureGroup();
-      List<MapRecord<String, String, String>> records =
-          streamOperations()
-              .read(
-                  Consumer.from(properties.consumerGroup(), properties.consumerName()),
-                  StreamReadOptions.empty().count(properties.batchSize()),
-                  StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
+      PendingMessages pending = pendingMessages();
+      List<MapRecord<String, String, String>> records = claimExpired(pending);
+      if (records == null) {
+        records = List.of();
+      }
+      boolean wereReclaimed = !records.isEmpty();
+      if (records.isEmpty() && pending.isEmpty()) {
+        records =
+            streamOperations()
+                .read(
+                    Consumer.from(properties.consumerGroup(), properties.consumerName()),
+                    StreamReadOptions.empty().count(properties.batchSize()),
+                    StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
+      }
+      updatePendingCount();
       healthy.set(true);
       if (records == null || records.isEmpty()) {
         return List.of();
       }
-      pendingCount.addAndGet(records.size());
-      return records.stream().map(record -> decode(record, false)).toList();
+      if (wereReclaimed) {
+        reclaimed.increment(records.size());
+      }
+      boolean reclaimedRecord = wereReclaimed;
+      return records.stream().map(record -> decode(record, reclaimedRecord)).toList();
     } catch (RuntimeException error) {
       groupReady.set(false);
       healthy.set(false);
@@ -102,6 +120,42 @@ public class CriticalEventQueue {
 
   private StreamOperations<String, String, String> streamOperations() {
     return redis.<String, String>opsForStream();
+  }
+
+  private PendingMessages pendingMessages() {
+    return streamOperations()
+        .pending(
+            properties.streamKey(),
+            properties.consumerGroup(),
+            Range.unbounded(),
+            properties.batchSize());
+  }
+
+  private List<MapRecord<String, String, String>> claimExpired(PendingMessages pending) {
+    List<RecordId> claimable = new ArrayList<>();
+    for (PendingMessage message : pending) {
+      if (message.getElapsedTimeSinceLastDelivery().compareTo(properties.claimIdle()) < 0) {
+        break;
+      }
+      claimable.add(message.getId());
+    }
+    if (claimable.isEmpty()) {
+      return List.of();
+    }
+    return streamOperations()
+        .claim(
+            properties.streamKey(),
+            properties.consumerGroup(),
+            properties.consumerName(),
+            properties.claimIdle(),
+            claimable.toArray(RecordId[]::new));
+  }
+
+  private void updatePendingCount() {
+    pendingCount.set(
+        streamOperations()
+            .pending(properties.streamKey(), properties.consumerGroup())
+            .getTotalPendingMessages());
   }
 
   private QueuedCriticalEvent decode(MapRecord<String, String, String> record, boolean reclaimed) {
