@@ -1,0 +1,21 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "MatchResult",
+  "doc": "Final outcome of a sports event. Drives settlement-service's bet resolution. Distinct from EventLifecycle: lifecycle reports phase transitions, MatchResult delivers the data needed to settle.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "score", "type": "string", "doc": "Sport-specific score string (e.g. \"2-1\" for football, \"3-2,6-4,4-6,7-5\" for tennis)."},
+    {
+      "name": "finalStatus",
+      "type": {
+        "type": "enum",
+        "name": "MatchFinalStatus",
+        "symbols": ["COMPLETED", "ABANDONED", "VOIDED"]
+      },
+      "doc": "COMPLETED → settle normally. ABANDONED → settle markets that already resolved, void the rest (sport-specific rules in settlement-service). VOIDED → all bets refunded (BetStatus.VOIDED)."
+    },
+    {"name": "resultDetail", "type": {"type": "map", "values": "string"}, "doc": "Sport-specific details: yellow cards, possession, set scores, etc. Schema-less so a new sport doesn't trigger Avro evolution."},
+    {"name": "settledAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
