@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.when;
 
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.Money;
@@ -137,6 +138,38 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
     }
   }
 
+  @Test
+  void deliversResolutionRevisionOnlyToOwningUser() throws Exception {
+    String owner = UUID.randomUUID().toString();
+    String other = UUID.randomUUID().toString();
+    BetResolutionRevised event = betResolutionRevised(owner);
+    StompSession ownerSession = connect("/ws/v1/bets", authHeaders(owner));
+    StompSession otherSession = connect("/ws/v1/bets", authHeaders(other));
+    try {
+      BlockingQueue<String> ownerMessages = subscribe(ownerSession, "/user/queue/bets");
+      BlockingQueue<String> otherMessages = subscribe(otherSession, "/user/queue/bets");
+      awaitListener("gateway-revision-listener");
+
+      publish(topics.betResolutionRevised(), event.getBetId(), event);
+
+      assertThat(ownerMessages.poll(5, SECONDS))
+          .contains(
+              event.getBetId(),
+              owner,
+              "\"status\":\"SETTLED\"",
+              "\"result\":\"WON\"",
+              "\"amount\":{\"amount\":18500,\"currency\":\"KRW\"}",
+              "\"revisionId\":\"" + event.getRevisionId() + "\"",
+              "\"revisionNumber\":3",
+              "\"updatedAt\":\"2026-08-21T00:00:03Z\"");
+      assertThat(ownerMessages.poll(1, SECONDS)).isNull();
+      assertThat(otherMessages.poll(1, SECONDS)).isNull();
+    } finally {
+      ownerSession.disconnect();
+      otherSession.disconnect();
+    }
+  }
+
   protected StompHeaders authHeaders(String userId) {
     when(jwtDecoder.decode(userId))
         .thenReturn(
@@ -177,6 +210,22 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
         .setReason(VoidReason.EVENT_POSTPONED)
         .setRefund(Money.newBuilder().setAmount(10_000).setCurrency("KRW").build())
         .setVoidedAt(Instant.parse("2026-08-21T00:00:02Z"))
+        .build();
+  }
+
+  protected static BetResolutionRevised betResolutionRevised(String userId) {
+    return BetResolutionRevised.newBuilder()
+        .setRevisionId(UUID.randomUUID().toString())
+        .setRevisionNumber(3)
+        .setBetId(UUID.randomUUID().toString())
+        .setUserId(userId)
+        .setEventId(UUID.randomUUID().toString())
+        .setPreviousResult(SettlementResultAvro.LOST)
+        .setNewResult(SettlementResultAvro.WON)
+        .setPreviousPayout(Money.newBuilder().setAmount(0).setCurrency("KRW").build())
+        .setNewPayout(Money.newBuilder().setAmount(18_500).setCurrency("KRW").build())
+        .setSourceResultSettledAt(Instant.parse("2026-08-21T00:00:00Z"))
+        .setRevisedAt(Instant.parse("2026-08-21T00:00:03Z"))
         .build();
   }
 
