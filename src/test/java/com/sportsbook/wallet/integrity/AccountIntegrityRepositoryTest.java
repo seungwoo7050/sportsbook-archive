@@ -98,4 +98,36 @@ class AccountIntegrityRepositoryTest {
 
     assertThat(integrity.findOrphanLedgerAccountIds()).containsExactly(orphan);
   }
+
+  @Test
+  void sumsLedgerAmountsBeyondTheLongRange() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-0000000001a7");
+    jdbc.update(
+        """
+        INSERT INTO account(user_id, available_currency, locked_currency, created_at, updated_at)
+        VALUES (?, 'KRW', 'KRW', now(), now())
+        """,
+        userId);
+    insertDebit(userId, "1a8", "1a9", "integrity:bigint:first");
+    insertDebit(userId, "1aa", "1ab", "integrity:bigint:second");
+
+    assertThat(integrity.findSnapshotDrift())
+        .singleElement()
+        .extracting(AccountIntegrityRepository.AccountSnapshotDrift::availableLedgerNet)
+        .isEqualTo(new BigInteger("18446744073709551614"));
+  }
+
+  private void insertDebit(UUID userId, String entryTail, String groupTail, String key) {
+    jdbc.update(
+        """
+        INSERT INTO ledger_entry(entry_id, account_id, bucket, side, amount, currency,
+          reason, idempotency_key, operation_group_id, created_at)
+        VALUES (?, ?, 'AVAILABLE', 'DEBIT', 9223372036854775807, 'KRW',
+          'DEPOSIT', ?, ?, now())
+        """,
+        UUID.fromString("019b76da-a000-7000-8000-000000000" + entryTail),
+        userId,
+        key,
+        UUID.fromString("019b76da-a000-7000-8000-000000000" + groupTail));
+  }
 }
