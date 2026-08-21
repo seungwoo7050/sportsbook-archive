@@ -51,4 +51,28 @@ public class AdjustmentProofWriter {
         result.operationGroupId(),
         now);
   }
+
+  public WalletOperation applyDecrease(
+      AdjustmentCommand command, String fingerprint, Account account, Instant now) {
+    WalletTransferPlan plan = AdjustmentTransfers.decrease(account, command, now);
+    WalletOperationResult result =
+        transfers.write(
+            plan.destination(),
+            plan.source(),
+            command.absoluteDelta(),
+            plan.reason(),
+            command.idempotencyKey(),
+            command.userId(),
+            now);
+    adjustments.save(WalletAdjustment.applied(command, result.operationGroupId(), result.at()));
+    return WalletOperation.succeeded(
+        command.idempotencyKey(),
+        WalletCaller.SETTLEMENT,
+        WalletOperationKind.BET_ADJUSTMENT,
+        command.userId(),
+        command.absoluteDelta(),
+        fingerprint,
+        result.operationGroupId(),
+        now);
+  }
 }
