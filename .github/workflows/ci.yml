@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [odds-feed-service]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out odds feed
+        uses: actions/checkout@v4
+        with:
+          path: odds-feed
+
+      - name: Check out shared protocol
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: shared-protocol
+          path: shared-protocol
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Install shared protocol 1.0.0
+        working-directory: shared-protocol
+        run: |
+          test "$(./mvnw -q -Dstyle.color=never -DforceStdout help:evaluate -Dexpression=project.version)" = "1.0.0"
+          ./mvnw -B -ntp clean install
+
+      - name: Verify odds feed
+        working-directory: odds-feed
+        run: |
+          ADMIN_API_INTERNAL_KEY="$(openssl rand -hex 32)"
+          export ADMIN_API_INTERNAL_KEY
+          ./mvnw -B -ntp clean verify
