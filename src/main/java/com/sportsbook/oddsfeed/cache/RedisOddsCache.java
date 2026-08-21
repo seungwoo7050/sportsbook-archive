@@ -4,14 +4,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.oddsfeed.config.CacheProperties;
 import com.sportsbook.oddsfeed.provider.EventSummary;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.protocol.value.SelectionId;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
+import java.util.UUID;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -142,6 +149,27 @@ public class RedisOddsCache {
   public Optional<MarketStatus> getMarketStatus(EventId eventId, MarketId marketId) {
     String value = redis.opsForValue().get(CacheKeys.market(eventId, marketId));
     return value == null ? Optional.empty() : Optional.of(MarketStatus.valueOf(value));
+  }
+
+  public boolean isMarketTerminal(EventId eventId, MarketId marketId) {
+    return Boolean.TRUE.equals(redis.hasKey(CacheKeys.marketTerminal(eventId, marketId)));
+  }
+
+  public Optional<EventLifecycleStatus> getEventTerminal(EventId eventId) {
+    String value = redis.opsForValue().get(CacheKeys.eventTerminal(eventId));
+    return value == null ? Optional.empty() : Optional.of(EventLifecycleStatus.valueOf(value));
+  }
+
+  public Map<MarketId, MarketStatus> getRegisteredMarkets(EventId eventId) {
+    Map<Object, Object> entries = redis.opsForHash().entries(CacheKeys.eventMarkets(eventId));
+    Map<MarketId, MarketStatus> markets =
+        new TreeMap<>(Comparator.comparing(id -> id.value().toString()));
+    entries.forEach(
+        (id, status) ->
+            markets.put(
+                new MarketId(UUID.fromString(id.toString())),
+                MarketStatus.valueOf(status.toString())));
+    return Collections.unmodifiableMap(new LinkedHashMap<>(markets));
   }
 
   private static List<String> marketKeys(EventId eventId, MarketId marketId) {
