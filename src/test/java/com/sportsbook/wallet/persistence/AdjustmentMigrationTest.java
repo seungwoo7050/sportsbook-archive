@@ -225,6 +225,44 @@ class AdjustmentMigrationTest {
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
   }
 
+  @Test
+  void rejectsOrphanProofsAndDuplicateBetRevisions() {
+    UUIDs orphan = UUIDs.create("000000000251", "000000000252", "000000000253", "000000000254");
+    String orphanKey = "settlement:revision:" + orphan.revisionId();
+    Throwable orphanFailure =
+        catchThrowable(
+            () ->
+                new TransactionTemplate(transactions)
+                    .executeWithoutResult(
+                        ignored ->
+                            jdbc.update(
+                                """
+                                INSERT INTO wallet_adjustment (
+                                    revision_id, idempotency_key, bet_id, revision_number, user_id,
+                                    previous_payout_amount, new_payout_amount, delta_amount, currency,
+                                    status, created_at, updated_at
+                                ) VALUES (?, ?, ?, 1, ?, 10, 5, -5, 'KRW',
+                                          'REJECTED', now(), now())
+                                """,
+                                orphan.revisionId(),
+                                orphanKey,
+                                orphan.betId(),
+                                orphan.userId())));
+    assertThat(orphanFailure).rootCause().hasMessageContaining("fk_wallet_adjustment_operation");
+
+    UUIDs first = UUIDs.create("000000000261", "000000000262", "000000000263", "000000000264");
+    UUIDs second = UUIDs.create("000000000265", "000000000262", "000000000263", "000000000266");
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(transactions)
+                    .executeWithoutResult(
+                        ignored -> {
+                          insertBlocked(first, 1L);
+                          insertBlocked(second, 2L);
+                        }))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+  }
+
   private void insertBlocked(UUIDs ids, long sequence) {
     String key = "settlement:revision:" + ids.revisionId();
     jdbc.update(
