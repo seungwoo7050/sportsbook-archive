@@ -14,7 +14,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
   CacheProperties.class,
   KafkaTopicsProperties.class,
   PublishProperties.class,
-  CriticalDeliveryProperties.class
+  CriticalDeliveryProperties.class,
+  OperatorDeliveryProperties.class
 })
 public class ApplicationConfig {
 
