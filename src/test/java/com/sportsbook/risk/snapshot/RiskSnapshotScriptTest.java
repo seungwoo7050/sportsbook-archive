@@ -1,6 +1,7 @@
 package com.sportsbook.risk.snapshot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +26,7 @@ import com.sportsbook.risk.reservation.RiskReservationProperties;
 import com.sportsbook.risk.support.RedisTestSupport;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -139,6 +141,17 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
     assertThat(redis.opsForValue().get(ReservationKeys.ACTIVE_COUNT)).isNull();
   }
 
+  @Test
+  void rejectsMalformedPolicyArgumentsBeforeReadingRedis() {
+    RiskSnapshotScriptRequest valid = request();
+    ArrayList<String> arguments = new ArrayList<>(valid.arguments());
+    arguments.set(6, "enabled");
+    RiskSnapshotScriptRequest malformed = new RiskSnapshotScriptRequest(valid.keys(), arguments);
+
+    assertThatThrownBy(() -> execute(malformed))
+        .hasRootCauseMessage("invalid snapshot policy flag");
+  }
+
   private void seedActive(Instant expiresAt) {
     String bet = BET.value().toString();
     long score = NOW.toEpochMilli() - 1;
@@ -173,19 +186,25 @@ class RiskSnapshotScriptTest extends RedisTestSupport {
   }
 
   private JsonNode execute() throws Exception {
+    return execute(request());
+  }
+
+  private JsonNode execute(RiskSnapshotScriptRequest request) throws Exception {
+    DefaultRedisScript<String> script = new DefaultRedisScript<>();
+    script.setLocation(new ClassPathResource("scripts/risk-snapshot.lua"));
+    script.setResultType(String.class);
+    String raw = redis.execute(script, request.keys(), request.arguments().toArray());
+    return new ObjectMapper().readTree(raw);
+  }
+
+  private RiskSnapshotScriptRequest request() {
     PatternContext context = new PatternContext(USER, BET, Money.krw(1), List.of(SELECTION), NOW);
     RiskPatternProperties patterns =
         new RiskPatternProperties(
             new RapidBettingPolicy(true, Duration.ofMinutes(1), 30, PatternAction.SUSPECT),
             new SuddenStakePolicy(true, 10, 10, PatternAction.SUSPECT),
             new RepeatedSelectionPolicy(true, Duration.ofHours(24), 5, PatternAction.REVIEW));
-    RiskSnapshotScriptRequest request =
-        RiskSnapshotScriptRequest.from(
-            context, patterns, new RiskReservationProperties(null, null));
-    DefaultRedisScript<String> script = new DefaultRedisScript<>();
-    script.setLocation(new ClassPathResource("scripts/risk-snapshot.lua"));
-    script.setResultType(String.class);
-    String raw = redis.execute(script, request.keys(), request.arguments().toArray());
-    return new ObjectMapper().readTree(raw);
+    return RiskSnapshotScriptRequest.from(
+        context, patterns, new RiskReservationProperties(null, null));
   }
 }
