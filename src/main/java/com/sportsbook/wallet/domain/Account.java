@@ -3,6 +3,8 @@ package com.sportsbook.wallet.domain;
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.error.BalanceLimitExceededException;
+import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
+import com.sportsbook.wallet.domain.error.InsufficientBalanceException;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
@@ -119,8 +121,35 @@ public class Account {
     return nextAdjustmentSequence;
   }
 
+  public void increaseAvailable(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    long capacity = Long.MAX_VALUE - locked.amount() - available.amount();
+    if (amount.amount() > capacity) {
+      throw new BalanceLimitExceededException(userId, available.amount(), locked.amount());
+    }
+    available = new EmbeddedMoney(available.amount() + amount.amount(), currency());
+    updatedAt = now;
+  }
+
+  public void decreaseAvailable(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    if (available.amount() < amount.amount()) {
+      throw new InsufficientBalanceException(userId, amount, available.toMoney());
+    }
+    available = new EmbeddedMoney(available.amount() - amount.amount(), currency());
+    updatedAt = now;
+  }
+
   public Instant createdAt() {
     return createdAt;
+  }
+
+  public Instant updatedAt() {
+    return updatedAt;
   }
 
   static void requireRepresentableBalance(UUID userId, long availableAmount, long lockedAmount) {
@@ -129,6 +158,19 @@ public class Account {
     }
     if (availableAmount > Long.MAX_VALUE - lockedAmount) {
       throw new BalanceLimitExceededException(userId, availableAmount, lockedAmount);
+    }
+  }
+
+  private void requireSameCurrency(Money amount) {
+    if (amount.currency() != currency()) {
+      throw new CurrencyMismatchException(currency(), amount.currency());
+    }
+  }
+
+  private static void requirePositive(Money amount) {
+    Objects.requireNonNull(amount, "amount");
+    if (amount.amount() <= 0L) {
+      throw new IllegalArgumentException("Amount must be strictly positive");
     }
   }
 }
