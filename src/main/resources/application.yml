@@ -14,7 +14,7 @@ management:
       show-details: when-authorized
       group:
         readiness:
-          include: readinessState,redis
+          include: readinessState,redis,criticalDelivery
   health:
     livenessstate:
       enabled: true
