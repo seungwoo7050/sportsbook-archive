@@ -12,6 +12,8 @@ import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.outbox.OutboxAppender;
 import com.sportsbook.wallet.outbox.WalletEventFactory;
 import com.sportsbook.wallet.persistence.AccountRepository;
+import com.sportsbook.wallet.service.command.CreditCommand;
+import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import java.time.Clock;
 import java.time.Instant;
@@ -55,7 +57,16 @@ public class WalletTransferExecutor {
       UUID userId,
       Money amount,
       BiFunction<Account, Instant, WalletTransferPlan> mutation) {
-    return execute(key, caller, kind, userId, amount, null, mutation);
+    return execute(
+        key,
+        caller,
+        kind,
+        userId,
+        amount,
+        OperationFingerprint.transfer(caller, kind, userId, amount),
+        null,
+        null,
+        mutation);
   }
 
   public WalletOperationResult executeDebit(
@@ -66,6 +77,34 @@ public class WalletTransferExecutor {
         WalletOperationKind.BET_DEBIT,
         command.userId(),
         command.amount(),
+        OperationFingerprint.transfer(
+            WalletCaller.BETTING,
+            WalletOperationKind.BET_DEBIT,
+            command.userId(),
+            command.amount()),
+        command,
+        null,
+        mutation);
+  }
+
+  public WalletOperationResult executeCredit(
+      WalletCaller caller,
+      CreditCommand command,
+      BiFunction<Account, Instant, WalletTransferPlan> mutation) {
+    requireAllowedCredit(caller, command);
+    WalletOperationKind kind =
+        command.reason() == CreditReason.PAYOUT
+            ? WalletOperationKind.BET_PAYOUT
+            : WalletOperationKind.BET_REFUND;
+    return execute(
+        command.idempotencyKey(),
+        caller,
+        kind,
+        command.userId(),
+        command.amount(),
+        OperationFingerprint.credit(
+            caller, kind, command.userId(), command.amount(), command.source(), command.reason()),
+        null,
         command,
         mutation);
   }
@@ -77,7 +116,9 @@ public class WalletTransferExecutor {
       WalletOperationKind kind,
       UUID userId,
       Money amount,
+      OperationFingerprint requestFingerprint,
       DebitCommand debit,
+      CreditCommand credit,
       BiFunction<Account, Instant, WalletTransferPlan> mutation) {
     WalletOperation operation =
         operations.execute(
@@ -86,8 +127,10 @@ public class WalletTransferExecutor {
             kind,
             userId,
             amount,
+            requestFingerprint,
             fingerprint ->
-                firstWrite(key, caller, kind, userId, amount, fingerprint, debit, mutation));
+                firstWrite(
+                    key, caller, kind, userId, amount, fingerprint, debit, credit, mutation));
     return outcomes.resolve(operation);
   }
 
@@ -100,6 +143,7 @@ public class WalletTransferExecutor {
       Money amount,
       String fingerprint,
       DebitCommand debit,
+      CreditCommand credit,
       BiFunction<Account, Instant, WalletTransferPlan> mutation) {
     Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
     WalletTransferReceipt receipt;
@@ -120,8 +164,29 @@ public class WalletTransferExecutor {
     if (debit != null) {
       outboxAppender.append(eventFactory.debited(debit, receipt.destinationEntryId(), now));
     }
+    if (credit != null) {
+      outboxAppender.append(eventFactory.credited(credit, receipt.destinationEntryId(), now));
+    }
     return WalletOperation.succeeded(
         key, caller, kind, userId, amount, fingerprint, receipt.result().operationGroupId(), now);
+  }
+
+  static void requireAllowedCredit(WalletCaller caller, CreditCommand command) {
+    boolean allowed =
+        (caller == WalletCaller.BETTING
+                && command.source() == CreditCommand.Source.USER_LOCKED
+                && command.reason() == CreditReason.REFUND)
+            || (caller == WalletCaller.SETTLEMENT
+                && ((command.source() == CreditCommand.Source.USER_LOCKED
+                        && command.reason() != CreditReason.PAYOUT)
+                    || (command.source() == CreditCommand.Source.HOUSE_POOL
+                        && command.reason() == CreditReason.PAYOUT)))
+            || (caller == WalletCaller.ADMIN
+                && command.source() == CreditCommand.Source.HOUSE_POOL
+                && command.reason() == CreditReason.REFUND);
+    if (!allowed) {
+      throw new IllegalArgumentException("Caller is not allowed for credit source and reason");
+    }
   }
 
   private Account lockAccount(UUID userId, Money amount) {
