@@ -36,4 +36,16 @@ public enum ErrorCode {
   public String title() {
     return title;
   }
+
+  public ProblemDetail toProblemDetail() {
+    return toProblemDetail(null, null, null);
+  }
+
+  public ProblemDetail toProblemDetail(String detail) {
+    return toProblemDetail(detail, null, null);
+  }
+
+  public ProblemDetail toProblemDetail(String detail, URI instance, String correlationId) {
+    return new ProblemDetail(type, title, httpStatus, name(), detail, instance, correlationId);
+  }
 }
