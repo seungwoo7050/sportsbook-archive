@@ -80,3 +80,44 @@ local function planWindow(entries, sum, amount, window)
   end
   return {entries, sum, window, amountText, total + amount}
 end
+
+local limitBase, plans = "risk:limit:{" .. userId .. "}:", {}
+local currencyLower = string.lower(currency)
+local dimensions = {
+  {"stake-daily:" .. currencyLower, ARGV[11], stake},
+  {"stake-weekly:" .. currencyLower, ARGV[12], stake},
+  {"stake-monthly:" .. currencyLower, ARGV[13], stake},
+  {"selections-per-minute", ARGV[14], selectionCount}
+}
+for _, dimension in ipairs(dimensions) do
+  local prefix = limitBase .. dimension[1]
+  local plan, planError =
+    planWindow(prefix .. ":entries", prefix .. ":sum", dimension[3], tonumber(dimension[2]))
+  if planError then return redis.error_reply(planError) end
+  table.insert(plans, plan)
+end
+
+local historyBase = "risk:history:{" .. userId .. "}"
+local historyBets = historyBase .. ":bets"
+local historyStakes = historyBase .. ":stakes:" .. currencyLower
+local historyError = typeError(historyBets, "zset") or typeError(historyStakes, "zset")
+if historyError then return redis.error_reply(historyError) end
+if redis.call("ZSCORE", historyBets, betId)
+  or redis.call("ZSCORE", historyStakes, betId .. "|" .. ARGV[7]) then
+  return redis.error_reply("accepted projection already exists without retained marker")
+end
+for _, selectionId in ipairs(selections) do
+  local selectionKey = historyBase .. ":selection:" .. selectionId
+  local itemError = typeError(selectionKey, "zset")
+  if itemError then return redis.error_reply(itemError) end
+  if redis.call("ZSCORE", selectionKey, betId) then
+    return redis.error_reply("accepted selection projection exists without retained marker")
+  end
+end
+
+for _, plan in ipairs(plans) do
+  redis.call("ZREMRANGEBYSCORE", plan[1], "-inf", now - plan[3])
+  redis.call("ZADD", plan[1], now, betId .. "|" .. plan[4])
+  redis.call("SET", plan[2], string.format("%.0f", plan[5]), "PX", plan[3] + 300000)
+  redis.call("PEXPIRE", plan[1], plan[3] + 300000)
+end
