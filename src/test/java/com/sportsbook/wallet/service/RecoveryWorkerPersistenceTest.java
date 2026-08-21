@@ -1,12 +1,14 @@
 package com.sportsbook.wallet.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.AdjustmentStatus;
 import com.sportsbook.wallet.domain.WalletOperation;
 import com.sportsbook.wallet.domain.WalletOperationStatus;
+import com.sportsbook.wallet.integrity.OperationCommitted;
 import com.sportsbook.wallet.persistence.AccountRepository;
 import com.sportsbook.wallet.persistence.LedgerEntryRepository;
 import com.sportsbook.wallet.persistence.WalletAdjustmentRepository;
@@ -18,9 +20,12 @@ import java.math.BigInteger;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.event.EventListener;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -29,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest(properties = "wallet.outbox.scheduling-enabled=false")
 @Testcontainers
+@Import(RecoveryWorkerPersistenceTest.CommitFault.class)
 class RecoveryWorkerPersistenceTest {
   @Container
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -40,6 +46,7 @@ class RecoveryWorkerPersistenceTest {
   @Autowired WalletAdjustmentRepository adjustments;
   @Autowired WalletOperationRepository operations;
   @Autowired LedgerEntryRepository ledger;
+  @Autowired CommitFault commitFault;
 
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -126,12 +133,67 @@ class RecoveryWorkerPersistenceTest {
         .isEqualTo(BigInteger.ZERO);
   }
 
+  @Test
+  void rollbackLeavesBlockedStateForRestartedRecovery() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000196");
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000197");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(200L), IdempotencyKey.of("deposit:restart-seed")));
+    AdjustmentCommand command =
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-000000000198"),
+            1L,
+            userId,
+            Money.krw(500L),
+            Money.krw(200L),
+            IdempotencyKey.of("settlement:revision:" + revisionId));
+    adjustmentService.adjust(command);
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:restart-wake")));
+    commitFault.failNext();
+
+    assertThatThrownBy(worker::recoverOne).isInstanceOf(IllegalStateException.class);
+
+    assertThat(adjustments.findById(revisionId).orElseThrow().status())
+        .isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(operations.findById(command.idempotencyKey().value()).orElseThrow().status())
+        .isEqualTo(WalletOperationStatus.BLOCKED_FUNDS);
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(300L));
+              assertThat(account.recoveryDebtAmount()).isEqualTo(BigInteger.valueOf(300L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
+    assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
+    assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.NO_WORK);
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
+  }
+
   private static void await(CountDownLatch latch) {
     try {
       latch.await();
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException(interrupted);
+    }
+  }
+
+  static final class CommitFault {
+    private final AtomicBoolean armed = new AtomicBoolean();
+
+    void failNext() {
+      armed.set(true);
+    }
+
+    @EventListener
+    void afterLedgerWrite(OperationCommitted ignored) {
+      if (armed.compareAndSet(true, false)) {
+        throw new IllegalStateException("injected commit fault");
+      }
     }
   }
 }
