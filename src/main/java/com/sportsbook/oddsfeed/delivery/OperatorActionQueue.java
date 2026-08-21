@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.Consumer;
@@ -48,6 +49,7 @@ public class OperatorActionQueue {
   private final OperatorActionCodec codec = new OperatorActionCodec();
   private final long marketTtlMillis;
   private final AtomicBoolean groupReady = new AtomicBoolean();
+  private final AtomicLong pendingCount = new AtomicLong();
 
   public OperatorActionQueue(
       StringRedisTemplate redis,
@@ -117,6 +119,10 @@ public class OperatorActionQueue {
                   StreamReadOptions.empty().count(properties.batchSize()),
                   StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
     }
+    pendingCount.set(
+        streamOperations()
+            .pending(properties.streamKey(), properties.consumerGroup())
+            .getTotalPendingMessages());
     if (records == null || records.isEmpty()) {
       return List.of();
     }
@@ -134,6 +140,13 @@ public class OperatorActionQueue {
     if (result == null || !result.matches("[01]\\|[01]")) {
       throw new IllegalStateException("Malformed operator Stream cleanup result");
     }
+    if (result.charAt(0) == '1') {
+      pendingCount.updateAndGet(current -> Math.max(0, current - 1));
+    }
+  }
+
+  public long pendingCount() {
+    return pendingCount.get();
   }
 
   public DeliveryState deliveryState(OperatorMarketAction action) {
