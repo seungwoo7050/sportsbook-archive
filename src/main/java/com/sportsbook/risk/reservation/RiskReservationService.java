@@ -5,6 +5,7 @@ import com.sportsbook.risk.service.RiskCheckCommand;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -32,15 +33,20 @@ public final class RiskReservationService {
   }
 
   public ReservationTransition commit(BetId betId, String token, Instant now) {
-    return store.commit(
-        Objects.requireNonNull(betId, "betId"),
-        Objects.requireNonNull(token, "token"),
-        Objects.requireNonNull(now, "now"));
+    ReservationTransition transition =
+        store.commit(
+            Objects.requireNonNull(betId, "betId"),
+            Objects.requireNonNull(token, "token"),
+            Objects.requireNonNull(now, "now"));
+    recordTransition("commit", transition);
+    return transition;
   }
 
   public ReservationTransition release(BetId betId, Instant now) {
-    return store.release(
-        Objects.requireNonNull(betId, "betId"), Objects.requireNonNull(now, "now"));
+    ReservationTransition transition =
+        store.release(Objects.requireNonNull(betId, "betId"), Objects.requireNonNull(now, "now"));
+    recordTransition("release", transition);
+    return transition;
   }
 
   private static String decisionResult(ReservationDecision decision) {
@@ -52,5 +58,16 @@ public final class RiskReservationService {
       case REJECTED -> "rejected";
       case CONFLICT -> "conflict";
     };
+  }
+
+  private void recordTransition(String operation, ReservationTransition transition) {
+    meters
+        .counter(
+            "risk.reservation.transitions",
+            "operation",
+            operation,
+            "result",
+            transition.name().toLowerCase(Locale.ROOT))
+        .increment();
   }
 }
