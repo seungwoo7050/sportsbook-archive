@@ -79,6 +79,37 @@ class AdjustmentFirstWriterTest {
     verify(proofWriter).block(command, "b".repeat(64), account, NOW);
   }
 
+  @Test
+  void appliesAnAffordableNegativeCorrectionWithoutAnOlderHead() {
+    AdjustmentCommand command = command(1_000L, 700L);
+    prepareUnfrozenAccount(Money.krw(300L));
+    when(proofWriter.applyDecrease(command, "c".repeat(64), account, NOW)).thenReturn(outcome);
+
+    assertThat(writer.write(command, "c".repeat(64))).isSameAs(outcome);
+
+    verify(proofWriter).applyDecrease(command, "c".repeat(64), account, NOW);
+  }
+
+  @Test
+  void queuesAnUnaffordableNegativeCorrectionWithoutAnOlderHead() {
+    AdjustmentCommand command = command(1_000L, 700L);
+    prepareUnfrozenAccount(Money.krw(299L));
+    when(proofWriter.block(command, "d".repeat(64), account, NOW)).thenReturn(outcome);
+
+    assertThat(writer.write(command, "d".repeat(64))).isSameAs(outcome);
+
+    verify(proofWriter).block(command, "d".repeat(64), account, NOW);
+  }
+
+  private void prepareUnfrozenAccount(Money available) {
+    when(adjustments.findByBetIdAndRevisionNumber(BET_ID, 1L)).thenReturn(Optional.empty());
+    when(accounts.findByUserIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
+    when(account.currency()).thenReturn(Currency.KRW);
+    when(account.available()).thenReturn(available);
+    when(adjustments.findOldestBlockedForUpdate(USER_ID)).thenReturn(Optional.empty());
+    when(databaseClock.now()).thenReturn(NOW);
+  }
+
   private AdjustmentCommand command(long previous, long next) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000133");
     return new AdjustmentCommand(
