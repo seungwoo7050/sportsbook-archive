@@ -85,12 +85,54 @@ local function removeActive()
   if redis.call("ZCARD", stakeEntries) == 0 then redis.call("DEL", stakeEntries) end
   if redis.call("ZCARD", selectionEntries) == 0 then redis.call("DEL", selectionEntries) end
 end
-
-removeActive()
 if expiresAt <= now then
+  removeActive()
   redis.call("HSET", KEYS[1], "state", "EXPIRED", "expiredAt", string.format("%.0f", now))
   redis.call("PEXPIRE", KEYS[1], retention)
   return "EXPIRED"
+end
+
+local function memberAmount(member) return exact(string.match(member, "|([0-9]+)$"), true) end
+local function planWindow(entries, sum, amount, window)
+  local errorValue = typeError(entries, "zset") or typeError(sum, "string")
+  if errorValue then return nil, errorValue end
+  local total = 0
+  if keyType(entries) ~= "none" then
+    total = exact(redis.call("GET", sum), false)
+    if not total then return nil, "missing or corrupt rolling sum" end
+  end
+  local expired = redis.call("ZRANGEBYSCORE", entries, "-inf", now - window)
+  for _, member in ipairs(expired) do
+    local value = memberAmount(member)
+    if not value or total < value then return nil, "corrupt rolling member" end
+    total = total - value
+  end
+  if total > maxExact - amount then return nil, "rolling sum exceeds exact range" end
+  local amountText = string.format("%.0f", amount)
+  if redis.call("ZSCORE", entries, betId .. "|" .. amountText) then
+    return nil, "reservation already exists in committed window"
+  end
+  return {entries, sum, window, amountText, total + amount}
+end
+
+local limitBase, plans = "risk:limit:{" .. userId .. "}:", {}
+local currencyLower = string.lower(currency)
+local dimensions = {{"stake-daily:" .. currencyLower, ARGV[5], stake},
+  {"stake-weekly:" .. currencyLower, ARGV[6], stake}, {"stake-monthly:" .. currencyLower, ARGV[7], stake},
+  {"selections-per-minute", ARGV[8], count}}
+for _, dimension in ipairs(dimensions) do
+  local prefix = limitBase .. dimension[1]
+  local plan, planError = planWindow(prefix .. ":entries", prefix .. ":sum", dimension[3], tonumber(dimension[2]))
+  if planError then return redis.error_reply(planError) end
+  table.insert(plans, plan)
+end
+
+removeActive()
+for _, plan in ipairs(plans) do
+  redis.call("ZREMRANGEBYSCORE", plan[1], "-inf", now - plan[3])
+  redis.call("ZADD", plan[1], now, betId .. "|" .. plan[4])
+  redis.call("SET", plan[2], string.format("%.0f", plan[5]), "PX", plan[3] + 300000)
+  redis.call("PEXPIRE", plan[1], plan[3] + 300000)
 end
 redis.call("HSET", KEYS[1], "state", "COMMITTED", "committedAt", string.format("%.0f", now))
 redis.call("PEXPIRE", KEYS[1], retention)
