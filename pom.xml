@@ -24,4 +24,12 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <shared-protocol.version>1.0.0</shared-protocol.version>
     </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.sportsbook</groupId>
+            <artifactId>shared-protocol</artifactId>
+            <version>${shared-protocol.version}</version>
+        </dependency>
+    </dependencies>
 </project>
