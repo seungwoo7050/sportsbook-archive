@@ -149,6 +149,27 @@ class RecoveryQueueIntegrityRepositoryTest {
     deleteRecoveryFixture(userId);
   }
 
+  @Test
+  void detectsDebtWithoutAFreezeTimestamp() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-0000000001c4");
+    insertRecoveringAccount(userId, 10L, 2L);
+    insertBlocked("1c5", userId, 1L, 10L);
+    jdbc.execute("ALTER TABLE account DROP CONSTRAINT ck_account_recovery_freeze");
+    try {
+      jdbc.update("UPDATE account SET recovery_frozen_at = NULL WHERE user_id = ?", userId);
+      assertThat(integrity.findQueueDriftUsers()).contains(userId);
+    } finally {
+      jdbc.update("UPDATE account SET recovery_frozen_at = now() WHERE user_id = ?", userId);
+      jdbc.execute(
+          """
+          ALTER TABLE account ADD CONSTRAINT ck_account_recovery_freeze CHECK (
+            (recovery_debt_amount = 0 AND recovery_frozen_at IS NULL)
+            OR (recovery_debt_amount > 0 AND recovery_frozen_at IS NOT NULL))
+          """);
+      deleteRecoveryFixture(userId);
+    }
+  }
+
   private static AdjustmentCommand command(
       String revisionTail, String betTail, long revisionNumber, UUID userId, long amount) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
