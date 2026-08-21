@@ -1,5 +1,6 @@
 package com.sportsbook.gateway.ws;
 
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.Money;
@@ -50,5 +51,19 @@ public record BetStatusUpdate(
         null,
         null,
         event.getVoidedAt());
+  }
+
+  static BetStatusUpdate revised(BetResolutionRevised event) {
+    return new BetStatusUpdate(
+        event.getBetId(),
+        event.getUserId(),
+        event.getEventId(),
+        "SETTLED",
+        event.getNewResult().name(),
+        MoneyView.from(event.getNewPayout()),
+        null,
+        event.getRevisionId(),
+        event.getRevisionNumber(),
+        event.getRevisedAt());
   }
 }

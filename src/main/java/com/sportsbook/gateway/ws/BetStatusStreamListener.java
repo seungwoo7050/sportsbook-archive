@@ -1,6 +1,7 @@
 package com.sportsbook.gateway.ws;
 
 import com.sportsbook.gateway.events.GatewayEventContract;
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -39,5 +40,16 @@ public class BetStatusStreamListener {
   public void onBetVoided(ConsumerRecord<byte[], byte[]> record) {
     BetVoided event = GatewayEventContract.betVoided(record);
     publisher.publishBet(event.getUserId(), BetStatusUpdate.voided(event));
+  }
+
+  @KafkaListener(
+      id = "gateway-revision-listener",
+      topics = "${gateway.topics.bet-resolution-revised}",
+      groupId = "gateway-bets",
+      containerFactory = "kafkaListenerContainerFactory",
+      autoStartup = "${spring.kafka.listener.auto-startup:true}")
+  public void onBetResolutionRevised(ConsumerRecord<byte[], byte[]> record) {
+    BetResolutionRevised event = GatewayEventContract.betResolutionRevised(record);
+    publisher.publishBet(event.getUserId(), BetStatusUpdate.revised(event));
   }
 }
