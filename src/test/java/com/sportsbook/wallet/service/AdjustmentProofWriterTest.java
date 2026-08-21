@@ -95,6 +95,28 @@ class AdjustmentProofWriterTest {
         .containsExactly(-300L, AdjustmentStatus.APPLIED);
   }
 
+  @Test
+  void queuesAnUnaffordableDecreaseWithoutMoneyOrLedgerChanges() {
+    Account account = Account.openFor(USER_ID, Currency.KRW, NOW);
+    account.increaseAvailable(Money.krw(200L), NOW);
+    accounts.saveAndFlush(account);
+    AdjustmentCommand command = command(1_000L, 700L);
+    Account locked = accounts.findByUserIdForUpdate(USER_ID).orElseThrow();
+
+    WalletOperation operation = writer.block(command, "c".repeat(64), locked, NOW);
+    operations.saveAndFlush(operation);
+    adjustments.flush();
+
+    assertThat(locked.available()).isEqualTo(Money.krw(200L));
+    assertThat(locked.recoveryDebtAmount()).isEqualTo(java.math.BigInteger.valueOf(300L));
+    assertThat(locked.isOutboundFrozen()).isTrue();
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(adjustments.findById(REVISION_ID))
+        .get()
+        .extracting(proof -> proof.status(), proof -> proof.queueSequence())
+        .containsExactly(AdjustmentStatus.BLOCKED, 1L);
+  }
+
   private AdjustmentCommand command(long previous, long next) {
     return new AdjustmentCommand(
         REVISION_ID,
