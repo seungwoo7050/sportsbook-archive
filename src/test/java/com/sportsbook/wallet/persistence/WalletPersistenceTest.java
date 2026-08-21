@@ -32,15 +32,19 @@ import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
 import com.sportsbook.wallet.service.WalletTransferExecutor;
 import com.sportsbook.wallet.service.WalletTransferWriter;
+import com.sportsbook.wallet.service.command.DebitCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import com.sportsbook.wallet.service.command.WithdrawCommand;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -482,6 +486,71 @@ class WalletPersistenceTest {
     assertThat(duringOutage).isEqualTo(committed);
     assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(90L));
     assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
+  }
+
+  @Test
+  void serializesTwoExactBalanceBetDebits() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000018");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:race-seed")));
+    DebitCommand firstCommand =
+        new DebitCommand(userId, Money.krw(100L), IdempotencyKey.of("debit:race:first"));
+    DebitCommand secondCommand =
+        new DebitCommand(userId, Money.krw(100L), IdempotencyKey.of("debit:race:second"));
+    java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+    java.util.function.Function<DebitCommand, WalletOperationStatus> attempt =
+        command -> {
+          try {
+            wallet.debit(command);
+            return WalletOperationStatus.SUCCEEDED;
+          } catch (WalletRejectedException rejected) {
+            return WalletOperationStatus.REJECTED;
+          }
+        };
+    java.util.function.Function<DebitCommand, CompletableFuture<Optional<WalletOperationStatus>>>
+        submit =
+            command ->
+                CompletableFuture.supplyAsync(
+                    () -> {
+                      await(start);
+                      return retryableAttempt(() -> attempt.apply(command));
+                    });
+    var commands = List.of(firstCommand, secondCommand);
+    var attempts = commands.stream().map(submit).toList();
+
+    start.countDown();
+    CompletableFuture.allOf(attempts.toArray(CompletableFuture[]::new)).join();
+    var statuses =
+        java.util.stream.IntStream.range(0, commands.size())
+            .mapToObj(
+                index ->
+                    attempts.get(index).join().orElseGet(() -> attempt.apply(commands.get(index))))
+            .toList();
+
+    assertThat(statuses)
+        .containsExactlyInAnyOrder(WalletOperationStatus.SUCCEEDED, WalletOperationStatus.REJECTED);
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(0L));
+    assertThat(wallet.requireAccount(userId).locked()).isEqualTo(Money.krw(100L));
+    assertThat(
+            commands.stream()
+                .map(command -> operations.findById(command.idempotencyKey().value()).orElseThrow())
+                .map(WalletOperation::status))
+        .containsExactlyInAnyOrder(WalletOperationStatus.SUCCEEDED, WalletOperationStatus.REJECTED);
+    assertThat(
+            commands.stream()
+                .mapToInt(
+                    command -> ledger.findByIdempotencyKey(command.idempotencyKey().value()).size())
+                .sum())
+        .isEqualTo(2);
+  }
+
+  private static <T> Optional<T> retryableAttempt(Supplier<T> attempt) {
+    try {
+      return Optional.of(attempt.get());
+    } catch (WalletBusyException busy) {
+      return Optional.empty();
+    }
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {
