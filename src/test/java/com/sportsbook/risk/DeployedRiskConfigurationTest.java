@@ -39,6 +39,14 @@ class DeployedRiskConfigurationTest {
     assertThat(patterns.repeatedSelection().action()).isEqualTo(PatternAction.REVIEW);
     assertThat(reservations.retention()).isEqualTo(Duration.ofDays(32));
     assertThat(history.maxStakeSamples()).isEqualTo(100);
+    assertThat(source.getProperty("spring.kafka.consumer.key-deserializer"))
+        .isEqualTo("org.apache.kafka.common.serialization.StringDeserializer");
+    assertThat(source.getProperty("spring.kafka.consumer.value-deserializer"))
+        .isEqualTo("org.apache.kafka.common.serialization.ByteArrayDeserializer");
+    assertThat(source.getProperty("spring.kafka.producer.key-serializer"))
+        .isEqualTo("org.apache.kafka.common.serialization.StringSerializer");
+    assertThat(source.getProperty("spring.kafka.producer.value-serializer"))
+        .isEqualTo("org.apache.kafka.common.serialization.ByteArraySerializer");
     assertThat(source.getProperty("management.endpoint.health.group.readiness.include"))
         .isEqualTo("readinessState,redis,kafka");
   }
