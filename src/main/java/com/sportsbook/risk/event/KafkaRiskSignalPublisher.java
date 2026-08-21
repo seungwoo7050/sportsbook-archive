@@ -6,10 +6,14 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.pattern.PatternMatch;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.Objects;
+import org.apache.avro.specific.SpecificRecordBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -20,10 +24,22 @@ public final class KafkaRiskSignalPublisher implements RiskSignalPublisher {
 
   private final KafkaTemplate<String, byte[]> kafka;
   private final EventTopics topics;
+  private final Counter delivered;
+  private final Counter failed;
 
-  public KafkaRiskSignalPublisher(KafkaTemplate<String, byte[]> kafka, EventTopics topics) {
+  @Autowired
+  public KafkaRiskSignalPublisher(
+      KafkaTemplate<String, byte[]> kafka, EventTopics topics, MeterRegistry meters) {
     this.kafka = Objects.requireNonNull(kafka, "kafka");
     this.topics = Objects.requireNonNull(topics, "topics");
+    Objects.requireNonNull(meters, "meters");
+    this.delivered =
+        Counter.builder("risk.signal.delivery").tag("outcome", "delivered").register(meters);
+    this.failed = Counter.builder("risk.signal.delivery").tag("outcome", "failed").register(meters);
+  }
+
+  KafkaRiskSignalPublisher(KafkaTemplate<String, byte[]> kafka, EventTopics topics) {
+    this(kafka, topics, io.micrometer.core.instrument.Metrics.globalRegistry);
   }
 
   @Override
@@ -51,7 +67,7 @@ public final class KafkaRiskSignalPublisher implements RiskSignalPublisher {
             new com.sportsbook.protocol.event.Money(
                 candidate.amount(), candidate.currency().name()),
             occurredAt);
-    send(topics.limitViolated(), userId.value().toString(), AvroCodec.encode(event));
+    send(topics.limitViolated(), userId.value().toString(), event);
   }
 
   @Override
@@ -61,10 +77,21 @@ public final class KafkaRiskSignalPublisher implements RiskSignalPublisher {
     Objects.requireNonNull(occurredAt, "occurredAt");
   }
 
-  private void send(String topic, String key, byte[] payload) {
+  private void send(String topic, String key, SpecificRecordBase record) {
     try {
-      kafka.send(topic, key, payload);
+      kafka
+          .send(topic, key, AvroCodec.encode(record))
+          .whenComplete(
+              (result, exception) -> {
+                if (exception == null) {
+                  delivered.increment();
+                } else {
+                  failed.increment();
+                  LOG.warn("risk signal delivery failed topic={}", topic, exception);
+                }
+              });
     } catch (RuntimeException exception) {
+      failed.increment();
       LOG.warn("risk signal submission failed topic={}", topic, exception);
     }
   }
