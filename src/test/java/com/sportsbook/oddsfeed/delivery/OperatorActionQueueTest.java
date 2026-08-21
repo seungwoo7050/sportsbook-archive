@@ -477,6 +477,50 @@ class OperatorActionQueueTest {
         .isEqualTo(MarketStatus.CLOSED);
   }
 
+  @Test
+  void deliveryDecisionPublishesANormalReopenAsOpen() {
+    assertThat(reopenDeliveryStatus(MarketStatus.OPEN, false)).isEqualTo(MarketStatus.OPEN);
+  }
+
+  @Test
+  void deliveryDecisionReevaluatesProviderSuspension() {
+    assertThat(reopenDeliveryStatus(MarketStatus.SUSPENDED, false))
+        .isEqualTo(MarketStatus.SUSPENDED);
+  }
+
+  @Test
+  void deliveryDecisionReevaluatesANewFeedHold() {
+    assertThat(reopenDeliveryStatus(MarketStatus.OPEN, true)).isEqualTo(MarketStatus.SUSPENDED);
+  }
+
+  private MarketStatus reopenDeliveryStatus(MarketStatus providerAfterSubmit, boolean hold) {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.providerMarket(eventId, marketId), MarketStatus.OPEN.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    queue.submit(
+        IdempotencyKey.of("delivery-" + UUID.randomUUID()),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.OPEN,
+        "review complete",
+        NOW);
+    QueuedOperatorMarketAction reopen = queue.poll().get(0);
+    redis
+        .opsForValue()
+        .set(CacheKeys.providerMarket(eventId, marketId), providerAfterSubmit.name());
+    if (hold) {
+      redis
+          .opsForValue()
+          .set(CacheKeys.marketFeedHold(eventId, marketId), Long.toString(NOW.toEpochMilli()));
+    }
+    return queue.deliveryDecision(reopen.action()).announcedStatus();
+  }
+
   private OperatorActionQueue queue() {
     return queue("consumer", Duration.ZERO);
   }
