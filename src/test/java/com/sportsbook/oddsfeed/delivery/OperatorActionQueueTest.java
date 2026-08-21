@@ -291,10 +291,35 @@ class OperatorActionQueueTest {
     assertThat(redis.opsForStream().pending(STREAM, "group").getTotalPendingMessages()).isZero();
   }
 
+  @Test
+  void replacementConsumerReclaimsAnInterruptedDelivery() {
+    OperatorActionQueue original = queue("before-crash", Duration.ZERO);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    original.submit(
+        IdempotencyKey.of("pending-key"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.SUSPENDED,
+        "incident",
+        NOW);
+    QueuedOperatorMarketAction delivered = original.poll().get(0);
+
+    QueuedOperatorMarketAction reclaimed = queue("after-restart", Duration.ZERO).poll().get(0);
+
+    assertThat(reclaimed.action()).isEqualTo(delivered.action());
+    assertThat(reclaimed.reclaimed()).isTrue();
+  }
+
   private OperatorActionQueue queue() {
+    return queue("consumer", Duration.ZERO);
+  }
+
+  private OperatorActionQueue queue(String consumer, Duration claimIdle) {
     return new OperatorActionQueue(
         redis,
-        new OperatorDeliveryProperties(STREAM, "group", "consumer", 20, Duration.ZERO, 10),
+        new OperatorDeliveryProperties(STREAM, "group", consumer, 20, claimIdle, 10),
         new CacheProperties(Duration.ofHours(24)),
         new SimpleMeterRegistry());
   }
