@@ -127,6 +127,15 @@ for _, dimension in ipairs(dimensions) do
   table.insert(plans, plan)
 end
 
+local historyBase = "risk:history:{" .. userId .. "}"
+local historyBets, historyStakes = historyBase .. ":bets", historyBase .. ":stakes:" .. currencyLower
+local historyError = typeError(historyBets, "zset") or typeError(historyStakes, "zset")
+if historyError then return redis.error_reply(historyError) end
+for _, selectionId in ipairs(selections) do
+  local itemError = typeError(historyBase .. ":selection:" .. selectionId, "zset")
+  if itemError then return redis.error_reply(itemError) end
+end
+
 removeActive()
 for _, plan in ipairs(plans) do
   redis.call("ZREMRANGEBYSCORE", plan[1], "-inf", now - plan[3])
@@ -134,6 +143,18 @@ for _, plan in ipairs(plans) do
   redis.call("SET", plan[2], string.format("%.0f", plan[5]), "PX", plan[3] + 300000)
   redis.call("PEXPIRE", plan[1], plan[3] + 300000)
 end
+local historyTtl, stakeLimit = tonumber(ARGV[11]), tonumber(ARGV[12])
+redis.call("ZREMRANGEBYSCORE", historyBets, "-inf", now - tonumber(ARGV[9]))
+redis.call("ZADD", historyBets, "NX", now, betId)
+redis.call("ZADD", historyStakes, "NX", now, betId .. "|" .. stakeText)
+local stakeCard = redis.call("ZCARD", historyStakes)
+if stakeCard > stakeLimit then redis.call("ZREMRANGEBYRANK", historyStakes, 0, stakeCard - stakeLimit - 1) end
+for _, selectionId in ipairs(selections) do
+  local key = historyBase .. ":selection:" .. selectionId
+  redis.call("ZREMRANGEBYSCORE", key, "-inf", now - tonumber(ARGV[10]))
+  redis.call("ZADD", key, "NX", now, betId); redis.call("PEXPIRE", key, historyTtl)
+end
+redis.call("PEXPIRE", historyBets, historyTtl); redis.call("PEXPIRE", historyStakes, historyTtl)
 redis.call("HSET", KEYS[1], "state", "COMMITTED", "committedAt", string.format("%.0f", now))
 redis.call("PEXPIRE", KEYS[1], retention)
 return "APPLIED"
