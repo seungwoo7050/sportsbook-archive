@@ -57,6 +57,7 @@ class GatewayRoutingIntegrationTest {
     registry.add("gateway.downstream.betting-uri", DOWNSTREAM::baseUrl);
     registry.add("gateway.downstream.wallet.uri", DOWNSTREAM::baseUrl);
     registry.add("gateway.downstream.wallet.api-key", () -> WALLET_KEY);
+    registry.add("gateway.downstream.odds-feed-uri", DOWNSTREAM::baseUrl);
   }
 
   @BeforeEach
@@ -156,6 +157,69 @@ class GatewayRoutingIntegrationTest {
                 .getStatusCode())
         .isEqualTo(HttpStatus.FORBIDDEN);
     assertThat(DOWNSTREAM.getAllServeEvents()).isEmpty();
+  }
+
+  @Test
+  void proxiesExactPublicReadsWithoutForwardingCredentials() throws Exception {
+    UUID eventId = UUID.randomUUID();
+    UUID marketId = UUID.randomUUID();
+    UUID selectionId = UUID.randomUUID();
+    List<String> paths =
+        List.of(
+            "/api/v1/events",
+            "/api/v1/events/" + eventId,
+            "/api/v1/odds/" + eventId + "/" + marketId + "/" + selectionId);
+    for (String path : paths) {
+      DOWNSTREAM.stubFor(get(urlPathEqualTo(path)).willReturn(aResponse().withStatus(200)));
+    }
+    HttpHeaders headers = authenticated(UUID.randomUUID());
+    headers.set("X-User-Id", "attacker");
+    headers.set("X-Internal-Service", "attacker");
+    headers.set("X-Internal-Api-Key", "attacker-key");
+
+    for (String path : paths) {
+      HttpEntity<?> request =
+          path.equals("/api/v1/events") ? HttpEntity.EMPTY : new HttpEntity<>(headers);
+      assertThat(http.exchange(path, HttpMethod.GET, request, String.class).getStatusCode())
+          .isEqualTo(HttpStatus.OK);
+      DOWNSTREAM.verify(
+          getRequestedFor(urlPathEqualTo(path))
+              .withoutHeader(HttpHeaders.AUTHORIZATION)
+              .withoutHeader("X-User-Id")
+              .withoutHeader("X-Internal-Service")
+              .withoutHeader("X-Internal-Api-Key"));
+    }
+  }
+
+  @Test
+  void rejectsUnexpectedPublicMethodsAndPathShapes() throws Exception {
+    HttpEntity<Void> request = new HttpEntity<>(authenticated(UUID.randomUUID()));
+    List<String> paths =
+        List.of(
+            "/api/v1/events/one/extra",
+            "/api/v1/odds/event/market",
+            "/api/v1/odds/event/market/selection/extra");
+    assertThat(
+            http.exchange("/api/v1/events", HttpMethod.POST, request, String.class).getStatusCode())
+        .isEqualTo(HttpStatus.FORBIDDEN);
+    for (String path : paths) {
+      assertThat(http.exchange(path, HttpMethod.GET, request, String.class).getStatusCode())
+          .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+    assertThat(DOWNSTREAM.getAllServeEvents()).isEmpty();
+  }
+
+  @Test
+  void rejectsUnsafeOddsFeedBaseUris() {
+    for (String uri :
+        List.of(
+            "ftp://odds.internal",
+            "http://user@odds.internal",
+            "http://odds.internal/base",
+            "http://odds.internal?query=1")) {
+      assertThatThrownBy(() -> new OddsFeedDownstreamProperties(URI.create(uri)))
+          .isInstanceOf(IllegalArgumentException.class);
+    }
   }
 
   @Test
