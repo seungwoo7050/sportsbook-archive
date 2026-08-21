@@ -158,6 +158,30 @@ public class WalletOperation {
     completedAt = now;
   }
 
+  public String idempotencyKey() {
+    return idempotencyKey;
+  }
+
+  public WalletCaller caller() {
+    return caller;
+  }
+
+  public WalletOperationKind kind() {
+    return kind;
+  }
+
+  public UUID userId() {
+    return userId;
+  }
+
+  public Money requestAmount() {
+    return requestAmount.toMoney();
+  }
+
+  public String requestFingerprint() {
+    return requestFingerprint;
+  }
+
   public WalletOperationStatus status() {
     return status;
   }
