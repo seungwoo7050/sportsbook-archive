@@ -1,0 +1,21 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "WalletDebitFailed",
+  "doc": "A debit attempt was rejected; bet placement saga compensates by rejecting the slip (ADR-0006).",
+  "fields": [
+    {"name": "userId", "type": "string"},
+    {"name": "requestedAmount", "type": "Money"},
+    {"name": "idempotencyKey", "type": "string", "doc": "Caller-supplied idempotency key (ADR-0005)."},
+    {
+      "name": "reason",
+      "type": {
+        "type": "enum",
+        "name": "WalletDebitFailureReason",
+        "symbols": ["INSUFFICIENT_BALANCE", "ACCOUNT_SUSPENDED", "ACCOUNT_NOT_FOUND", "CURRENCY_MISMATCH"]
+      },
+      "doc": "Why the debit was rejected. Drives ErrorCode mapping in betting-service's saga compensator."
+    },
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
