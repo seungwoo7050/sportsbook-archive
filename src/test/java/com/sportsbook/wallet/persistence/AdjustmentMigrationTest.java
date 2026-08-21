@@ -10,8 +10,10 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,6 +26,7 @@ class AdjustmentMigrationTest {
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
   @Autowired JdbcTemplate jdbc;
+  @Autowired PlatformTransactionManager transactions;
 
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -125,6 +128,73 @@ class AdjustmentMigrationTest {
             + " FROM wallet_adjustment WHERE revision_id="
             + "'019b76da-a000-7000-8000-000000000040'",
         Boolean.class);
+  }
+
+  @Test
+  void commitsAChildFirstProofThroughDeferredOperationKeys() {
+    UUIDs ids = UUIDs.create("000000000201", "000000000202", "000000000203", "000000000204");
+    String key = "settlement:revision:" + ids.revisionId();
+
+    new TransactionTemplate(transactions)
+        .executeWithoutResult(
+            ignored -> {
+              insertAppliedProof(ids, key, ids.groupId());
+              insertSucceededOperation(ids, key, ids.groupId());
+            });
+
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM wallet_adjustment WHERE revision_id=?",
+                Integer.class,
+                ids.revisionId()))
+        .isOne();
+  }
+
+  private void insertAppliedProof(UUIDs ids, String key, java.util.UUID groupId) {
+    jdbc.update(
+        """
+        INSERT INTO wallet_adjustment (
+            revision_id, idempotency_key, bet_id, revision_number, user_id,
+            previous_payout_amount, new_payout_amount, delta_amount, currency,
+            status, operation_group_id, applied_at, created_at, updated_at
+        ) VALUES (?, ?, ?, 1, ?, 5, 10, 5, 'KRW', 'APPLIED', ?, now(), now(), now())
+        """,
+        ids.revisionId(),
+        key,
+        ids.betId(),
+        ids.userId(),
+        groupId);
+  }
+
+  private void insertSucceededOperation(UUIDs ids, String key, java.util.UUID groupId) {
+    jdbc.update(
+        """
+        INSERT INTO wallet_operation (
+            idempotency_key, caller_id, operation_kind, user_id, request_amount,
+            request_currency, request_fingerprint, status, operation_group_id,
+            requested_at, updated_at, completed_at
+        ) VALUES (?, 'SETTLEMENT', 'BET_ADJUSTMENT', ?, 5, 'KRW', ?,
+                  'SUCCEEDED', ?, now(), now(), now())
+        """,
+        key,
+        ids.userId(),
+        "a".repeat(64),
+        groupId);
+  }
+
+  private record UUIDs(
+      java.util.UUID revisionId,
+      java.util.UUID betId,
+      java.util.UUID userId,
+      java.util.UUID groupId) {
+    private static UUIDs create(String revision, String bet, String user, String group) {
+      String prefix = "019b76da-a000-7000-8000-";
+      return new UUIDs(
+          java.util.UUID.fromString(prefix + revision),
+          java.util.UUID.fromString(prefix + bet),
+          java.util.UUID.fromString(prefix + user),
+          java.util.UUID.fromString(prefix + group));
+    }
   }
 
   private String index(String name) {
