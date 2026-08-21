@@ -521,6 +521,73 @@ class OperatorActionQueueTest {
     return queue.deliveryDecision(reopen.action()).announcedStatus();
   }
 
+  @Test
+  void terminalLatchAfterReopenQueueingKeepsTheOverrideClosed() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    redis.opsForValue().set(CacheKeys.market(eventId, marketId), MarketStatus.SUSPENDED.name());
+    submit(queue, "terminal-race", eventId, marketId, MarketStatus.OPEN);
+    QueuedOperatorMarketAction reopen = queue.poll().get(0);
+
+    redis.opsForValue().set(CacheKeys.marketTerminal(eventId, marketId), "MARKET_CLOSED");
+    assertThat(queue.complete(reopen.action())).isEqualTo(OperatorActionQueue.Completion.APPLIED);
+
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(redis.opsForValue().get(CacheKeys.marketOverride(eventId, marketId)))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
+  }
+
+  @Test
+  void acknowledgedReopenPreservesAnActiveFeedHold() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.providerMarket(eventId, marketId), MarketStatus.OPEN.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    redis.opsForValue().set(CacheKeys.market(eventId, marketId), MarketStatus.SUSPENDED.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketFeedHold(eventId, marketId), Long.toString(NOW.toEpochMilli()));
+    submit(queue, "held-reopen", eventId, marketId, MarketStatus.OPEN);
+    QueuedOperatorMarketAction reopen = queue.poll().get(0);
+
+    assertThat(reopen.action().announcedStatus()).isEqualTo(MarketStatus.SUSPENDED);
+    assertThat(queue.complete(reopen.action())).isEqualTo(OperatorActionQueue.Completion.APPLIED);
+    assertThat(redis.hasKey(CacheKeys.marketOverride(eventId, marketId))).isFalse();
+    assertThat(redis.hasKey(CacheKeys.marketFeedHold(eventId, marketId))).isTrue();
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
+    assertThat(redis.opsForHash().get(CacheKeys.eventMarkets(eventId), marketId.value().toString()))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
+  }
+
+  @Test
+  void supersededReopenCannotEraseANewerRestriction() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    submit(queue, "older-reopen", eventId, marketId, MarketStatus.OPEN);
+    submit(queue, "newer-close", eventId, marketId, MarketStatus.CLOSED);
+    List<QueuedOperatorMarketAction> actions = queue.poll();
+
+    assertThat(queue.complete(actions.get(0).action()))
+        .isEqualTo(OperatorActionQueue.Completion.SUPERSEDED);
+    assertThat(redis.opsForValue().get(CacheKeys.marketOverride(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(queue.deliveryState(actions.get(1).action()))
+        .isEqualTo(OperatorActionQueue.DeliveryState.READY);
+  }
+
   private OperatorActionQueue queue() {
     return queue("consumer", Duration.ZERO);
   }
@@ -531,5 +598,15 @@ class OperatorActionQueueTest {
         new OperatorDeliveryProperties(STREAM, "group", consumer, 20, claimIdle, 10),
         new CacheProperties(Duration.ofHours(24)),
         new SimpleMeterRegistry());
+  }
+
+  private static void submit(
+      OperatorActionQueue queue,
+      String key,
+      EventId eventId,
+      MarketId marketId,
+      MarketStatus status) {
+    queue.submit(
+        IdempotencyKey.of(key), UUID.randomUUID(), eventId, marketId, status, "review", NOW);
   }
 }
