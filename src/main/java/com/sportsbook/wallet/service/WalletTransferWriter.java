@@ -34,11 +34,24 @@ public class WalletTransferWriter {
       IdempotencyKey key,
       UUID userId,
       Instant now) {
+    return writeReceipt(destination, source, amount, reason, key, userId, now).result();
+  }
+
+  @SuppressWarnings("checkstyle:ParameterNumber")
+  public WalletTransferReceipt writeReceipt(
+      LedgerEntry.TransferLeg destination,
+      LedgerEntry.TransferLeg source,
+      Money amount,
+      LedgerReason reason,
+      IdempotencyKey key,
+      UUID userId,
+      Instant now) {
     UUID groupId = UuidV7.generate();
     LedgerEntry.Pair pair =
         LedgerEntry.pair(destination, source, amount, reason, key, groupId, now);
     ledger.saveAll(List.of(pair.debit(), pair.credit()));
     events.publishEvent(new OperationCommitted(groupId));
-    return new WalletOperationResult(groupId, userId, amount, reason, now);
+    WalletOperationResult result = new WalletOperationResult(groupId, userId, amount, reason, now);
+    return new WalletTransferReceipt(result, pair.debit().entryId(), pair.credit().entryId());
   }
 }
