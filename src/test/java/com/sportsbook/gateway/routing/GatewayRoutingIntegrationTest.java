@@ -122,6 +122,43 @@ class GatewayRoutingIntegrationTest {
   }
 
   @Test
+  void injectsWalletCredentialForTheVerifiedSubject() throws Exception {
+    UUID subject = UUID.randomUUID();
+    String path = "/internal/v1/wallet/accounts/" + subject + "/balance";
+    DOWNSTREAM.stubFor(get(urlPathEqualTo(path)).willReturn(aResponse().withStatus(200)));
+    HttpHeaders headers = authenticated(subject);
+    headers.set("X-Internal-Service", "attacker");
+    headers.set("X-Internal-Api-Key", "attacker-key");
+
+    ResponseEntity<String> response =
+        http.exchange(
+            "/api/v1/wallet/balance", HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    DOWNSTREAM.verify(
+        getRequestedFor(urlPathEqualTo(path))
+            .withHeader("X-User-Id", equalTo(subject.toString()))
+            .withHeader("X-Internal-Service", equalTo("gateway"))
+            .withHeader("X-Internal-Api-Key", equalTo(WALLET_KEY))
+            .withoutHeader(HttpHeaders.AUTHORIZATION));
+  }
+
+  @Test
+  void rejectsAnonymousAndUnexpectedWalletRequests() throws Exception {
+    assertThat(http.getForEntity("/api/v1/wallet/balance", String.class).getStatusCode())
+        .isEqualTo(HttpStatus.UNAUTHORIZED);
+    assertThat(
+            http.exchange(
+                    "/api/v1/wallet/balance",
+                    HttpMethod.POST,
+                    new HttpEntity<>(authenticated(UUID.randomUUID())),
+                    String.class)
+                .getStatusCode())
+        .isEqualTo(HttpStatus.FORBIDDEN);
+    assertThat(DOWNSTREAM.getAllServeEvents()).isEmpty();
+  }
+
+  @Test
   void rejectsUnsafeBettingBaseUris() {
     assertThatThrownBy(() -> bettingUri("ftp://betting.internal"))
         .isInstanceOf(IllegalArgumentException.class);
