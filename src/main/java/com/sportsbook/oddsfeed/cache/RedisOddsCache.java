@@ -84,6 +84,40 @@ public class RedisOddsCache {
           """,
           String.class);
 
+  private static final RedisScript<String> PREPARE_PROVIDER_OPEN =
+      new DefaultRedisScript<>(
+          """
+          local eventTerminal = redis.call('EXISTS', KEYS[6]) == 1
+          local marketTerminal = redis.call('EXISTS', KEYS[5]) == 1
+          local provider = redis.call('GET', KEYS[2])
+          if eventTerminal then
+            redis.call('HSETNX', KEYS[7], ARGV[2], 'OPEN')
+            redis.call('PEXPIRE', KEYS[7], ARGV[1])
+            return 'CLOSED'
+          end
+          if provider == 'CLOSED' then
+            redis.call('SET', KEYS[5], 'MARKET_CLOSED', 'NX')
+            marketTerminal = true
+          end
+          if marketTerminal then
+            redis.call('HSET', KEYS[7], ARGV[2], 'CLOSED')
+            redis.call('PEXPIRE', KEYS[7], ARGV[1])
+            return 'CLOSED'
+          end
+          local effective = redis.call('GET', KEYS[3])
+          if not effective and redis.call('EXISTS', KEYS[4]) == 1 then
+            effective = 'SUSPENDED'
+          end
+          if effective then
+            redis.call('PSETEX', KEYS[2], ARGV[1], 'OPEN')
+            redis.call('HSET', KEYS[7], ARGV[2], effective)
+            redis.call('PEXPIRE', KEYS[7], ARGV[1])
+            return effective
+          end
+          return 'OPEN'
+          """,
+          String.class);
+
   private static final RedisScript<String> STORE_OPERATOR_MARKET_STATUS =
       new DefaultRedisScript<>(
           """
@@ -258,6 +292,15 @@ public class RedisOddsCache {
             STORE_PROVIDER_MARKET_STATUS,
             marketKeys(eventId, marketId),
             status.name(),
+            ttlMillis(),
+            marketId.value().toString()));
+  }
+
+  public MarketStatus prepareProviderOpen(EventId eventId, MarketId marketId) {
+    return requireStatus(
+        redis.execute(
+            PREPARE_PROVIDER_OPEN,
+            marketKeys(eventId, marketId),
             ttlMillis(),
             marketId.value().toString()));
   }
