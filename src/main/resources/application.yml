@@ -1,6 +1,12 @@
 spring:
   application:
     name: gateway
+  cloud:
+    gateway:
+      mvc:
+        http-client:
+          connect-timeout: ${GATEWAY_DOWNSTREAM_CONNECT_TIMEOUT:500ms}
+          read-timeout: ${GATEWAY_DOWNSTREAM_READ_TIMEOUT:3s}
   data:
     redis:
       host: ${GATEWAY_REDIS_HOST:localhost}

@@ -32,7 +32,7 @@ public final class GatewayProblemWriter {
     objectMapper.writeValue(response.getOutputStream(), problem(request, error));
   }
 
-  ProblemDetail problem(HttpServletRequest request, GatewayErrorCode error) {
+  public ProblemDetail problem(HttpServletRequest request, GatewayErrorCode error) {
     return new ProblemDetail(
         error.type(),
         error.title(),
