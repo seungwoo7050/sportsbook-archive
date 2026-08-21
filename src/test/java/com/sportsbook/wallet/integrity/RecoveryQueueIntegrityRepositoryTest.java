@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.security.TestInternalApiKeys;
 import com.sportsbook.wallet.service.RecoveryWorker;
 import com.sportsbook.wallet.service.WalletAdjustmentService;
 import com.sportsbook.wallet.service.WalletService;
@@ -40,6 +41,7 @@ class RecoveryQueueIntegrityRepositoryTest {
 
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
+    TestInternalApiKeys.register(registry);
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
     registry.add("spring.datasource.username", POSTGRES::getUsername);
     registry.add("spring.datasource.password", POSTGRES::getPassword);

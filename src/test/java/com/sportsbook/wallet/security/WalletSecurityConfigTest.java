@@ -14,6 +14,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +29,11 @@ class WalletSecurityConfigTest {
   @Autowired private MockMvc mvc;
   @Autowired private ListableBeanFactory beans;
   @Autowired private AuthenticationManager authenticationManager;
+
+  @DynamicPropertySource
+  static void securityProperties(DynamicPropertyRegistry registry) {
+    TestInternalApiKeys.register(registry);
+  }
 
   @Test
   void allowsOnlyAnonymousManagementProbes() throws Exception {

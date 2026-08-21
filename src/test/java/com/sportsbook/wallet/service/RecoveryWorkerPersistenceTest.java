@@ -13,6 +13,7 @@ import com.sportsbook.wallet.persistence.AccountRepository;
 import com.sportsbook.wallet.persistence.LedgerEntryRepository;
 import com.sportsbook.wallet.persistence.WalletAdjustmentRepository;
 import com.sportsbook.wallet.persistence.WalletOperationRepository;
+import com.sportsbook.wallet.security.TestInternalApiKeys;
 import com.sportsbook.wallet.service.command.AdjustmentCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
@@ -56,6 +57,7 @@ class RecoveryWorkerPersistenceTest {
 
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
+    TestInternalApiKeys.register(registry);
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
     registry.add("spring.datasource.username", POSTGRES::getUsername);
     registry.add("spring.datasource.password", POSTGRES::getPassword);
