@@ -1,0 +1,22 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "BetVoided",
+  "doc": "Bet voided and stake fully refunded (ADR-0012: cancelled/postponed events void). Published by settlement-service; betting-service consumes to flip bet.status to VOIDED, wallet-service credits the refund.",
+  "fields": [
+    {"name": "betId", "type": "string", "doc": "Slip UUID — primary key in betting-service."},
+    {"name": "userId", "type": "string"},
+    {"name": "eventId", "type": "string", "doc": "Event whose cancellation/postponement triggered the void."},
+    {
+      "name": "reason",
+      "type": {
+        "type": "enum",
+        "name": "VoidReason",
+        "symbols": ["EVENT_CANCELLED", "EVENT_POSTPONED", "MARKET_VOID", "ADMIN_VOID"]
+      },
+      "doc": "Why the bet was voided. EVENT_CANCELLED/EVENT_POSTPONED come from event lifecycle (ADR-0012); MARKET_VOID voids a single market; ADMIN_VOID is a manual admin-api action."
+    },
+    {"name": "refund", "type": "Money", "doc": "Stake refunded in full; same Money record reused across the event schema family."},
+    {"name": "voidedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
