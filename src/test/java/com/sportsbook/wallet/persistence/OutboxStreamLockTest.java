@@ -1,6 +1,7 @@
 package com.sportsbook.wallet.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -67,6 +68,25 @@ class OutboxStreamLockTest {
     release.countDown();
     assertThat(first.get()).isEqualTo(1L);
     assertThat(second.get()).isEqualTo(2L);
+  }
+
+  @Test
+  void reusesAPositionWhoseTransactionRolledBack() {
+    TransactionTemplate transaction = new TransactionTemplate(transactions);
+    RuntimeException rollback = new RuntimeException("rollback stream append");
+
+    assertThatThrownBy(
+            () ->
+                transaction.execute(
+                    ignored -> {
+                      assertThat(streams.nextSequence("wallet.credited.v1", "user-rollback"))
+                          .isEqualTo(1L);
+                      throw rollback;
+                    }))
+        .isSameAs(rollback);
+    Long reused =
+        transaction.execute(ignored -> streams.nextSequence("wallet.credited.v1", "user-rollback"));
+    assertThat(reused).isEqualTo(1L);
   }
 
   private static void await(CountDownLatch latch) {
