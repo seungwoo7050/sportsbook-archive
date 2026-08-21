@@ -15,7 +15,7 @@ public final class TestInternalApiKeys {
     registry.add("wallet.security.admin-api-key", () -> key(WalletCaller.ADMIN));
   }
 
-  static String key(WalletCaller caller) {
+  public static String key(WalletCaller caller) {
     return "test-only:" + caller.wireName() + ":" + caller.name().repeat(8);
   }
 }
