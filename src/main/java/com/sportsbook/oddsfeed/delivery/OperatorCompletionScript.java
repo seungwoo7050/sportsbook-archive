@@ -21,6 +21,11 @@ final class OperatorCompletionScript {
             terminal = true
           end
           if committed >= sequence then
+            if terminal then
+              redis.call('PSETEX', KEYS[3], ARGV[4], 'CLOSED')
+              redis.call('HSET', KEYS[10], ARGV[6], 'CLOSED')
+              redis.call('PEXPIRE', KEYS[10], ARGV[4])
+            end
             local idempotency = redis.call('GET', KEYS[6])
             redis.call('PEXPIRE', KEYS[6], ARGV[5])
             if idempotency then
@@ -43,6 +48,11 @@ final class OperatorCompletionScript {
             redis.call('PEXPIRE', idempotency, ARGV[5])
           end
           if tail ~= sequence then
+            if terminal then
+              redis.call('PSETEX', KEYS[3], ARGV[4], 'CLOSED')
+              redis.call('HSET', KEYS[10], ARGV[6], 'CLOSED')
+              redis.call('PEXPIRE', KEYS[10], ARGV[4])
+            end
             return 'SUPERSEDED'
           end
 
@@ -51,7 +61,12 @@ final class OperatorCompletionScript {
           if terminal then
             effective = 'CLOSED'
           elseif requested == 'OPEN' then
-            effective = redis.call('GET', KEYS[3]) or provider
+            redis.call('DEL', KEYS[5])
+            if redis.call('EXISTS', KEYS[9]) == 1 then
+              effective = 'SUSPENDED'
+            else
+              effective = provider
+            end
           else
             redis.call('SET', KEYS[5], requested)
           end
