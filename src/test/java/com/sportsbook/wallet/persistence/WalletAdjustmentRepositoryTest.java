@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.domain.Account;
 import com.sportsbook.wallet.domain.AdjustmentStatus;
 import com.sportsbook.wallet.domain.WalletAdjustment;
 import com.sportsbook.wallet.domain.WalletCaller;
@@ -14,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -31,6 +33,8 @@ class WalletAdjustmentRepositoryTest {
 
   @Autowired WalletAdjustmentRepository adjustments;
   @Autowired WalletOperationRepository operations;
+  @Autowired AccountRepository accounts;
+  @Autowired JdbcTemplate jdbc;
 
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -60,6 +64,40 @@ class WalletAdjustmentRepositoryTest {
         .get()
         .extracting(WalletAdjustment::revisionId)
         .isEqualTo(first.revisionId());
+  }
+
+  @Test
+  void neverSelectsADueTailBehindABackedOffHead() {
+    AdjustmentCommand first = command("000000000123", "000000000133", 1L);
+    AdjustmentCommand second = command("000000000124", "000000000134", 2L);
+    Account account = Account.openFor(USER_ID, Money.krw(0L).currency(), NOW);
+    account.queueRecoveryDebt(first.absoluteDelta(), NOW);
+    account.queueRecoveryDebt(second.absoluteDelta(), NOW.plusSeconds(1L));
+    accounts.save(account);
+    operations.saveAll(java.util.List.of(blockedOperation(first), blockedOperation(second)));
+    WalletAdjustment head = WalletAdjustment.blocked(first, 1L, NOW);
+    WalletAdjustment tail = WalletAdjustment.blocked(second, 2L, NOW.plusSeconds(1L));
+    head.deferUntil(NOW.plusSeconds(2L), Instant.parse("2099-01-01T00:00:00Z"));
+    adjustments.saveAll(java.util.List.of(head, tail));
+    adjustments.flush();
+
+    assertThat(accounts.lockNextDueRecoveryAccount()).isEmpty();
+
+    jdbc.update(
+        """
+        UPDATE wallet_adjustment
+        SET next_attempt_at=TIMESTAMPTZ '2026-01-01T00:00:00Z'
+        WHERE revision_id=?
+        """,
+        head.revisionId());
+    assertThat(accounts.lockNextDueRecoveryAccount())
+        .get()
+        .extracting(Account::userId)
+        .isEqualTo(USER_ID);
+    assertThat(operations.findByIdForUpdate(first.idempotencyKey().value()))
+        .get()
+        .extracting(WalletOperation::status)
+        .isEqualTo(com.sportsbook.wallet.domain.WalletOperationStatus.BLOCKED_FUNDS);
   }
 
   private AdjustmentCommand command(String revisionTail, String betTail, long revisionNumber) {
