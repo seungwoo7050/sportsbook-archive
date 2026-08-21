@@ -1,6 +1,15 @@
 spring:
   application:
     name: gateway
+  data:
+    redis:
+      host: ${GATEWAY_REDIS_HOST:localhost}
+      port: ${GATEWAY_REDIS_PORT:6379}
+      username: ${GATEWAY_REDIS_USERNAME:}
+      password: ${GATEWAY_REDIS_PASSWORD:}
+      database: ${GATEWAY_REDIS_DATABASE:0}
+      ssl:
+        enabled: ${GATEWAY_REDIS_SSL:false}
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
