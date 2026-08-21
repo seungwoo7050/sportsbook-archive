@@ -35,6 +35,7 @@ class AdjustmentOperationIntegrityRepositoryTest {
   @Autowired WalletAdjustmentService adjustments;
   @Autowired AdjustmentOperationIntegrityRepository integrity;
   @Autowired AdjustmentFailureIntegrityRepository failures;
+  @Autowired AdjustmentFingerprintIntegrityRepository fingerprints;
   @Autowired JdbcTemplate jdbc;
 
   @DynamicPropertySource
@@ -58,6 +59,23 @@ class AdjustmentOperationIntegrityRepositoryTest {
     assertThatThrownBy(() -> adjustments.adjust(rejected))
         .isInstanceOf(WalletRejectedException.class);
     assertThat(integrity.findOutcomeDriftKeys()).isEmpty();
+    assertThat(fingerprints.findFingerprintDriftKeys()).isEmpty();
+
+    String original =
+        jdbc.queryForObject(
+            "SELECT request_fingerprint FROM wallet_operation WHERE idempotency_key = ?",
+            String.class,
+            applied.idempotencyKey().value());
+    jdbc.update(
+        "UPDATE wallet_operation SET request_fingerprint = ? WHERE idempotency_key = ?",
+        "d".repeat(64),
+        applied.idempotencyKey().value());
+    assertThat(fingerprints.findFingerprintDriftKeys())
+        .containsExactly(applied.idempotencyKey().value());
+    jdbc.update(
+        "UPDATE wallet_operation SET request_fingerprint = ? WHERE idempotency_key = ?",
+        original,
+        applied.idempotencyKey().value());
 
     jdbc.update(
         "UPDATE wallet_operation SET request_amount = 11 WHERE idempotency_key = ?",
