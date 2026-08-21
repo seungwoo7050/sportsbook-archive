@@ -1,0 +1,13 @@
+oddsfeed:
+  provider:
+    mode: real
+  real:
+    api-key: ${THE_ODDS_API_KEY}
+    base-url: https://api.the-odds-api.com/v4
+    sport-keys:
+      - soccer_epl
+      - basketball_nba
+    rate-limit:
+      max-requests-per-minute: 5
+    monthly-quota: 500
+    poll-interval-seconds: 60
