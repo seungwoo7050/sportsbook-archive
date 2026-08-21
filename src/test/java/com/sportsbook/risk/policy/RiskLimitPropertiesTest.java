@@ -1,6 +1,7 @@
 package com.sportsbook.risk.policy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.risk.counter.LimitType;
@@ -30,6 +31,19 @@ class RiskLimitPropertiesTest {
 
     assertThat(properties.limit(LimitType.STAKE_DAILY, Currency.KRW)).isEqualTo(42L);
     assertThat(properties.limit(LimitType.STAKE_DAILY, Currency.USD)).isEqualTo(100_000L);
+  }
+
+  @Test
+  void rejectsInvalidPolicyAmounts() {
+    assertThatThrownBy(() -> properties(Map.of(Currency.KRW, -1L), null, null, null, 10))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(
+            () ->
+                properties(
+                    Map.of(Currency.USD, SafeRedisNumber.MAX_VALUE + 1L), null, null, null, 10))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> properties(null, null, null, null, -1))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   private static RiskLimitProperties properties(
