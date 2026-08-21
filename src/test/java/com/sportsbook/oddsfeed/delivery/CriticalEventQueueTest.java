@@ -67,6 +67,17 @@ class CriticalEventQueueTest {
     assertThat(queue.isHealthy()).isTrue();
   }
 
+  @Test
+  void consumesUnreadEventsInStreamOrder() {
+    CriticalEvent first = lifecycle(EventLifecycleStatus.SCHEDULED);
+    CriticalEvent second = lifecycle(EventLifecycleStatus.IN_PLAY);
+    queue.enqueue(first);
+    queue.enqueue(second);
+
+    assertThat(queue.poll()).extracting(QueuedCriticalEvent::event).containsExactly(first, second);
+    assertThat(queue.poll()).isEmpty();
+  }
+
   private CriticalEventQueue queue(String consumerName, Duration claimIdle) {
     return new CriticalEventQueue(
         redis,
