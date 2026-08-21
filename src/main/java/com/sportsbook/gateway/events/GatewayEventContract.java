@@ -1,6 +1,8 @@
 package com.sportsbook.gateway.events;
 
 import com.sportsbook.gateway.kafka.GatewayEventContractException;
+import com.sportsbook.protocol.event.BetSettled;
+import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.OddsChanged;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -19,6 +21,26 @@ public final class GatewayEventContract {
     requireCanonicalUuid(event.getSelectionId(), "selectionId");
     requirePartitionKey(record.key(), event.getEventId(), record.topic());
     return event;
+  }
+
+  public static BetSettled betSettled(ConsumerRecord<byte[], byte[]> record) {
+    BetSettled event = StrictAvroDecoder.decode(record.value(), BetSettled.class);
+    requireBetIdentity(event.getBetId(), event.getUserId(), event.getEventId());
+    requirePartitionKey(record.key(), event.getEventId(), record.topic());
+    return event;
+  }
+
+  public static BetVoided betVoided(ConsumerRecord<byte[], byte[]> record) {
+    BetVoided event = StrictAvroDecoder.decode(record.value(), BetVoided.class);
+    requireBetIdentity(event.getBetId(), event.getUserId(), event.getEventId());
+    requirePartitionKey(record.key(), event.getEventId(), record.topic());
+    return event;
+  }
+
+  private static void requireBetIdentity(String betId, String userId, String eventId) {
+    requireCanonicalUuid(betId, "betId");
+    requireCanonicalUuid(userId, "userId");
+    requireCanonicalUuid(eventId, "eventId");
   }
 
   private static void requirePartitionKey(byte[] rawKey, String expected, String topic) {
