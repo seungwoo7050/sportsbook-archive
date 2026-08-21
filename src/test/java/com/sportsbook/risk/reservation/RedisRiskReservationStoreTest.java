@@ -56,6 +56,17 @@ class RedisRiskReservationStoreTest extends RedisTestSupport {
     assertThat(timerCount(meters, "project-accepted")).isEqualTo(2L);
   }
 
+  @Test
+  void countsLeasesRemovedDuringAdmission() {
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RiskReservationStore store = store(meters);
+    store.reserve(command(1));
+
+    store.reserve(command(2, NOW.plus(RiskReservationProperties.DEFAULT_LEASE).plusMillis(1)));
+
+    assertThat(meters.counter("risk.reservation.expirations").count()).isEqualTo(1.0);
+  }
+
   private RiskReservationStore store(SimpleMeterRegistry meters) {
     return new RedisRiskReservationStore(
         redis,
@@ -72,11 +83,15 @@ class RedisRiskReservationStoreTest extends RedisTestSupport {
   }
 
   private static RiskCheckCommand command(long value) {
+    return command(value, NOW);
+  }
+
+  private static RiskCheckCommand command(long value, Instant now) {
     return new RiskCheckCommand(
         UserId.of(new UUID(0, 1)),
         BetId.of(new UUID(0, value)),
         new Money(10, Currency.KRW),
         List.of(SelectionId.of(new UUID(0, value + 10))),
-        NOW);
+        now);
   }
 }
