@@ -8,9 +8,19 @@ import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.MarketId;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.stream.Consumer;
+import org.springframework.data.redis.connection.stream.MapRecord;
+import org.springframework.data.redis.connection.stream.ReadOffset;
+import org.springframework.data.redis.connection.stream.StreamOffset;
+import org.springframework.data.redis.connection.stream.StreamReadOptions;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -26,7 +36,9 @@ public class OperatorActionQueue {
 
   private final StringRedisTemplate redis;
   private final OperatorDeliveryProperties properties;
+  private final OperatorActionCodec codec = new OperatorActionCodec();
   private final long marketTtlMillis;
+  private final AtomicBoolean groupReady = new AtomicBoolean();
 
   public OperatorActionQueue(
       StringRedisTemplate redis,
@@ -83,6 +95,32 @@ public class OperatorActionQueue {
     return OperatorActionSubmission.fromRedis(result);
   }
 
+  public List<QueuedOperatorMarketAction> poll() {
+    ensureGroup();
+    List<MapRecord<String, String, String>> records =
+        streamOperations()
+            .read(
+                Consumer.from(properties.consumerGroup(), properties.consumerName()),
+                StreamReadOptions.empty().count(properties.batchSize()),
+                StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
+    if (records == null || records.isEmpty()) {
+      return List.of();
+    }
+    return records.stream().map(record -> codec.decode(record, false)).toList();
+  }
+
+  public void cleanup(QueuedOperatorMarketAction queued) {
+    String result =
+        redis.execute(
+            OperatorStreamCleanupScript.INSTANCE,
+            List.of(properties.streamKey()),
+            properties.consumerGroup(),
+            queued.recordId().getValue());
+    if (result == null || !result.matches("[01]\\|[01]")) {
+      throw new IllegalStateException("Malformed operator Stream cleanup result");
+    }
+  }
+
   static String idempotencyRedisKey(IdempotencyKey key) {
     return IDEMPOTENCY_PREFIX + MarketActionFingerprint.idempotencyKey(key);
   }
@@ -108,5 +146,43 @@ public class OperatorActionQueue {
       throw new IllegalArgumentException("Operator action reason must contain 1 to 256 characters");
     }
     return normalized;
+  }
+
+  private void ensureGroup() {
+    if (groupReady.get()) {
+      return;
+    }
+    try {
+      redis.execute(
+          (RedisCallback<String>)
+              connection ->
+                  connection
+                      .streamCommands()
+                      .xGroupCreate(
+                          properties.streamKey().getBytes(StandardCharsets.UTF_8),
+                          properties.consumerGroup(),
+                          ReadOffset.from("0-0"),
+                          true));
+    } catch (DataAccessException exception) {
+      if (!containsBusyGroup(exception)) {
+        throw exception;
+      }
+    }
+    groupReady.set(true);
+  }
+
+  private StreamOperations<String, String, String> streamOperations() {
+    return redis.<String, String>opsForStream();
+  }
+
+  private static boolean containsBusyGroup(Throwable error) {
+    Throwable current = error;
+    while (current != null) {
+      if (current.getMessage() != null && current.getMessage().contains("BUSYGROUP")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 }
