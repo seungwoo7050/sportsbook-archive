@@ -7,3 +7,8 @@ spring:
 server:
   port: ${GATEWAY_HTTP_PORT:8080}
   shutdown: graceful
+
+gateway:
+  security:
+    jwt:
+      public-key: ${GATEWAY_JWT_PUBLIC_KEY:}
