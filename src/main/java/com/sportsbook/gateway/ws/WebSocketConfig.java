@@ -21,12 +21,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
   private final String[] allowedOrigins;
   private final StompAuthChannelInterceptor authentication;
+  private final WebSocketSessionRegistry sessions;
 
   public WebSocketConfig(
       @Value("${gateway.ws.allowed-origins}") String[] allowedOrigins,
-      StompAuthChannelInterceptor authentication) {
+      StompAuthChannelInterceptor authentication,
+      WebSocketSessionRegistry sessions) {
     this.allowedOrigins = allowedOrigins;
     this.authentication = authentication;
+    this.sessions = sessions;
   }
 
   @Override
@@ -51,6 +54,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     registration
         .setMessageSizeLimit(MESSAGE_SIZE_LIMIT)
         .setSendBufferSizeLimit(SEND_BUFFER_LIMIT)
-        .setSendTimeLimit(SEND_TIME_LIMIT);
+        .setSendTimeLimit(SEND_TIME_LIMIT)
+        .addDecoratorFactory(sessions);
   }
 }
