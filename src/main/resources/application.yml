@@ -24,6 +24,8 @@ server:
   shutdown: graceful
 
 gateway:
+  downstream:
+    betting-uri: ${GATEWAY_BETTING_URI:http://localhost:8082}
   security:
     jwt:
       public-key: ${GATEWAY_JWT_PUBLIC_KEY:}
