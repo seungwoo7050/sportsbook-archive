@@ -1,0 +1,13 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "WalletDebited",
+  "doc": "Wallet successfully debited for a bet stake; published after the ledger entry commits (ADR-0006 Saga + Outbox).",
+  "fields": [
+    {"name": "userId", "type": "string", "doc": "User UUID."},
+    {"name": "amount", "type": "Money", "doc": "Amount removed from the user's available balance."},
+    {"name": "idempotencyKey", "type": "string", "doc": "Caller-supplied idempotency key (ADR-0005)."},
+    {"name": "ledgerTxId", "type": "string", "doc": "Ledger journal entry UUID — primary key in wallet-service's double-entry ledger."},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Server-side commit time."}
+  ]
+}
