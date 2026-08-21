@@ -76,6 +76,12 @@ logging:
     org.hibernate.SQL: WARN
 
 wallet:
+  security:
+    platform-api-key: ${WALLET_PLATFORM_API_KEY}
+    gateway-api-key: ${WALLET_GATEWAY_API_KEY}
+    betting-service-api-key: ${WALLET_BETTING_SERVICE_API_KEY}
+    settlement-service-api-key: ${WALLET_SETTLEMENT_SERVICE_API_KEY}
+    admin-api-key: ${WALLET_ADMIN_API_KEY}
   integrity:
     scheduling-enabled: ${WALLET_INTEGRITY_ENABLED:true}
     poll-interval: ${WALLET_INTEGRITY_POLL_INTERVAL:PT30S}
