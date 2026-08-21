@@ -16,6 +16,30 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class OutboxDeliveryRepository {
 
+  private static final int MAX_ERROR_LENGTH = 1024;
+
+  private static final String PUBLISH_SQL =
+      """
+      WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
+      UPDATE outbox_event e
+      SET published_at = c.now,
+          lease_owner = NULL, lease_until = NULL, last_error = NULL
+      FROM db_clock c
+      WHERE e.event_id = :eventId AND e.lease_owner = :owner
+        AND e.lease_version = :version AND e.published_at IS NULL
+      """;
+
+  private static final String RETRY_SQL =
+      """
+      WITH db_clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
+      UPDATE outbox_event e
+      SET available_at = c.now + CAST(:delayMillis AS bigint) * interval '1 millisecond',
+          lease_owner = NULL, lease_until = NULL, last_error = :error
+      FROM db_clock c
+      WHERE e.event_id = :eventId AND e.lease_owner = :owner
+        AND e.lease_version = :version AND e.published_at IS NULL
+      """;
+
   private static final String CLAIM_SQL =
       """
       WITH db_clock AS MATERIALIZED (
@@ -75,6 +99,26 @@ public class OutboxDeliveryRepository {
     List<LeasedOutboxMessage> messages = jdbc.query(CLAIM_SQL, parameters, this::map);
     messages.sort(DELIVERY_ORDER);
     return List.copyOf(messages);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 5)
+  public boolean markPublished(OutboxLease lease) {
+    return jdbc.update(PUBLISH_SQL, leaseParameters(lease)) == 1;
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 5)
+  public boolean releaseForRetry(OutboxLease lease, Duration delay, String error) {
+    if (delay.isNegative() || error == null || error.length() > MAX_ERROR_LENGTH) {
+      throw new IllegalArgumentException("invalid retry completion");
+    }
+    Map<String, Object> parameters = new java.util.HashMap<>(leaseParameters(lease));
+    parameters.put("delayMillis", delay.toMillis());
+    parameters.put("error", error);
+    return jdbc.update(RETRY_SQL, parameters) == 1;
+  }
+
+  private Map<String, Object> leaseParameters(OutboxLease lease) {
+    return Map.of("eventId", lease.eventId(), "owner", lease.owner(), "version", lease.version());
   }
 
   private LeasedOutboxMessage map(ResultSet resultSet, int rowNumber) throws SQLException {
