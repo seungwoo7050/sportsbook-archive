@@ -3,9 +3,14 @@ package com.sportsbook.risk.reservation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sportsbook.protocol.value.Currency;
+import com.sportsbook.protocol.value.UserId;
+import com.sportsbook.risk.counter.LimitKeys;
+import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.counter.RedisLuaScriptLoader;
 import com.sportsbook.risk.support.RedisTestSupport;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -32,6 +37,19 @@ class AcceptedProjectionIdentityScriptTest extends RedisTestSupport {
         .rootCause()
         .hasMessageContaining("reservation lifecycle appeared");
     assertThat(redis.hasKey("accepted")).isFalse();
+  }
+
+  @Test
+  void projectsCurrencyScopedCapacity() {
+    execute(FINGERPRINT);
+    UserId userId = UserId.of(new UUID(0, 1));
+
+    assertThat(
+            redis
+                .opsForValue()
+                .get(LimitKeys.monetary(userId, LimitType.STAKE_DAILY, Currency.KRW).sum()))
+        .isEqualTo("50");
+    assertThat(redis.opsForValue().get(LimitKeys.selections(userId).sum())).isEqualTo("1");
   }
 
   private String execute(String fingerprint) {
