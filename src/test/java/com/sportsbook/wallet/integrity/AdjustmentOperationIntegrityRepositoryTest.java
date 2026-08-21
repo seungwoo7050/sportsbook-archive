@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.error.WalletRejectedException;
+import com.sportsbook.wallet.service.RecoveryWorker;
 import com.sportsbook.wallet.service.WalletAdjustmentService;
 import com.sportsbook.wallet.service.WalletService;
 import com.sportsbook.wallet.service.command.AdjustmentCommand;
+import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -36,6 +38,8 @@ class AdjustmentOperationIntegrityRepositoryTest {
   @Autowired AdjustmentOperationIntegrityRepository integrity;
   @Autowired AdjustmentFailureIntegrityRepository failures;
   @Autowired AdjustmentFingerprintIntegrityRepository fingerprints;
+  @Autowired AdjustmentLedgerIntegrityRepository ledgers;
+  @Autowired RecoveryWorker recovery;
   @Autowired JdbcTemplate jdbc;
 
   @DynamicPropertySource
@@ -56,10 +60,34 @@ class AdjustmentOperationIntegrityRepositoryTest {
 
     adjustments.adjust(applied);
     adjustments.adjust(blocked);
+    wallet.deposit(
+        new DepositCommand(
+            userId, Money.krw(20L), IdempotencyKey.of("deposit:integrity-recovery")));
+    assertThat(recovery.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
     assertThatThrownBy(() -> adjustments.adjust(rejected))
         .isInstanceOf(WalletRejectedException.class);
     assertThat(integrity.findOutcomeDriftKeys()).isEmpty();
     assertThat(fingerprints.findFingerprintDriftKeys()).isEmpty();
+    assertThat(ledgers.findLedgerDriftKeys()).isEmpty();
+
+    UUID house = UUID.fromString("00000000-0000-7000-8000-000000000001");
+    jdbc.update(
+        """
+        UPDATE ledger_entry SET account_id = CASE side WHEN 'DEBIT' THEN ? ELSE ? END
+        WHERE idempotency_key = ?
+        """,
+        house,
+        userId,
+        applied.idempotencyKey().value());
+    assertThat(ledgers.findLedgerDriftKeys()).containsExactly(applied.idempotencyKey().value());
+    jdbc.update(
+        """
+        UPDATE ledger_entry SET account_id = CASE side WHEN 'DEBIT' THEN ? ELSE ? END
+        WHERE idempotency_key = ?
+        """,
+        userId,
+        house,
+        applied.idempotencyKey().value());
 
     String original =
         jdbc.queryForObject(
