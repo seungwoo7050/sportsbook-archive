@@ -237,6 +237,35 @@ class AdjustmentOperationIntegrityRepositoryTest {
     jdbc.update("DELETE FROM wallet_operation WHERE idempotency_key = ?", key);
   }
 
+  @Test
+  void detectsLedgerEntriesAttachedToBlockedAdjustments() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-0000000001cf");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    AdjustmentCommand blocked = command("1d0", "1d1", userId, 10L, 0L);
+    adjustments.adjust(blocked);
+    jdbc.update(
+        """
+        INSERT INTO ledger_entry(entry_id, account_id, bucket, side, amount, currency,
+          reason, idempotency_key, operation_group_id, created_at)
+        VALUES (?, ?, 'AVAILABLE', 'DEBIT', 10, 'KRW', 'BET_ADJUSTMENT', ?, ?, now())
+        """,
+        UUID.fromString("019b76da-a000-7000-8000-0000000001d2"),
+        userId,
+        blocked.idempotencyKey().value(),
+        UUID.fromString("019b76da-a000-7000-8000-0000000001d3"));
+
+    assertThat(integrity.findOutcomeDriftKeys()).contains(blocked.idempotencyKey().value());
+
+    jdbc.update(
+        "DELETE FROM ledger_entry WHERE idempotency_key = ?", blocked.idempotencyKey().value());
+    jdbc.update(
+        "DELETE FROM wallet_adjustment WHERE idempotency_key = ?",
+        blocked.idempotencyKey().value());
+    jdbc.update(
+        "DELETE FROM wallet_operation WHERE idempotency_key = ?", blocked.idempotencyKey().value());
+    jdbc.update("DELETE FROM account WHERE user_id = ?", userId);
+  }
+
   private static AdjustmentCommand command(
       String revisionTail, String betTail, UUID userId, long previous, long next) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
