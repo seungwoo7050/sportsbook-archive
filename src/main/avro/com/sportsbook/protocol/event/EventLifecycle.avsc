@@ -1,0 +1,19 @@
+{
+  "namespace": "com.sportsbook.protocol.event",
+  "type": "record",
+  "name": "EventLifecycle",
+  "doc": "Phase transition for a sports event (kickoff, end, cancellation, postponement). Triggers downstream actions: market opens/closes, settlement window, void cascade on CANCELLED.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "EventLifecycleStatus",
+        "symbols": ["SCHEDULED", "IN_PLAY", "FINISHED", "CANCELLED", "POSTPONED"]
+      }
+    },
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When the transition happened."},
+    {"name": "scheduledStartAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Originally scheduled kickoff; useful for POSTPONED diffing and UI display."}
+  ]
+}
