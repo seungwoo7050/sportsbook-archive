@@ -144,6 +144,43 @@ public class Account {
     updatedAt = now;
   }
 
+  public void moveAvailableToLocked(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    if (available.amount() < amount.amount()) {
+      throw new InsufficientBalanceException(userId, amount, available.toMoney());
+    }
+    long nextAvailable = available.amount() - amount.amount();
+    long nextLocked = locked.amount() + amount.amount();
+    requireRepresentableBalance(userId, nextAvailable, nextLocked);
+    available = new EmbeddedMoney(nextAvailable, currency());
+    locked = new EmbeddedMoney(nextLocked, currency());
+    updatedAt = now;
+  }
+
+  public void moveLockedToAvailable(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    requireLockedFunds(amount);
+    long nextAvailable = available.amount() + amount.amount();
+    long nextLocked = locked.amount() - amount.amount();
+    requireRepresentableBalance(userId, nextAvailable, nextLocked);
+    available = new EmbeddedMoney(nextAvailable, currency());
+    locked = new EmbeddedMoney(nextLocked, currency());
+    updatedAt = now;
+  }
+
+  public void forfeitLocked(Money amount, Instant now) {
+    requirePositive(amount);
+    requireSameCurrency(amount);
+    Objects.requireNonNull(now, "now");
+    requireLockedFunds(amount);
+    locked = new EmbeddedMoney(locked.amount() - amount.amount(), currency());
+    updatedAt = now;
+  }
+
   public Instant createdAt() {
     return createdAt;
   }
@@ -164,6 +201,12 @@ public class Account {
   private void requireSameCurrency(Money amount) {
     if (amount.currency() != currency()) {
       throw new CurrencyMismatchException(currency(), amount.currency());
+    }
+  }
+
+  private void requireLockedFunds(Money amount) {
+    if (locked.amount() < amount.amount()) {
+      throw new InsufficientBalanceException(userId, amount, locked.toMoney());
     }
   }
 
