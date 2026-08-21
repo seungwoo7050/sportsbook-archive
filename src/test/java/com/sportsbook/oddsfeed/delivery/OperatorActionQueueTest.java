@@ -378,6 +378,41 @@ class OperatorActionQueueTest {
     assertThat(redis.opsForStream().size(STREAM)).isZero();
   }
 
+  @Test
+  void newPendingActionPersistsSequenceStateBeforeItsExpiry() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    queue.submit(
+        IdempotencyKey.of("completed-before-new"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.SUSPENDED,
+        "incident",
+        NOW);
+    QueuedOperatorMarketAction first = queue.poll().get(0);
+    queue.complete(first.action());
+    queue.cleanup(first);
+
+    assertThat(redis.getExpire(OperatorActionQueue.sequenceKey(eventId, marketId))).isPositive();
+    assertThat(redis.getExpire(OperatorActionQueue.committedKey(eventId, marketId))).isPositive();
+
+    OperatorActionSubmission second =
+        queue.submit(
+            IdempotencyKey.of("new-before-expiry"),
+            UUID.randomUUID(),
+            eventId,
+            marketId,
+            MarketStatus.CLOSED,
+            "escalated incident",
+            NOW);
+
+    assertThat(second.sequence()).isEqualTo(2);
+    assertThat(redis.getExpire(OperatorActionQueue.sequenceKey(eventId, marketId))).isEqualTo(-1);
+    assertThat(redis.getExpire(OperatorActionQueue.committedKey(eventId, marketId))).isEqualTo(-1);
+  }
+
   private OperatorActionQueue queue() {
     return queue("consumer", Duration.ZERO);
   }
