@@ -103,12 +103,8 @@ public class WalletService {
   }
 
   public WalletOperationResult debit(DebitCommand command) {
-    return transferExecutor.execute(
-        command.idempotencyKey(),
-        WalletCaller.BETTING,
-        WalletOperationKind.BET_DEBIT,
-        command.userId(),
-        command.amount(),
+    return transferExecutor.executeDebit(
+        command,
         (account, now) -> {
           account.moveAvailableToLocked(command.amount(), now);
           return new WalletTransferPlan(
