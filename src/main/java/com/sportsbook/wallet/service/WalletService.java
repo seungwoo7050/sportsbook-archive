@@ -10,6 +10,7 @@ import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.persistence.AccountRepository;
+import com.sportsbook.wallet.service.command.DebitCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import com.sportsbook.wallet.service.command.WithdrawCommand;
@@ -98,6 +99,22 @@ public class WalletService {
                   SystemAccountIds.EXTERNAL_PAYMENT, BalanceBucket.AVAILABLE),
               new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
               LedgerReason.WITHDRAW);
+        });
+  }
+
+  public WalletOperationResult debit(DebitCommand command) {
+    return transferExecutor.execute(
+        command.idempotencyKey(),
+        WalletCaller.BETTING,
+        WalletOperationKind.BET_DEBIT,
+        command.userId(),
+        command.amount(),
+        (account, now) -> {
+          account.moveAvailableToLocked(command.amount(), now);
+          return new WalletTransferPlan(
+              new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.LOCKED),
+              new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
+              LedgerReason.BET_DEBIT);
         });
   }
 
