@@ -204,6 +204,71 @@ if ARGV[28] == "1" then
     end
   end
 end
+local function addText(left, right)
+  local output, carry, leftIndex, rightIndex = {}, 0, #left, #right
+  while leftIndex > 0 or rightIndex > 0 or carry > 0 do
+    local l = leftIndex > 0 and tonumber(string.sub(left, leftIndex, leftIndex)) or 0
+    local r = rightIndex > 0 and tonumber(string.sub(right, rightIndex, rightIndex)) or 0
+    local sum = l + r + carry
+    table.insert(output, 1, tostring(sum % 10)); carry = math.floor(sum / 10)
+    leftIndex, rightIndex = leftIndex - 1, rightIndex - 1
+  end
+  return table.concat(output)
+end
+local function multiplyText(value, multiplier)
+  local output, carry = {}, 0
+  for index = #value, 1, -1 do
+    local product = tonumber(string.sub(value, index, index)) * multiplier + carry
+    table.insert(output, 1, tostring(product % 10)); carry = math.floor(product / 10)
+  end
+  while carry > 0 do table.insert(output, 1, tostring(carry % 10)); carry = math.floor(carry / 10) end
+  return table.concat(output)
+end
+local function greaterOrEqual(left, right)
+  left, right = string.gsub(left, "^0+", ""), string.gsub(right, "^0+", "")
+  if #left ~= #right then return #left > #right end
+  return left >= right
+end
+local function suddenMatch()
+  if ARGV[24] ~= "1" then return false end
+  local errorText = typeError(KEYS[17], "zset") or typeError(KEYS[3], "zset")
+  local multiplier, lookback = tonumber(ARGV[25]), tonumber(ARGV[26])
+  if errorText or not multiplier or multiplier <= 1 or not lookback or lookback < 1 then
+    return nil, errorText or "invalid sudden policy"
+  end
+  local samples = {}
+  for _, key in ipairs({KEYS[17], KEYS[3]}) do
+    local values = redis.call("ZRANGE", key, 0, -1, "WITHSCORES")
+    for index = 1, #values, 2 do
+      local text = string.match(values[index], "|([0-9]+)$")
+      local amount = exact(text, true)
+      if not amount then return nil, "corrupt sudden stake member" end
+      table.insert(samples, {amount = amount, text = text,
+        score = tonumber(values[index + 1]), member = values[index]})
+    end
+  end
+  table.sort(samples, function(left, right)
+    if left.score == right.score then return left.member < right.member end
+    return left.score < right.score
+  end)
+  if #samples < lookback then return false end
+  local recent = {}
+  for index = #samples - lookback + 1, #samples do table.insert(recent, samples[index]) end
+  table.sort(recent, function(left, right) return left.amount < right.amount end)
+  local middle = math.floor(#recent / 2) + 1
+  if #recent % 2 == 1 then
+    return greaterOrEqual(stakeText, multiplyText(recent[middle].text, multiplier))
+  end
+  local medianSum = addText(recent[middle - 1].text, recent[middle].text)
+  return greaterOrEqual(multiplyText(stakeText, 2), multiplyText(medianSum, multiplier))
+end
+local sudden, suddenError = suddenMatch()
+if suddenError then return redis.error_reply(suddenError) end
+if sudden then
+  local suddenAction = action(ARGV[27])
+  if not suddenAction then return redis.error_reply("invalid sudden action") end
+  addPattern("SUDDEN_STAKE_INCREASE", suddenAction, "sudden stake threshold reached")
+end
 local patternsJson = #patterns == 0 and "[]" or cjson.encode(patterns)
 if firstBlock then
   persist("REJECTED", patternsJson)
