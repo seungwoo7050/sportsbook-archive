@@ -4,10 +4,14 @@ import com.sportsbook.oddsfeed.api.EventCatalog;
 import com.sportsbook.oddsfeed.cache.RedisOddsCache;
 import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.oddsfeed.provider.OddsProvider;
+import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
+import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
+import com.sportsbook.protocol.value.EventId;
 import jakarta.annotation.PostConstruct;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -16,11 +20,22 @@ public class FeedOrchestrator {
 
   private final OddsProvider provider;
   private final RedisOddsCache cache;
+  private final OddsFeedPublisher publisher;
   private final EventCatalog catalog;
 
   public FeedOrchestrator(OddsProvider provider, RedisOddsCache cache, EventCatalog catalog) {
+    this(provider, cache, null, catalog);
+  }
+
+  @Autowired
+  public FeedOrchestrator(
+      OddsProvider provider,
+      RedisOddsCache cache,
+      OddsFeedPublisher publisher,
+      EventCatalog catalog) {
     this.provider = provider;
     this.cache = cache;
+    this.publisher = publisher;
     this.catalog = catalog;
   }
 
@@ -48,6 +63,25 @@ public class FeedOrchestrator {
     EventSummary initial = cached.orElse(providerSummary);
     if (catalog.putIfAbsent(initial) && cached.isEmpty()) {
       cache.storeEvent(initial);
+    }
+  }
+
+  void dispatch(EventId eventId, ProviderEvent event) {
+    if (event instanceof ProviderEvent.OddsUpdated odds) {
+      boolean held = cache.isFeedHeld(odds.eventId(), odds.marketId());
+      boolean published =
+          publisher.publishOddsChanged(
+              odds.eventId(),
+              odds.marketId(),
+              odds.selectionId(),
+              odds.previousOdds(),
+              odds.newOdds(),
+              odds.occurredAt(),
+              held);
+      if (!held || published) {
+        cache.projectLatestOdds(
+            odds.eventId(), odds.marketId(), odds.selectionId(), odds.newOdds(), odds.occurredAt());
+      }
     }
   }
 }
