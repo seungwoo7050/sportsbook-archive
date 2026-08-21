@@ -11,6 +11,7 @@ import com.sportsbook.wallet.domain.BalanceBucket;
 import com.sportsbook.wallet.domain.LedgerEntry;
 import com.sportsbook.wallet.domain.LedgerReason;
 import com.sportsbook.wallet.domain.SystemAccountIds;
+import com.sportsbook.wallet.domain.WalletAdjustment;
 import com.sportsbook.wallet.service.command.AdjustmentCommand;
 import java.time.Instant;
 import java.util.UUID;
@@ -57,6 +58,41 @@ class AdjustmentTransfersTest {
         .hasMessage("Increase transfer requires a positive delta");
     assertThatThrownBy(() -> AdjustmentTransfers.decrease(account, command(100L, 130L), NOW))
         .hasMessage("Decrease transfer requires a negative delta");
+  }
+
+  @Test
+  void collectsOneFullHeadAndKeepsRemainingDebtFrozen() {
+    Account account = Account.openFor(USER_ID, Currency.KRW, NOW);
+    account.increaseAvailable(Money.krw(80L), NOW);
+    AdjustmentCommand first = command(130L, 100L);
+    long sequence = account.queueRecoveryDebt(first.absoluteDelta(), NOW);
+    account.queueRecoveryDebt(Money.krw(20L), NOW);
+    WalletAdjustment proof = WalletAdjustment.blocked(first, sequence, NOW);
+
+    WalletTransferPlan plan = AdjustmentTransfers.recover(account, proof, NOW.plusSeconds(1L));
+
+    assertThat(account.available()).isEqualTo(Money.krw(50L));
+    assertThat(account.recoveryDebtAmount()).isEqualTo(java.math.BigInteger.valueOf(20L));
+    assertThat(account.isOutboundFrozen()).isTrue();
+    assertThat(plan.destination())
+        .isEqualTo(new LedgerEntry.TransferLeg(SystemAccountIds.HOUSE, BalanceBucket.AVAILABLE));
+    assertThat(plan.source())
+        .isEqualTo(new LedgerEntry.TransferLeg(USER_ID, BalanceBucket.AVAILABLE));
+  }
+
+  @Test
+  void leavesAnUnderfundedHeadCompletelyUntouched() {
+    Account account = Account.openFor(USER_ID, Currency.KRW, NOW);
+    account.increaseAvailable(Money.krw(20L), NOW);
+    AdjustmentCommand command = command(130L, 100L);
+    long sequence = account.queueRecoveryDebt(command.absoluteDelta(), NOW);
+    WalletAdjustment proof = WalletAdjustment.blocked(command, sequence, NOW);
+
+    assertThatThrownBy(() -> AdjustmentTransfers.recover(account, proof, NOW.plusSeconds(1L)))
+        .isInstanceOf(com.sportsbook.wallet.domain.error.InsufficientBalanceException.class);
+    assertThat(account.available()).isEqualTo(Money.krw(20L));
+    assertThat(account.recoveryDebtAmount()).isEqualTo(java.math.BigInteger.valueOf(30L));
+    assertThat(account.isOutboundFrozen()).isTrue();
   }
 
   private AdjustmentCommand command(long previous, long next) {
