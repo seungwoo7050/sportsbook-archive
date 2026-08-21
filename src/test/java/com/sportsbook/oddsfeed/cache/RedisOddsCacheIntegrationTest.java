@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.oddsfeed.config.CacheProperties;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
@@ -11,6 +12,7 @@ import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.protocol.value.SelectionId;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -168,6 +170,29 @@ class RedisOddsCacheIntegrationTest {
         .isEqualTo(MarketStatus.SUSPENDED);
     assertThat(redis.opsForValue().get(CacheKeys.providerMarket(eventId, suspendedMarket)))
         .isEqualTo(MarketStatus.SUSPENDED.name());
+  }
+
+  @Test
+  void closesRecoveredMarketsWithPermanentTerminalLatches() {
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    SelectionId selectionId = new SelectionId(UUID.randomUUID());
+    RedisOddsCache cache = cache();
+    cache.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+
+    RedisOddsCache restarted = cache();
+    assertThat(restarted.getRegisteredMarkets(eventId)).containsEntry(marketId, MarketStatus.OPEN);
+    assertThat(restarted.closeEventMarkets(eventId, EventLifecycleStatus.FINISHED))
+        .isEqualTo(Map.of(marketId.value(), MarketStatus.OPEN));
+    assertThat(restarted.closeEventMarkets(eventId, EventLifecycleStatus.FINISHED))
+        .isEqualTo(Map.of(marketId.value(), MarketStatus.OPEN));
+
+    restarted.storeProviderMarketStatus(eventId, marketId, MarketStatus.OPEN);
+    restarted.storeOperatorMarketStatus(eventId, marketId, MarketStatus.OPEN);
+    restarted.storeOdds(eventId, marketId, selectionId, Odds.ofDecimal("2.20"));
+    assertThat(restarted.getMarketStatus(eventId, marketId)).contains(MarketStatus.CLOSED);
+    assertThat(redis.getExpire(CacheKeys.eventTerminal(eventId))).isEqualTo(-1);
+    assertThat(redis.getExpire(CacheKeys.marketTerminal(eventId, marketId))).isEqualTo(-1);
   }
 
   private RedisOddsCache cache() {
