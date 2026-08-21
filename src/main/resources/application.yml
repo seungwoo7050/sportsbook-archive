@@ -43,7 +43,25 @@ spring:
           max-active: 16
           max-idle: 8
           min-idle: 2
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        compression.type: lz4
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
 
 oddsfeed:
+  publish:
+    odds-change-threshold: 0.01
+    broker-ack-timeout: ${KAFKA_BROKER_ACK_TIMEOUT:5s}
+  kafka:
+    topics:
+      odds-changed: odds.changed
+      market-status-changed: market.status.changed
+      event-lifecycle: event.lifecycle
+      match-result: match.result
   cache:
     ttl: 24h

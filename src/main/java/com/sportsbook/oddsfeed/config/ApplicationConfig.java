@@ -8,7 +8,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties({MockProperties.class, RealProperties.class, CacheProperties.class})
+@EnableConfigurationProperties({
+  MockProperties.class,
+  RealProperties.class,
+  CacheProperties.class,
+  KafkaTopicsProperties.class,
+  PublishProperties.class
+})
 public class ApplicationConfig {
 
   @Bean
