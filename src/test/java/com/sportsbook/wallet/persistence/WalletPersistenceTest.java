@@ -355,6 +355,51 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void positiveAdjustmentsApplyWhileFrozenAndWakeTheOldestNegative() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000167");
+    UUID betId = UUID.fromString("019b76da-a000-7000-8000-000000000168");
+    UUID blockedId = UUID.fromString("019b76da-a000-7000-8000-000000000169");
+    UUID positiveId = UUID.fromString("019b76da-a000-7000-8000-00000000016a");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    adjustmentService.adjust(
+        new AdjustmentCommand(
+            blockedId,
+            betId,
+            1L,
+            userId,
+            Money.krw(300L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + blockedId)));
+    jdbc.update(
+        "UPDATE wallet_adjustment SET next_attempt_at=now()+interval '1 hour' WHERE revision_id=?",
+        blockedId);
+    Instant delayed = adjustmentProofs.findById(blockedId).orElseThrow().nextAttemptAt();
+    AdjustmentCommand positive =
+        new AdjustmentCommand(
+            positiveId,
+            betId,
+            2L,
+            userId,
+            Money.krw(0L),
+            Money.krw(100L),
+            IdempotencyKey.of("settlement:revision:" + positiveId));
+
+    assertThat(adjustmentService.adjust(positive).status()).isEqualTo(AdjustmentStatus.APPLIED);
+
+    assertThat(adjustmentProofs.findById(blockedId).orElseThrow().nextAttemptAt())
+        .isBefore(delayed);
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(100L));
+              assertThat(account.recoveryDebtAmount()).isEqualTo(BigInteger.valueOf(300L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
+    assertThat(ledger.findByIdempotencyKey(positive.idempotencyKey().value())).hasSize(2);
+    assertThat(outboxFor(positive.idempotencyKey())).isEmpty();
+  }
+
+  @Test
   void migratesFinalConstraintsAndAdjustmentReason() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000010");
     jdbc.update(
