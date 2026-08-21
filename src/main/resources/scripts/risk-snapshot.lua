@@ -94,6 +94,26 @@ if not now or now < 0 or now > maxExact or not count or count < 1
   or not retention or retention <= 0 or #KEYS ~= 17 + count * 2 then
   return redis.error_reply("invalid snapshot request")
 end
+for _, index in ipairs({3, 4, 5, 6, 8, 10, 12}) do
+  local value = tonumber(ARGV[index])
+  if not value or value <= 0 or value > maxExact then
+    return redis.error_reply("invalid snapshot policy")
+  end
+end
+for _, index in ipairs({7, 9, 11}) do
+  if ARGV[index] ~= "0" and ARGV[index] ~= "1" then
+    return redis.error_reply("invalid snapshot policy flag")
+  end
+end
+if not userId or not string.match(userId, "^[0-9a-f%-]+$")
+  or not currency or not string.match(currency, "^[A-Z]+$") then
+  return redis.error_reply("invalid snapshot identity")
+end
+for index = 1, count do
+  if not string.match(ARGV[15 + index] or "", "^[0-9a-f%-]+$") then
+    return redis.error_reply("invalid snapshot selection")
+  end
+end
 
 local activeBase = "risk:reservations:user:{" .. userId .. "}"
 local plans, stakeTotals, selectionTotal = {}, {}, 0
