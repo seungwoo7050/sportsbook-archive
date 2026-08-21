@@ -19,7 +19,11 @@ import com.sportsbook.wallet.domain.WalletOperationStatus;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
+import com.sportsbook.wallet.service.WalletOperationExecutor;
+import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
+import com.sportsbook.wallet.service.WalletTransferExecutor;
+import com.sportsbook.wallet.service.WalletTransferWriter;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -43,7 +47,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @DataJpaTest(properties = "spring.test.database.replace=NONE")
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({IdempotencyKeyLock.class, WalletInfrastructureConfig.class, WalletService.class})
+@Import({
+  IdempotencyKeyLock.class,
+  WalletInfrastructureConfig.class,
+  WalletOperationExecutor.class,
+  WalletOutcomeResolver.class,
+  WalletService.class,
+  WalletTransferExecutor.class,
+  WalletTransferWriter.class
+})
 class WalletPersistenceTest {
   @Container
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
