@@ -3,6 +3,7 @@ package com.sportsbook.gateway.ws;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -19,9 +20,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
   private static final int SEND_TIME_LIMIT = 10_000;
 
   private final String[] allowedOrigins;
+  private final StompAuthChannelInterceptor authentication;
 
-  public WebSocketConfig(@Value("${gateway.ws.allowed-origins}") String[] allowedOrigins) {
+  public WebSocketConfig(
+      @Value("${gateway.ws.allowed-origins}") String[] allowedOrigins,
+      StompAuthChannelInterceptor authentication) {
     this.allowedOrigins = allowedOrigins;
+    this.authentication = authentication;
   }
 
   @Override
@@ -34,6 +39,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     registry.enableSimpleBroker("/topic", "/queue");
     registry.setApplicationDestinationPrefixes("/app");
     registry.setUserDestinationPrefix("/user");
+  }
+
+  @Override
+  public void configureClientInboundChannel(ChannelRegistration registration) {
+    registration.interceptors(authentication);
   }
 
   @Override
