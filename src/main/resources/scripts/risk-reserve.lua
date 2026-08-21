@@ -65,11 +65,16 @@ for index = 1, selectionCount do
   end
   seen[selectionId] = true; table.insert(selections, selectionId)
 end
+local acceptedKey = "risk:event:fingerprint:" .. betId
 local errorText = typeError(KEYS[1], "hash") or typeError(KEYS[2], "zset")
   or typeError(KEYS[3], "zset") or typeError(KEYS[4], "string")
   or typeError(KEYS[5], "zset") or typeError(KEYS[6], "string")
   or typeError(KEYS[7], "hash") or typeError(KEYS[18], "string")
+  or typeError(acceptedKey, "string")
 if errorText then return redis.error_reply(errorText) end
+if redis.call("EXISTS", acceptedKey) == 1 then
+  return response({status = "CONFLICT", replayed = false})
+end
 
 local activeBase, cleanups, stakeDecrements =
   "risk:reservations:user:{" .. userId .. "}", {}, {}
