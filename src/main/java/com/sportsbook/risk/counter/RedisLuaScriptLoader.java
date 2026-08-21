@@ -14,4 +14,11 @@ public final class RedisLuaScriptLoader {
     script.setResultType(List.class);
     return script;
   }
+
+  public static DefaultRedisScript<String> stringScript(String name) {
+    DefaultRedisScript<String> script = new DefaultRedisScript<>();
+    script.setLocation(new ClassPathResource("scripts/" + name));
+    script.setResultType(String.class);
+    return script;
+  }
 }
