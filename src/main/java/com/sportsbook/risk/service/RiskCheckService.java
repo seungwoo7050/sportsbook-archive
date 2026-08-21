@@ -62,6 +62,21 @@ public final class RiskCheckService {
         return reject(command, LimitRejection.rolling(type, currency, current, limit, requested));
       }
     }
+    LimitSnapshot.Value selections = snapshot.limits().require(LimitType.SELECTIONS_PER_MINUTE);
+    long selectionCurrent = selections.current();
+    long selectionLimit =
+        selections.effectiveLimit(policy.limit(LimitType.SELECTIONS_PER_MINUTE, currency));
+    long requestedSelections = command.selectionIds().size();
+    if (exceeds(selectionCurrent, requestedSelections, selectionLimit)) {
+      return reject(
+          command,
+          LimitRejection.rolling(
+              LimitType.SELECTIONS_PER_MINUTE,
+              null,
+              selectionCurrent,
+              selectionLimit,
+              requestedSelections));
+    }
     return RiskCheckOutcome.approved(List.of());
   }
 
