@@ -67,6 +67,38 @@ class AdjustmentOperationIntegrityRepositoryTest {
         applied.idempotencyKey().value());
   }
 
+  @Test
+  void detectsFailureMetadataOnNonRejectedAdjustments() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-0000000001d4");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    AdjustmentCommand applied = command("1d5", "1d7", userId, 0L, 10L);
+    AdjustmentCommand blocked = command("1d6", "1d8", userId, 30L, 0L);
+    adjustments.adjust(applied);
+    adjustments.adjust(blocked);
+
+    jdbc.update(
+        "UPDATE wallet_operation SET failure_expected_currency = 'KRW' WHERE idempotency_key = ?",
+        applied.idempotencyKey().value());
+    assertThat(integrity.findOutcomeDriftKeys()).containsExactly(applied.idempotencyKey().value());
+    jdbc.update(
+        "UPDATE wallet_operation SET failure_expected_currency = NULL WHERE idempotency_key = ?",
+        applied.idempotencyKey().value());
+
+    jdbc.update(
+        """
+        UPDATE wallet_operation SET failure_balance_amount = 1, failure_balance_currency = 'KRW'
+        WHERE idempotency_key = ?
+        """,
+        blocked.idempotencyKey().value());
+    assertThat(integrity.findOutcomeDriftKeys()).containsExactly(blocked.idempotencyKey().value());
+    jdbc.update(
+        """
+        UPDATE wallet_operation SET failure_balance_amount = NULL, failure_balance_currency = NULL
+        WHERE idempotency_key = ?
+        """,
+        blocked.idempotencyKey().value());
+  }
+
   private static AdjustmentCommand command(
       String revisionTail, String betTail, UUID userId, long previous, long next) {
     UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-000000000" + revisionTail);
