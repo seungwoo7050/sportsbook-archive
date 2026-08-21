@@ -13,6 +13,8 @@ import com.sportsbook.protocol.event.OddsChanged;
 import com.sportsbook.protocol.event.SettlementResultAvro;
 import com.sportsbook.protocol.event.VoidReason;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,76 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
 
   @Autowired SimpleBrokerMessageHandler broker;
   @Autowired KafkaListenerEndpointRegistry listeners;
+
+  @Test
+  void broadcastsOneOddsEventToEightSubscribedSessionsExactlyOnce() throws Exception {
+    OddsChanged event = oddsChanged(UUID.randomUUID().toString());
+    String destination = "/topic/odds/" + event.getEventId();
+    List<StompSession> sessions = new ArrayList<>();
+    List<BlockingQueue<String>> messages = new ArrayList<>();
+    try {
+      for (int index = 0; index < 8; index++) {
+        StompSession session = connect("/ws/v1/odds", new StompHeaders());
+        sessions.add(session);
+        messages.add(subscribe(session, destination));
+      }
+      awaitListener("gateway-odds-listener");
+
+      publish(topics.oddsChanged(), event.getEventId(), event);
+
+      String first = null;
+      for (BlockingQueue<String> subscriber : messages) {
+        String payload = subscriber.poll(5, SECONDS);
+        assertThat(payload)
+            .contains(event.getEventId(), event.getMarketId(), event.getSelectionId());
+        if (first == null) {
+          first = payload;
+        } else {
+          assertThat(payload).isEqualTo(first);
+        }
+        assertThat(subscriber.poll(1, SECONDS)).isNull();
+      }
+    } finally {
+      disconnect(sessions);
+    }
+  }
+
+  @Test
+  void isolatesEightOwnersDuringConcurrentBetFanOut() throws Exception {
+    List<StompSession> sessions = new ArrayList<>();
+    List<BlockingQueue<String>> messages = new ArrayList<>();
+    List<BetSettled> events = new ArrayList<>();
+    try {
+      for (int index = 0; index < 8; index++) {
+        String owner = UUID.randomUUID().toString();
+        BetSettled event = betSettled(owner);
+        StompSession session = connect("/ws/v1/bets", authHeaders(owner));
+        sessions.add(session);
+        messages.add(subscribe(session, "/user/queue/bets"));
+        events.add(event);
+      }
+      awaitListener("gateway-settled-listener");
+
+      for (BetSettled event : events) {
+        publish(topics.betSettled(), event.getEventId(), event);
+      }
+
+      List<String> deliveries = new ArrayList<>();
+      for (BlockingQueue<String> owner : messages) {
+        deliveries.add(owner.poll(5, SECONDS));
+      }
+      for (int index = 0; index < events.size(); index++) {
+        BetSettled event = events.get(index);
+        assertThat(deliveries.get(index))
+            .contains(event.getBetId(), event.getUserId(), "\"status\":\"SETTLED\"");
+      }
+      for (BlockingQueue<String> owner : messages) {
+        assertThat(owner.poll(1, SECONDS)).isNull();
+      }
+    } finally {
+      disconnect(sessions);
+    }
+  }
 
   @Test
   void broadcastsKafkaOddsToEverySubscribedSessionExactlyOnce() throws Exception {
@@ -176,7 +248,7 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
             Jwt.withTokenValue(userId)
                 .header("alg", "RS256")
                 .subject(userId)
-                .expiresAt(Instant.now().plusSeconds(60))
+                .expiresAt(Instant.now().plusSeconds(300))
                 .build());
     StompHeaders headers = new StompHeaders();
     headers.add(HttpHeaders.AUTHORIZATION, "Bearer " + userId);
@@ -238,5 +310,9 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
         .setNewOdds("1.9000")
         .setChangedAt(Instant.parse("2026-08-21T00:00:00Z"))
         .build();
+  }
+
+  private static void disconnect(List<StompSession> sessions) {
+    sessions.stream().filter(StompSession::isConnected).forEach(StompSession::disconnect);
   }
 }
