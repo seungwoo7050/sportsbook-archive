@@ -1,6 +1,8 @@
 package com.sportsbook.wallet.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -150,6 +152,61 @@ class AdjustmentMigrationTest {
         .isOne();
   }
 
+  @Test
+  void rejectsAnAppliedProofWhoseOperationGroupDoesNotMatch() {
+    UUIDs ids = UUIDs.create("000000000211", "000000000212", "000000000213", "000000000214");
+    String key = "settlement:revision:" + ids.revisionId();
+
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(transactions)
+                    .executeWithoutResult(
+                        ignored -> {
+                          insertAppliedProof(ids, key, ids.groupId());
+                          insertSucceededOperation(ids, key, java.util.UUID.randomUUID());
+                        }))
+        .hasRootCauseInstanceOf(java.sql.SQLException.class);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM wallet_adjustment WHERE revision_id=?",
+                Integer.class,
+                ids.revisionId()))
+        .isZero();
+  }
+
+  @Test
+  void rejectsNoncanonicalKeysAndReservedUsers() {
+    UUIDs ids = UUIDs.create("000000000221", "000000000222", "000000000223", "000000000224");
+    assertRequestConstraint(ids, "settlement:revision:wrong");
+
+    UUIDs house =
+        new UUIDs(
+            java.util.UUID.fromString("019b76da-a000-7000-8000-000000000225"),
+            java.util.UUID.fromString("019b76da-a000-7000-8000-000000000226"),
+            com.sportsbook.wallet.domain.SystemAccountIds.HOUSE,
+            java.util.UUID.fromString("019b76da-a000-7000-8000-000000000227"));
+    assertRequestConstraint(house, "settlement:revision:" + house.revisionId());
+    UUIDs external =
+        new UUIDs(
+            java.util.UUID.fromString("019b76da-a000-7000-8000-000000000228"),
+            java.util.UUID.fromString("019b76da-a000-7000-8000-000000000229"),
+            com.sportsbook.wallet.domain.SystemAccountIds.EXTERNAL_PAYMENT,
+            java.util.UUID.fromString("019b76da-a000-7000-8000-000000000230"));
+    assertRequestConstraint(external, "settlement:revision:" + external.revisionId());
+  }
+
+  private void assertRequestConstraint(UUIDs ids, String key) {
+    Throwable failure =
+        catchThrowable(
+            () ->
+                new TransactionTemplate(transactions)
+                    .executeWithoutResult(
+                        ignored -> {
+                          insertSucceededOperation(ids, key, ids.groupId());
+                          insertAppliedProof(ids, key, ids.groupId());
+                        }));
+    assertThat(failure).rootCause().hasMessageContaining("ck_wallet_adjustment_request");
+  }
   private void insertAppliedProof(UUIDs ids, String key, java.util.UUID groupId) {
     jdbc.update(
         """
