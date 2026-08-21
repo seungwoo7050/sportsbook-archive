@@ -26,6 +26,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -140,6 +141,52 @@ public class MockOddsProvider implements OddsProvider {
     if (result.isFailure()) {
       throw new IllegalStateException("Could not emit mock provider event: " + result);
     }
+  }
+
+  @Scheduled(fixedRateString = "${oddsfeed.mock.tick-interval-ms:500}")
+  void scheduledTick() {
+    tick(clock.instant());
+  }
+
+  void tick(Instant now) {
+    for (MockEvent event : events.values()) {
+      advance(event, now);
+    }
+  }
+
+  private void advance(MockEvent event, Instant now) {
+    if (event.status == EventLifecycleStatus.FINISHED
+        || event.status == EventLifecycleStatus.CANCELLED
+        || event.status == EventLifecycleStatus.POSTPONED) {
+      return;
+    }
+    if (event.status == EventLifecycleStatus.SCHEDULED && !now.isBefore(event.kickoffAt)) {
+      transitionTo(event, EventLifecycleStatus.IN_PLAY, now);
+    }
+    if (event.status == EventLifecycleStatus.IN_PLAY && !now.isBefore(event.endAt)) {
+      transitionTo(event, EventLifecycleStatus.FINISHED, now);
+    }
+  }
+
+  Iterable<MockEvent> activeEvents() {
+    return events.values();
+  }
+
+  void transitionTo(MockEvent event, EventLifecycleStatus next, Instant now) {
+    event.status = next;
+    event.summary =
+        new EventSummary(
+            event.summary.eventId(),
+            event.summary.sport(),
+            event.summary.competition(),
+            event.summary.homeTeam(),
+            event.summary.awayTeam(),
+            event.summary.scheduledStartAt(),
+            next);
+    emit(
+        event.summary.eventId(),
+        new ProviderEvent.LifecycleUpdated(
+            event.summary.eventId(), next, event.summary.scheduledStartAt(), now));
   }
 
   @Override
