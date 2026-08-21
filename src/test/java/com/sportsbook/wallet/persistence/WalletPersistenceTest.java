@@ -9,6 +9,12 @@ import com.sportsbook.wallet.domain.Account;
 import com.sportsbook.wallet.domain.BalanceBucket;
 import com.sportsbook.wallet.domain.LedgerEntry;
 import com.sportsbook.wallet.domain.SystemAccountIds;
+import com.sportsbook.wallet.domain.WalletCaller;
+import com.sportsbook.wallet.domain.WalletFailureCode;
+import com.sportsbook.wallet.domain.WalletFailureSnapshot;
+import com.sportsbook.wallet.domain.WalletOperation;
+import com.sportsbook.wallet.domain.WalletOperationKind;
+import com.sportsbook.wallet.domain.WalletOperationStatus;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -36,6 +42,7 @@ class WalletPersistenceTest {
   @Autowired JdbcTemplate jdbc;
   @Autowired AccountRepository accounts;
   @Autowired LedgerEntryRepository ledger;
+  @Autowired WalletOperationRepository operations;
   @Autowired javax.sql.DataSource dataSource;
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
@@ -151,5 +158,54 @@ class WalletPersistenceTest {
     assertThat(ledger.findByOperationGroupId(groupId))
         .extracting(LedgerEntry::entryId)
         .containsExactlyInAnyOrder(pair.debit().entryId(), pair.credit().entryId());
+  }
+
+  @Test
+  void roundTripsSucceededRejectedAndBlockedWalletOutcomes() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000014");
+    Instant now = Instant.parse("2026-01-02T00:00:00Z");
+    IdempotencyKey successKey = IdempotencyKey.of("outcome:success");
+    IdempotencyKey rejectedKey = IdempotencyKey.of("outcome:rejected");
+    IdempotencyKey blockedKey = IdempotencyKey.of("outcome:blocked");
+    UUID groupId = UUID.fromString("019b76da-a000-7000-8000-000000000015");
+    WalletFailureSnapshot failure =
+        WalletFailureSnapshot.withBalance(
+            WalletFailureCode.INSUFFICIENT_BALANCE, "available 20", Money.krw(20L));
+
+    operations.saveAllAndFlush(
+        java.util.List.of(
+            WalletOperation.succeeded(
+                successKey,
+                WalletCaller.PLATFORM,
+                WalletOperationKind.DEPOSIT,
+                userId,
+                Money.krw(100L),
+                "a".repeat(64),
+                groupId,
+                now),
+            WalletOperation.rejected(
+                rejectedKey,
+                WalletCaller.PLATFORM,
+                WalletOperationKind.WITHDRAW,
+                userId,
+                Money.krw(30L),
+                "b".repeat(64),
+                failure,
+                now),
+            WalletOperation.blockedFunds(
+                blockedKey, WalletCaller.SETTLEMENT, userId, Money.krw(40L), "c".repeat(64), now)));
+
+    assertThat(
+            jdbc.queryForList(
+                "SELECT status FROM wallet_operation ORDER BY idempotency_key", String.class))
+        .containsExactlyInAnyOrder("SUCCEEDED", "REJECTED", "BLOCKED_FUNDS");
+    assertThat(operations.findById(successKey.value()).orElseThrow().operationGroupId())
+        .isEqualTo(groupId);
+    WalletOperation rejected = operations.findById(rejectedKey.value()).orElseThrow();
+    assertThat(rejected.status()).isEqualTo(WalletOperationStatus.REJECTED);
+    assertThat(rejected.failure().code()).isEqualTo(WalletFailureCode.INSUFFICIENT_BALANCE);
+    assertThat(rejected.failure().balance()).isEqualTo(Money.krw(20L));
+    assertThat(operations.findById(blockedKey.value()).orElseThrow().status())
+        .isEqualTo(WalletOperationStatus.BLOCKED_FUNDS);
   }
 }
