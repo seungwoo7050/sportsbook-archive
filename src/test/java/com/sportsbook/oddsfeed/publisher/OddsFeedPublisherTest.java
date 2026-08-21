@@ -1,6 +1,7 @@
 package com.sportsbook.oddsfeed.publisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.oddsfeed.config.KafkaTopicsProperties;
 import com.sportsbook.oddsfeed.config.PublishProperties;
@@ -63,6 +64,41 @@ class OddsFeedPublisherTest {
     assertThat(((OddsChanged) kafka.payload).getNewOdds()).isEqualTo("2.0100");
   }
 
+  @Test
+  void changesHealthOnlyAfterAcknowledgedDelivery() {
+    RecordingKafkaTemplate kafka = new RecordingKafkaTemplate();
+    BrokerAvailability availability = new BrokerAvailability();
+    OddsFeedPublisher publisher = publisher(kafka, availability);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    SelectionId selectionId = new SelectionId(UUID.randomUUID());
+
+    assertThat(publisher.isHealthy()).isFalse();
+    publisher.publishOddsChanged(
+        eventId,
+        marketId,
+        selectionId,
+        Odds.ofDecimal("2.00"),
+        Odds.ofDecimal("2.10"),
+        Instant.EPOCH,
+        false);
+    assertThat(publisher.isHealthy()).isTrue();
+
+    kafka.fail = true;
+    assertThatThrownBy(
+            () ->
+                publisher.publishOddsChanged(
+                    eventId,
+                    marketId,
+                    selectionId,
+                    Odds.ofDecimal("2.10"),
+                    Odds.ofDecimal("2.20"),
+                    Instant.EPOCH,
+                    false))
+        .isInstanceOf(KafkaPublishException.class);
+    assertThat(publisher.isHealthy()).isFalse();
+  }
+
   private static OddsFeedPublisher publisher(
       RecordingKafkaTemplate kafka, BrokerAvailability availability) {
     return new OddsFeedPublisher(
@@ -76,6 +112,7 @@ class OddsFeedPublisherTest {
     private String topic;
     private String key;
     private SpecificRecord payload;
+    private boolean fail;
 
     private RecordingKafkaTemplate() {
       super(new DefaultKafkaProducerFactory<>(Map.of()));
@@ -87,6 +124,9 @@ class OddsFeedPublisherTest {
       this.topic = topic;
       this.key = key;
       this.payload = payload;
+      if (fail) {
+        return CompletableFuture.failedFuture(new IllegalStateException("broker unavailable"));
+      }
       return CompletableFuture.completedFuture(null);
     }
   }
