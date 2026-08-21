@@ -81,6 +81,7 @@ class RecoveryWorkerPersistenceTest {
         new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:recovery-wake")));
 
     assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
+    assertThat(adjustmentService.adjust(command).status()).isEqualTo(AdjustmentStatus.APPLIED);
     assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.NO_WORK);
 
     assertThat(adjustments.findById(revisionId).orElseThrow().status())
