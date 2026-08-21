@@ -54,8 +54,12 @@ final class OperatorSubmissionScript {
           end
           redis.call('PEXPIRE', KEYS[9], ARGV[8])
 
+          local sequence = redis.call('INCR', KEYS[10])
+          redis.call('PERSIST', KEYS[10])
+          redis.call('PERSIST', KEYS[11])
+          local predecessor = sequence - 1
           local record = redis.call(
-            'XADD', KEYS[10], '*',
+            'XADD', KEYS[12], '*',
             'fingerprint', ARGV[1],
             'actionId', ARGV[2],
             'eventId', ARGV[3],
@@ -65,12 +69,13 @@ final class OperatorSubmissionScript {
             'announcedStatus', announced,
             'reason', ARGV[6],
             'occurredAt', ARGV[7],
-            'sequence', '0',
-            'predecessor', '-1')
-          local metadata = ARGV[1] .. '|' .. ARGV[2] .. '|0|-1|' .. record
+            'sequence', tostring(sequence),
+            'predecessor', tostring(predecessor))
+          local metadata = ARGV[1] .. '|' .. ARGV[2] .. '|' .. sequence
+            .. '|' .. predecessor .. '|' .. record
           redis.call('SET', KEYS[1], metadata)
           redis.call('SET', KEYS[2], KEYS[1])
-          return 'CREATED|' .. ARGV[2] .. '|0|-1|' .. record
+          return 'CREATED|' .. ARGV[2] .. '|' .. sequence .. '|' .. predecessor .. '|' .. record
           """,
           String.class);
 

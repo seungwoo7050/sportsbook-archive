@@ -20,6 +20,8 @@ public class OperatorActionQueue {
 
   private static final String IDEMPOTENCY_PREFIX = "oddsfeed:operator:idempotency:";
   private static final String ACTION_PREFIX = "oddsfeed:operator:action:";
+  private static final String SEQUENCE_PREFIX = "oddsfeed:operator:sequence:";
+  private static final String COMMITTED_PREFIX = "oddsfeed:operator:committed:";
   private static final int MAX_REASON_LENGTH = 256;
 
   private final StringRedisTemplate redis;
@@ -61,6 +63,8 @@ public class OperatorActionQueue {
                 CacheKeys.eventTerminal(eventId),
                 CacheKeys.marketTerminal(eventId, marketId),
                 CacheKeys.eventMarkets(eventId),
+                sequenceKey(eventId, marketId),
+                committedKey(eventId, marketId),
                 properties.streamKey()),
             fingerprint,
             actionId.toString(),
@@ -81,6 +85,14 @@ public class OperatorActionQueue {
 
   static String idempotencyRedisKey(IdempotencyKey key) {
     return IDEMPOTENCY_PREFIX + MarketActionFingerprint.idempotencyKey(key);
+  }
+
+  static String sequenceKey(EventId eventId, MarketId marketId) {
+    return SEQUENCE_PREFIX + eventId.value() + ":" + marketId.value();
+  }
+
+  static String committedKey(EventId eventId, MarketId marketId) {
+    return COMMITTED_PREFIX + eventId.value() + ":" + marketId.value();
   }
 
   private static String actionKey(UUID actionId) {
