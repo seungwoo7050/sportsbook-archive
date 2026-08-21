@@ -5,15 +5,20 @@ import com.sportsbook.oddsfeed.cache.RedisOddsCache;
 import com.sportsbook.oddsfeed.delivery.CriticalEvent;
 import com.sportsbook.oddsfeed.delivery.CriticalEventQueue;
 import com.sportsbook.oddsfeed.provider.EventSummary;
+import com.sportsbook.oddsfeed.provider.MatchOutcome;
 import com.sportsbook.oddsfeed.provider.OddsProvider;
 import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
 import com.sportsbook.oddsfeed.publisher.KafkaPublishException;
 import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
 import com.sportsbook.protocol.value.EventId;
 import jakarta.annotation.PostConstruct;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -86,6 +91,8 @@ public class FeedOrchestrator {
       handleOdds(odds);
     } else if (event instanceof ProviderEvent.MarketStatusUpdated status) {
       handleMarketStatus(status);
+    } else if (event instanceof ProviderEvent.LifecycleUpdated lifecycle) {
+      handleLifecycle(lifecycle);
     }
   }
 
@@ -130,5 +137,49 @@ public class FeedOrchestrator {
     if (status.newStatus() != MarketStatus.OPEN) {
       cache.storeProviderMarketStatus(status.eventId(), status.marketId(), status.newStatus());
     }
+  }
+
+  private void handleLifecycle(ProviderEvent.LifecycleUpdated lifecycle) {
+    if (!isTerminal(lifecycle.status())) {
+      criticalQueue.enqueue(
+          CriticalEvent.lifecycle(
+              lifecycle.eventId(),
+              lifecycle.status(),
+              lifecycle.scheduledStartAt(),
+              lifecycle.occurredAt()));
+      return;
+    }
+    Map<UUID, MarketStatus> terminalMarkets = new LinkedHashMap<>();
+    cache
+        .getRegisteredMarkets(lifecycle.eventId())
+        .forEach(
+            (marketId, status) -> {
+              if (status != MarketStatus.CLOSED) {
+                terminalMarkets.put(marketId.value(), status);
+              }
+            });
+    Optional<MatchOutcome> outcome =
+        lifecycle.status() == EventLifecycleStatus.FINISHED
+            ? provider.getMatchResult(lifecycle.eventId())
+            : Optional.empty();
+    MatchOutcome result = outcome.orElse(null);
+    criticalQueue.enqueue(
+        CriticalEvent.terminalLifecycle(
+            lifecycle.eventId(),
+            lifecycle.status(),
+            lifecycle.scheduledStartAt(),
+            lifecycle.occurredAt(),
+            terminalMarkets,
+            result == null ? null : result.score(),
+            result == null ? null : result.finalStatus(),
+            result == null ? Map.of() : result.detail(),
+            result == null ? null : result.settledAt()));
+    cache.closeEventMarkets(lifecycle.eventId(), lifecycle.status());
+  }
+
+  private static boolean isTerminal(EventLifecycleStatus status) {
+    return status == EventLifecycleStatus.FINISHED
+        || status == EventLifecycleStatus.CANCELLED
+        || status == EventLifecycleStatus.POSTPONED;
   }
 }
