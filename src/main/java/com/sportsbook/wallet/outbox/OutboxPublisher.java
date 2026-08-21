@@ -28,6 +28,7 @@ public class OutboxPublisher {
   private final int batchSize;
   private final Duration leaseDuration;
   private final Semaphore inFlight;
+  private OutboxMetrics metrics;
 
   public OutboxPublisher(
       OutboxDeliveryRepository delivery,
@@ -68,6 +69,11 @@ public class OutboxPublisher {
     }
   }
 
+  @Autowired
+  void useMetrics(OutboxMetrics metrics) {
+    this.metrics = metrics;
+  }
+
   @Scheduled(fixedDelayString = "${wallet.outbox.poll-interval:PT1S}")
   public synchronized void poll() {
     int capacity = Math.min(batchSize, inFlight.availablePermits());
@@ -75,6 +81,9 @@ public class OutboxPublisher {
       return;
     }
     List<LeasedOutboxMessage> messages = delivery.claim(owner, capacity, leaseDuration);
+    if (metrics != null) {
+      metrics.claimed(messages);
+    }
     messages.forEach(this::dispatch);
   }
 
@@ -94,12 +103,19 @@ public class OutboxPublisher {
   private void complete(LeasedOutboxMessage message, Throwable failure) {
     try {
       if (failure == null) {
-        delivery.markPublished(message.lease());
+        boolean fenceWon = delivery.markPublished(message.lease());
+        if (metrics != null) {
+          metrics.published(fenceWon);
+        }
       } else {
-        delivery.releaseForRetry(
-            message.lease(),
-            retryPolicy.delayForAttempt(message.attemptCount()),
-            retryPolicy.describe(failure));
+        boolean fenceWon =
+            delivery.releaseForRetry(
+                message.lease(),
+                retryPolicy.delayForAttempt(message.attemptCount()),
+                retryPolicy.describe(failure));
+        if (metrics != null) {
+          metrics.retried(fenceWon);
+        }
       }
     } finally {
       inFlight.release();
