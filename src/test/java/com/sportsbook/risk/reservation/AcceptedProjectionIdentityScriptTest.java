@@ -8,6 +8,7 @@ import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.counter.LimitKeys;
 import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.counter.RedisLuaScriptLoader;
+import com.sportsbook.risk.pattern.HistoryKeys;
 import com.sportsbook.risk.support.RedisTestSupport;
 import java.util.List;
 import java.util.UUID;
@@ -50,6 +51,16 @@ class AcceptedProjectionIdentityScriptTest extends RedisTestSupport {
                 .get(LimitKeys.monetary(userId, LimitType.STAKE_DAILY, Currency.KRW).sum()))
         .isEqualTo("50");
     assertThat(redis.opsForValue().get(LimitKeys.selections(userId).sum())).isEqualTo("1");
+  }
+
+  @Test
+  void retainsAcceptedPatternHistory() {
+    assertThat(execute(FINGERPRINT)).isEqualTo("APPLIED");
+    UserId userId = UserId.of(new UUID(0, 1));
+
+    assertThat(redis.opsForValue().get("accepted")).isEqualTo(FINGERPRINT);
+    assertThat(redis.opsForZSet().size(HistoryKeys.bets(userId))).isEqualTo(1);
+    assertThat(redis.opsForZSet().size(HistoryKeys.stakes(userId, Currency.KRW))).isEqualTo(1);
   }
 
   private String execute(String fingerprint) {
