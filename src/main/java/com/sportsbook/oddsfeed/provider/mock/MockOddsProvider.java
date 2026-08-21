@@ -7,8 +7,10 @@ import com.sportsbook.oddsfeed.provider.OddsProvider;
 import com.sportsbook.oddsfeed.provider.ProviderEvent;
 import com.sportsbook.oddsfeed.provider.Sport;
 import com.sportsbook.protocol.domain.MarketType;
+import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import com.sportsbook.protocol.value.Odds;
@@ -41,6 +43,8 @@ public class MockOddsProvider implements OddsProvider {
   private static final int REPLAY_HISTORY = 256;
   private static final double SECONDS_PER_MINUTE = 60.0;
   private static final long ODDS_STREAM_SALT = 0x9E3779B97F4A7C15L;
+  private static final long RESULT_STREAM_SALT = 0xD1B54A32D192ED03L;
+  private static final int EVENT_ID_ROTATION = 31;
   private static final String[] FOOTBALL_TEAMS = {
     "Manchester United",
     "Chelsea",
@@ -56,6 +60,7 @@ public class MockOddsProvider implements OddsProvider {
   private final Clock clock;
   private final Map<EventId, MockEvent> events = new ConcurrentHashMap<>();
   private final Map<EventId, Sinks.Many<ProviderEvent>> streams = new ConcurrentHashMap<>();
+  private final Map<EventId, MatchOutcome> outcomes = new ConcurrentHashMap<>();
   private long runSeed;
   private Random structureRandom;
   private Random oddsRandom;
@@ -167,6 +172,7 @@ public class MockOddsProvider implements OddsProvider {
       transitionTo(event, EventLifecycleStatus.IN_PLAY, now);
     }
     if (event.status == EventLifecycleStatus.IN_PLAY && !now.isBefore(event.endAt)) {
+      outcomes.put(event.summary.eventId(), synthesizeOutcome(event));
       transitionTo(event, EventLifecycleStatus.FINISHED, now);
       return;
     }
@@ -214,6 +220,49 @@ public class MockOddsProvider implements OddsProvider {
             event.summary.eventId(), next, event.summary.scheduledStartAt(), now));
   }
 
+  private MatchOutcome synthesizeOutcome(MockEvent event) {
+    double roll = resultRandom(event.summary.eventId()).nextDouble();
+    String score;
+    String winningSelection;
+    if (roll < properties.baseHomeWinProbability()) {
+      score = "2-1";
+      winningSelection = "HOME";
+    } else if (roll < properties.baseHomeWinProbability() + properties.baseDrawProbability()) {
+      score = "1-1";
+      winningSelection = "DRAW";
+    } else {
+      score = "0-1";
+      winningSelection = "AWAY";
+    }
+    return new MatchOutcome(
+        event.summary.eventId(),
+        score,
+        MatchFinalStatus.COMPLETED,
+        gradeSelections(event, winningSelection),
+        event.endAt);
+  }
+
+  private Map<String, String> gradeSelections(MockEvent event, String winningSelection) {
+    Map<String, String> detail = new LinkedHashMap<>();
+    for (MockMarket market : event.markets.values()) {
+      for (MockSelection selection : market.selections.values()) {
+        SettlementResult result =
+            selection.name.equals(winningSelection) ? SettlementResult.WON : SettlementResult.LOST;
+        detail.put(selection.selectionId.value().toString(), result.name());
+      }
+    }
+    return detail;
+  }
+
+  private Random resultRandom(EventId eventId) {
+    UUID value = eventId.value();
+    return new Random(
+        runSeed
+            ^ value.getMostSignificantBits()
+            ^ Long.rotateLeft(value.getLeastSignificantBits(), EVENT_ID_ROTATION)
+            ^ RESULT_STREAM_SALT);
+  }
+
   @Override
   public List<EventSummary> listEvents(Sport sport) {
     List<EventSummary> result = new ArrayList<>();
@@ -233,7 +282,7 @@ public class MockOddsProvider implements OddsProvider {
 
   @Override
   public Optional<MatchOutcome> getMatchResult(EventId eventId) {
-    return Optional.empty();
+    return Optional.ofNullable(outcomes.get(eventId));
   }
 
   static final class MockEvent {
