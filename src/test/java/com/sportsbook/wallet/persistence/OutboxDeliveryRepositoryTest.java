@@ -140,6 +140,32 @@ class OutboxDeliveryRepositoryTest extends OutboxDeliveryRepositoryFixture {
   }
 
   @Test
+  void snapshotsPendingLeasedAndDatabaseClockAge() {
+    Instant created = Instant.parse("2026-08-21T00:00:00Z");
+    persist("operation-a", "key-a", "dedup-a1", created);
+    persist("operation-b", "key-b", "dedup-b1", created.plusMillis(1));
+    var leased = delivery.claim("worker-a", 1, Duration.ofSeconds(30)).get(0);
+    jdbc.update(
+        """
+        UPDATE outbox_event
+        SET created_at=clock_timestamp()-interval '10 seconds',
+            available_at=clock_timestamp()-interval '10 seconds'
+        WHERE published_at IS NULL
+        """);
+
+    var active = delivery.snapshot();
+
+    assertThat(active.pending()).isEqualTo(2);
+    assertThat(active.leased()).isEqualTo(1);
+    assertThat(active.oldestPendingSeconds()).isGreaterThanOrEqualTo(9.0);
+    assertThat(delivery.markPublished(leased.lease())).isTrue();
+    var afterPublish = delivery.snapshot();
+    assertThat(afterPublish.pending()).isEqualTo(1);
+    assertThat(afterPublish.leased()).isZero();
+    assertThat(afterPublish.oldestPendingSeconds()).isGreaterThanOrEqualTo(9.0);
+  }
+
+  @Test
   void twoPublishersConvergeAfterTheFirstWorkerIsLost() {
     Instant created = Instant.parse("2026-08-21T00:00:00Z");
     persist("operation-a", "key-a", "dedup-a1", created);
