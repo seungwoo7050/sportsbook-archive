@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,7 +17,10 @@ import com.sportsbook.protocol.value.SelectionId;
 import com.sportsbook.protocol.value.UserId;
 import com.sportsbook.risk.counter.LimitType;
 import com.sportsbook.risk.event.RiskSignalPublisher;
+import com.sportsbook.risk.pattern.PatternMatch;
+import com.sportsbook.risk.pattern.PatternRule;
 import com.sportsbook.risk.pattern.RuleEngine;
+import com.sportsbook.risk.policy.PatternAction;
 import com.sportsbook.risk.policy.RiskLimitProperties;
 import com.sportsbook.risk.snapshot.LimitSnapshot;
 import com.sportsbook.risk.snapshot.PatternSnapshot;
@@ -28,8 +32,10 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class RiskCheckServiceTest {
   private static final UserId USER = UserId.of(new UUID(0, 1));
@@ -86,6 +92,34 @@ class RiskCheckServiceTest {
         .publishLimit(USER, LimitType.SELECTIONS_PER_MINUTE, 29, 30, Money.krw(50), Instant.EPOCH);
   }
 
+  @Test
+  void publishesEveryOrderedPatternBeforeApplyingBlock() {
+    RiskSnapshotReader snapshots = mock(RiskSnapshotReader.class);
+    RiskSignalPublisher signals = mock(RiskSignalPublisher.class);
+    when(snapshots.read(any())).thenReturn(snapshot(emptyValues()));
+    PatternRule review = rule("REVIEW", 30, PatternAction.REVIEW);
+    PatternRule block = rule("BLOCK", 20, PatternAction.BLOCK);
+    PatternRule suspect = rule("SUSPECT", 10, PatternAction.SUSPECT);
+    RiskCheckService service =
+        new RiskCheckService(
+            POLICY,
+            snapshots,
+            new RuleEngine(List.of(review, block, suspect)),
+            signals,
+            new SimpleMeterRegistry());
+
+    RiskCheckOutcome outcome = service.check(command(1));
+
+    assertThat(outcome.approved()).isFalse();
+    assertThat(outcome.patterns())
+        .extracting(PatternMatch::rule)
+        .containsExactly("SUSPECT", "BLOCK", "REVIEW");
+    InOrder order = inOrder(signals);
+    for (PatternMatch match : outcome.patterns()) {
+      order.verify(signals).publishPattern(USER, match, Instant.EPOCH);
+    }
+  }
+
   private static RiskCheckService service(
       RiskSnapshotReader snapshots, RiskSignalPublisher signals) {
     return new RiskCheckService(
@@ -118,5 +152,14 @@ class RiskCheckServiceTest {
       values.put(type, new LimitSnapshot.Value(0, 0, null));
     }
     return values;
+  }
+
+  private static PatternRule rule(String name, int priority, PatternAction action) {
+    PatternRule rule = mock(PatternRule.class);
+    PatternMatch match = new PatternMatch(name, action, name.toLowerCase());
+    when(rule.name()).thenReturn(name);
+    when(rule.priority()).thenReturn(priority);
+    when(rule.evaluate(any(), any())).thenReturn(Optional.of(match));
+    return rule;
   }
 }
