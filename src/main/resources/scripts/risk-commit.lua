@@ -141,6 +141,13 @@ local function planWindow(entries, sum, amount, window)
   if keyType(entries) ~= "none" then
     total = exact(redis.call("GET", sum), false)
     if not total then return nil, "missing or corrupt rolling sum" end
+    local calculated = 0
+    for _, member in ipairs(redis.call("ZRANGE", entries, 0, -1)) do
+      local value = memberAmount(member)
+      if not value or calculated > maxExact - value then return nil, "corrupt rolling member" end
+      calculated = calculated + value
+    end
+    if calculated ~= total then return nil, "inconsistent rolling sum" end
   end
   local expired = redis.call("ZRANGEBYSCORE", entries, "-inf", now - window)
   for _, member in ipairs(expired) do
