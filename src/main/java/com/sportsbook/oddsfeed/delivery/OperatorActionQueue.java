@@ -49,6 +49,7 @@ public class OperatorActionQueue {
   private final OperatorActionCodec codec = new OperatorActionCodec();
   private final long marketTtlMillis;
   private final AtomicBoolean groupReady = new AtomicBoolean();
+  private final AtomicBoolean healthy = new AtomicBoolean(true);
   private final AtomicLong pendingCount = new AtomicLong();
 
   public OperatorActionQueue(
@@ -59,9 +60,30 @@ public class OperatorActionQueue {
     this.redis = redis;
     this.properties = properties;
     this.marketTtlMillis = cacheProperties.ttl().toMillis();
+    meterRegistry.gauge("oddsfeed.operator.action.pending", pendingCount);
   }
 
   public OperatorActionSubmission submit(
+      IdempotencyKey idempotencyKey,
+      UUID actionId,
+      EventId eventId,
+      MarketId marketId,
+      MarketStatus requestedStatus,
+      String reason,
+      Instant occurredAt) {
+    try {
+      OperatorActionSubmission submission =
+          submitOnce(
+              idempotencyKey, actionId, eventId, marketId, requestedStatus, reason, occurredAt);
+      healthy.set(true);
+      return submission;
+    } catch (DataAccessException exception) {
+      healthy.set(false);
+      throw exception;
+    }
+  }
+
+  private OperatorActionSubmission submitOnce(
       IdempotencyKey idempotencyKey,
       UUID actionId,
       EventId eventId,
@@ -107,6 +129,19 @@ public class OperatorActionQueue {
   }
 
   public List<QueuedOperatorMarketAction> poll() {
+    try {
+      List<QueuedOperatorMarketAction> actions = pollOnce();
+      updatePendingCount();
+      healthy.set(true);
+      return actions;
+    } catch (DataAccessException exception) {
+      groupReady.set(false);
+      healthy.set(false);
+      throw exception;
+    }
+  }
+
+  private List<QueuedOperatorMarketAction> pollOnce() {
     ensureGroup();
     PendingMessages pending = pendingMessages();
     List<MapRecord<String, String, String>> records = claimExpired(pending);
@@ -119,10 +154,6 @@ public class OperatorActionQueue {
                   StreamReadOptions.empty().count(properties.batchSize()),
                   StreamOffset.create(properties.streamKey(), ReadOffset.lastConsumed()));
     }
-    pendingCount.set(
-        streamOperations()
-            .pending(properties.streamKey(), properties.consumerGroup())
-            .getTotalPendingMessages());
     if (records == null || records.isEmpty()) {
       return List.of();
     }
@@ -131,18 +162,28 @@ public class OperatorActionQueue {
   }
 
   public void cleanup(QueuedOperatorMarketAction queued) {
-    String result =
-        redis.execute(
-            OperatorStreamCleanupScript.INSTANCE,
-            List.of(properties.streamKey()),
-            properties.consumerGroup(),
-            queued.recordId().getValue());
-    if (result == null || !result.matches("[01]\\|[01]")) {
-      throw new IllegalStateException("Malformed operator Stream cleanup result");
+    try {
+      String result =
+          redis.execute(
+              OperatorStreamCleanupScript.INSTANCE,
+              List.of(properties.streamKey()),
+              properties.consumerGroup(),
+              queued.recordId().getValue());
+      if (result == null || !result.matches("[01]\\|[01]")) {
+        throw new IllegalStateException("Malformed operator Stream cleanup result");
+      }
+      if (result.charAt(0) == '1') {
+        pendingCount.updateAndGet(current -> Math.max(0, current - 1));
+      }
+      healthy.set(true);
+    } catch (DataAccessException exception) {
+      healthy.set(false);
+      throw exception;
     }
-    if (result.charAt(0) == '1') {
-      pendingCount.updateAndGet(current -> Math.max(0, current - 1));
-    }
+  }
+
+  public boolean isHealthy() {
+    return healthy.get();
   }
 
   public long pendingCount() {
@@ -285,6 +326,13 @@ public class OperatorActionQueue {
 
   private StreamOperations<String, String, String> streamOperations() {
     return redis.<String, String>opsForStream();
+  }
+
+  private void updatePendingCount() {
+    pendingCount.set(
+        streamOperations()
+            .pending(properties.streamKey(), properties.consumerGroup())
+            .getTotalPendingMessages());
   }
 
   private static boolean containsBusyGroup(Throwable error) {
