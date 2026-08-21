@@ -2,6 +2,7 @@ package com.sportsbook.gateway.ws;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.Message;
@@ -35,8 +36,17 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
   public Message<?> preSend(Message<?> message, MessageChannel channel) {
     StompHeaderAccessor accessor =
         MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-    if (accessor != null && isConnect(accessor.getCommand())) {
+    if (accessor == null || accessor.getCommand() == null) {
+      return message;
+    }
+    StompCommand command = accessor.getCommand();
+    if (isConnect(command)) {
       authenticate(accessor);
+    } else if (StompCommand.SUBSCRIBE.equals(command)) {
+      authorizeSubscription(accessor);
+    } else if (!StompCommand.UNSUBSCRIBE.equals(command)
+        && !StompCommand.DISCONNECT.equals(command)) {
+      throw new MessageDeliveryException("Client STOMP command is not supported");
     }
     return message;
   }
@@ -71,5 +81,28 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
   static boolean isConnect(StompCommand command) {
     return StompCommand.CONNECT.equals(command) || StompCommand.STOMP.equals(command);
+  }
+
+  private static void authorizeSubscription(StompHeaderAccessor accessor) {
+    String destination = accessor.getDestination();
+    if (isCanonicalOddsDestination(destination)
+        || ("/user/queue/bets".equals(destination)
+            && accessor.getUser() instanceof JwtAuthenticationToken)) {
+      return;
+    }
+    throw new MessageDeliveryException("Subscription destination is not allowed");
+  }
+
+  private static boolean isCanonicalOddsDestination(String destination) {
+    String prefix = "/topic/odds/";
+    if (destination == null || !destination.startsWith(prefix)) {
+      return false;
+    }
+    String eventId = destination.substring(prefix.length());
+    try {
+      return UUID.fromString(eventId).toString().equals(eventId);
+    } catch (IllegalArgumentException ignored) {
+      return false;
+    }
   }
 }
