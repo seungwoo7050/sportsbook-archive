@@ -93,6 +93,19 @@ class CriticalEventQueueTest {
     assertThat(replacement.pendingCount()).isEqualTo(1);
   }
 
+  @Test
+  void acknowledgesAndDeletesCompletedRecords() {
+    queue.enqueue(lifecycle(EventLifecycleStatus.SCHEDULED));
+    QueuedCriticalEvent queued = queue.poll().get(0);
+
+    queue.acknowledge(queued);
+
+    assertThat(queue.pendingCount()).isZero();
+    assertThat(redis.opsForStream().pending(streamKey, "publisher").getTotalPendingMessages())
+        .isZero();
+    assertThat(redis.opsForStream().size(streamKey)).isZero();
+  }
+
   private CriticalEventQueue queue(String consumerName, Duration claimIdle) {
     return new CriticalEventQueue(
         redis,
