@@ -79,6 +79,60 @@ class WalletAdjustmentTest {
         .hasMessage("Only blocked adjustments can be woken");
   }
 
+  @Test
+  void backsOffAnUnderfundedHeadWithoutChangingItsQueueIdentity() {
+    WalletAdjustment proof = WalletAdjustment.blocked(command(1_000L, 700L), 4L, NOW);
+    Instant attemptedAt = NOW.minusSeconds(3L);
+    Instant retryAt = NOW.minusSeconds(1L);
+
+    proof.deferUntil(attemptedAt, retryAt);
+
+    assertThat(proof.status()).isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(proof.queueSequence()).isEqualTo(4L);
+    assertThat(proof.queuedAt()).isEqualTo(NOW);
+    assertThat(proof.retryCount()).isEqualTo(1);
+    assertThat(proof.nextAttemptAt()).isEqualTo(retryAt);
+    assertThat(proof.updatedAt()).isEqualTo(attemptedAt);
+    assertThatThrownBy(() -> proof.deferUntil(NOW.minusSeconds(4L), NOW.minusSeconds(5L)))
+        .hasMessage("Recovery retry timestamps are out of order");
+    assertThat(proof.retryCount()).isEqualTo(1);
+    assertThat(proof.nextAttemptAt()).isEqualTo(retryAt);
+    assertThat(proof.updatedAt()).isEqualTo(attemptedAt);
+  }
+
+  @Test
+  void completesRecoveryWhilePreservingItsFIFOHistory() {
+    WalletAdjustment proof = WalletAdjustment.blocked(command(1_000L, 700L), 4L, NOW);
+    proof.deferUntil(NOW.minusSeconds(3L), NOW.minusSeconds(1L));
+
+    proof.completeRecovery(GROUP_ID, NOW.minusSeconds(4L));
+
+    assertThat(proof.status()).isEqualTo(AdjustmentStatus.APPLIED);
+    assertThat(proof.operationGroupId()).isEqualTo(GROUP_ID);
+    assertThat(proof.queueSequence()).isEqualTo(4L);
+    assertThat(proof.queuedAt()).isEqualTo(NOW);
+    assertThat(proof.retryCount()).isEqualTo(1);
+    assertThat(proof.appliedAt()).isEqualTo(NOW.minusSeconds(4L));
+    assertThat(proof.updatedAt()).isEqualTo(NOW.minusSeconds(4L));
+    assertThat(proof.nextAttemptAt()).isNull();
+  }
+
+  @Test
+  void rejectsANullRecoveryGroupWithoutChangingBlockedState() {
+    WalletAdjustment proof = WalletAdjustment.blocked(command(1_000L, 700L), 4L, NOW);
+
+    assertThatThrownBy(() -> proof.completeRecovery(null, NOW.minusSeconds(4L)))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessage("groupId");
+
+    assertThat(proof.status()).isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(proof.operationGroupId()).isNull();
+    assertThat(proof.appliedAt()).isNull();
+    assertThat(proof.nextAttemptAt()).isEqualTo(NOW);
+    assertThat(proof.updatedAt()).isEqualTo(NOW);
+    assertThat(proof.retryCount()).isZero();
+  }
+
   private void assertIdentity(WalletAdjustment proof, long delta) {
     assertThat(proof.revisionId()).isEqualTo(REVISION_ID);
     assertThat(proof.betId()).isEqualTo(BET_ID);
