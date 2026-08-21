@@ -13,6 +13,7 @@ import com.sportsbook.risk.policy.RiskLimitProperties;
 import com.sportsbook.risk.policy.RiskPatternProperties;
 import com.sportsbook.risk.service.RiskCheckCommand;
 import com.sportsbook.risk.support.RedisTestSupport;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -23,7 +24,8 @@ class RedisRiskReservationStoreTest extends RedisTestSupport {
 
   @Test
   void executesAdmissionCommitAndReleaseThroughTheTypedPort() {
-    RiskReservationStore store = store();
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RiskReservationStore store = store(meters);
     RiskCheckCommand committed = command(1);
     ReservationDecision reserved = store.reserve(committed);
 
@@ -35,11 +37,15 @@ class RedisRiskReservationStoreTest extends RedisTestSupport {
     assertThat(store.reserve(released).approved()).isTrue();
     assertThat(store.release(released.betId(), NOW.plusMillis(1)))
         .isEqualTo(ReservationTransition.APPLIED);
+    assertThat(timerCount(meters, "reserve")).isEqualTo(2L);
+    assertThat(timerCount(meters, "commit")).isEqualTo(1L);
+    assertThat(timerCount(meters, "release")).isEqualTo(1L);
   }
 
   @Test
   void executesAcceptedProjectionThroughTheTypedPort() {
-    RiskReservationStore store = store();
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RiskReservationStore store = store(meters);
     RiskCheckCommand accepted = command(3);
     String fingerprint = ReservationFingerprint.of(accepted);
 
@@ -47,16 +53,22 @@ class RedisRiskReservationStoreTest extends RedisTestSupport {
         .isEqualTo(ReservationTransition.APPLIED);
     assertThat(store.projectAccepted(accepted, fingerprint))
         .isEqualTo(ReservationTransition.REPLAYED);
+    assertThat(timerCount(meters, "project-accepted")).isEqualTo(2L);
   }
 
-  private RiskReservationStore store() {
+  private RiskReservationStore store(SimpleMeterRegistry meters) {
     return new RedisRiskReservationStore(
         redis,
         new RiskLimitProperties(null, null, null, null, 100),
         new RiskPatternProperties(null, null, null),
         new RiskReservationProperties(null, null),
         new RiskHistoryProperties(null, 0),
-        new ReservationWireMapper(new ObjectMapper()));
+        new ReservationWireMapper(new ObjectMapper()),
+        meters);
+  }
+
+  private static long timerCount(SimpleMeterRegistry meters, String operation) {
+    return meters.timer("risk.reservation.lua.latency", "operation", operation).count();
   }
 
   private static RiskCheckCommand command(long value) {
