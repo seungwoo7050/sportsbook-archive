@@ -33,10 +33,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
 class FeedOrchestratorTest {
 
@@ -147,6 +149,39 @@ class FeedOrchestratorTest {
     assertThat(failedOrder).containsExactly("snapshot", "enqueue");
   }
 
+  @Test
+  void keepsOneActiveSubscriptionAndReplacesCompletedStreams() {
+    List<String> order = new ArrayList<>();
+    EventSummary summary = event(UUID.randomUUID(), EventLifecycleStatus.SCHEDULED);
+    SubscriptionProvider provider = new SubscriptionProvider(summary);
+    FeedOrchestrator orchestrator =
+        new FeedOrchestrator(
+            provider,
+            new RecordingCache(Map.of(), order),
+            new RecordingPublisher(order),
+            new EventCatalog(),
+            null);
+
+    orchestrator.refresh();
+    orchestrator.refresh();
+    assertThat(provider.subscriptions).hasValue(1);
+
+    provider.events.tryEmitNext(
+        new ProviderEvent.OddsUpdated(
+            summary.eventId(),
+            new MarketId(UUID.randomUUID()),
+            new SelectionId(UUID.randomUUID()),
+            Odds.ofDecimal("2.00"),
+            Odds.ofDecimal("2.10"),
+            Instant.EPOCH));
+    assertThat(order).containsExactly("publish", "cache");
+
+    provider.events.tryEmitComplete();
+    orchestrator.refresh();
+    assertThat(provider.subscriptions).hasValue(2);
+    orchestrator.stop();
+  }
+
   private static void assertMarketOrder(
       MarketStatus next, boolean failEnqueue, String... expected) {
     List<String> order = new ArrayList<>();
@@ -223,6 +258,35 @@ class FeedOrchestratorTest {
     @Override
     public Optional<MatchOutcome> getMatchResult(EventId eventId) {
       return result;
+    }
+  }
+
+  private static final class SubscriptionProvider implements OddsProvider {
+    private final EventSummary summary;
+    private final AtomicInteger subscriptions = new AtomicInteger();
+    private final Sinks.Many<ProviderEvent> events = Sinks.many().replay().limit(1);
+
+    private SubscriptionProvider(EventSummary summary) {
+      this.summary = summary;
+    }
+
+    @Override
+    public List<EventSummary> listEvents(Sport sport) {
+      return sport == summary.sport() ? List.of(summary) : List.of();
+    }
+
+    @Override
+    public Flux<ProviderEvent> streamEvents(EventId eventId) {
+      return Flux.defer(
+          () -> {
+            subscriptions.incrementAndGet();
+            return events.asFlux();
+          });
+    }
+
+    @Override
+    public Optional<MatchOutcome> getMatchResult(EventId eventId) {
+      return Optional.empty();
     }
   }
 
