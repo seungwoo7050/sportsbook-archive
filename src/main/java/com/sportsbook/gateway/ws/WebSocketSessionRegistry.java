@@ -1,5 +1,6 @@
 package com.sportsbook.gateway.ws;
 
+import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.springframework.stereotype.Component;
@@ -38,6 +39,13 @@ public class WebSocketSessionRegistry implements WebSocketHandlerDecoratorFactor
         }
       }
     };
+  }
+
+  void closeExpired(String sessionId) throws IOException {
+    WebSocketSession session = sessions.remove(sessionId);
+    if (session != null && session.isOpen()) {
+      session.close(CloseStatus.POLICY_VIOLATION);
+    }
   }
 
   int size() {

@@ -21,14 +21,17 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
   private final String[] allowedOrigins;
   private final StompAuthChannelInterceptor authentication;
+  private final AuthenticatedSessionExpiryInterceptor expiry;
   private final WebSocketSessionRegistry sessions;
 
   public WebSocketConfig(
       @Value("${gateway.ws.allowed-origins}") String[] allowedOrigins,
       StompAuthChannelInterceptor authentication,
+      AuthenticatedSessionExpiryInterceptor expiry,
       WebSocketSessionRegistry sessions) {
     this.allowedOrigins = allowedOrigins;
     this.authentication = authentication;
+    this.expiry = expiry;
     this.sessions = sessions;
   }
 
@@ -47,6 +50,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
   @Override
   public void configureClientInboundChannel(ChannelRegistration registration) {
     registration.interceptors(authentication);
+    registration.interceptors(expiry);
   }
 
   @Override
