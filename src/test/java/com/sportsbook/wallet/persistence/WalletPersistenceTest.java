@@ -30,6 +30,7 @@ import com.sportsbook.wallet.service.WalletTransferExecutor;
 import com.sportsbook.wallet.service.WalletTransferWriter;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
+import com.sportsbook.wallet.service.command.WithdrawCommand;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -426,6 +427,32 @@ class WalletPersistenceTest {
         throw new IllegalStateException("injected commit notification failure");
       }
     }
+  }
+
+  @Test
+  void exactlyReplaysWithdrawalSuccessAndInsufficientFunds() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000016");
+    wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:withdraw-seed")));
+    WithdrawCommand rejected =
+        new WithdrawCommand(userId, Money.krw(200L), IdempotencyKey.of("withdraw:rejected"));
+
+    WalletRejectedException first =
+        catchThrowableOfType(() -> wallet.withdraw(rejected), WalletRejectedException.class);
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(300L), IdempotencyKey.of("deposit:withdraw-more")));
+    WalletRejectedException replay =
+        catchThrowableOfType(() -> wallet.withdraw(rejected), WalletRejectedException.class);
+
+    assertThat(first.failure().code()).isEqualTo(WalletFailureCode.INSUFFICIENT_BALANCE);
+    assertThat(replay.failure().detail()).isEqualTo(first.failure().detail());
+    WithdrawCommand success =
+        new WithdrawCommand(userId, Money.krw(150L), IdempotencyKey.of("withdraw:success"));
+    var result = wallet.withdraw(success);
+    assertThat(wallet.withdraw(success)).isEqualTo(result);
+    assertThat(wallet.requireAccount(userId).available()).isEqualTo(Money.krw(250L));
+    assertThat(ledger.findByIdempotencyKey(success.idempotencyKey().value())).hasSize(2);
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {
