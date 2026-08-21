@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: risk-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 2s
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: risk.bet-placed-consumer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    producer:
+      acks: all
+      properties:
+        max.block.ms: 1000
+    listener:
+      ack-mode: manual_immediate
+
+server:
+  port: ${SERVER_PORT:8083}
+
+risk:
+  limits:
+    stake-daily: { KRW: 1000000, USD: 100000 }
+    stake-weekly: { KRW: 5000000, USD: 500000 }
+    stake-monthly: { KRW: 20000000, USD: 2000000 }
+    single-bet-max: { KRW: 500000, USD: 50000 }
+    selections-per-minute: 30
+  patterns:
+    rapid-betting:
+      enabled: true
+      window: 60s
+      max-bets: 30
+      action: SUSPECT
+    sudden-stake:
+      enabled: true
+      multiplier: 10
+      lookback-bets: 10
+      action: SUSPECT
+    repeated-selection:
+      enabled: true
+      window: 24h
+      max-count: 5
+      action: REVIEW
+  reservations:
+    lease: 2m
+    retention: 32d
+  history:
+    idle-retention: 7d
+    max-stake-samples: 100
+  topics:
+    bet-placed: bet.placed.v1
+    bet-placed-dlt: bet.placed.v1.DLT
+    limit-violated: risk.limit.violated
+    pattern-suspected: risk.pattern.suspected
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    redis:
+      enabled: true
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_ARG:0.1}
