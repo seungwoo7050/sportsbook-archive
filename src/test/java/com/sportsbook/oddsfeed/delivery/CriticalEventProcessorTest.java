@@ -190,6 +190,50 @@ class CriticalEventProcessorTest {
   }
 
   @Test
+  void reclaimedTerminalRecordClosesMarketsFromTheDurableRegistry() {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId recoveredMarket = new MarketId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.terminalLifecycle(
+            eventId,
+            EventLifecycleStatus.CANCELLED,
+            Instant.EPOCH,
+            Instant.EPOCH,
+            Map.of(),
+            null,
+            null,
+            Map.of(),
+            null);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("3-1"), event, true);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.closeEventMarkets(eventId, EventLifecycleStatus.CANCELLED))
+        .thenReturn(Map.of(recoveredMarket.value(), MarketStatus.OPEN));
+    when(cache.getEvent(eventId)).thenReturn(Optional.empty());
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    InOrder order = inOrder(cache, publisher, queue);
+    order.verify(cache).closeEventMarkets(eventId, EventLifecycleStatus.CANCELLED);
+    order
+        .verify(publisher)
+        .publishEventLifecycle(
+            eventId, EventLifecycleStatus.CANCELLED, Instant.EPOCH, Instant.EPOCH);
+    order
+        .verify(publisher)
+        .publishMarketStatusChanged(
+            eventId,
+            recoveredMarket,
+            MarketStatus.OPEN,
+            MarketStatus.CLOSED,
+            "EVENT_CANCELLED",
+            Instant.EPOCH);
+    order.verify(queue).acknowledge(queued);
+  }
+
+  @Test
   void publishesDirectMatchResultBeforeAcknowledgement() {
     CriticalEventQueue queue = mock(CriticalEventQueue.class);
     OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
