@@ -141,6 +141,21 @@ for index = 1, 3 do
       replayed = false, patternsJson = "[]"})
   end
 end
+local committedSelections, committedSelectionError =
+  readWindow(KEYS[14], KEYS[15], tonumber(ARGV[19]))
+local selectionLimit = effective("SELECTIONS_PER_MINUTE", ARGV[15])
+local selectionCurrent = committedSelections and checkedAdd(committedSelections, activeSelections) or nil
+local selectionCandidate = selectionCurrent and checkedAdd(selectionCurrent, selectionCount) or nil
+if committedSelectionError or not selectionLimit or not selectionCandidate then
+  return redis.error_reply(committedSelectionError or "invalid selection capacity")
+end
+if selectionCandidate > selectionLimit then
+  persist("REJECTED", "[]")
+  redis.call("HSET", KEYS[1], "rejection", "SELECTIONS_PER_MINUTE_LIMIT_EXCEEDED",
+    "rejectedAt", string.format("%.0f", now))
+  return response({status = "REJECTED", rejection = "SELECTIONS_PER_MINUTE_LIMIT_EXCEEDED",
+    replayed = false, patternsJson = "[]"})
+end
 persist("RESERVED", "[]")
 redis.call("HSET", KEYS[1], "reservedAt", string.format("%.0f", now),
   "expiresAt", string.format("%.0f", expiresAt))
