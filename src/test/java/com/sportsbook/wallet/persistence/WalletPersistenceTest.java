@@ -35,6 +35,8 @@ import com.sportsbook.wallet.service.WalletOutcomeResolver;
 import com.sportsbook.wallet.service.WalletService;
 import com.sportsbook.wallet.service.WalletTransferExecutor;
 import com.sportsbook.wallet.service.WalletTransferWriter;
+import com.sportsbook.wallet.service.command.CreditCommand;
+import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import com.sportsbook.wallet.service.command.DepositCommand;
 import com.sportsbook.wallet.service.command.OpenAccountCommand;
@@ -631,6 +633,84 @@ class WalletPersistenceTest {
         .singleElement()
         .extracting(com.sportsbook.wallet.outbox.OutboxEvent::topic)
         .isEqualTo(com.sportsbook.wallet.outbox.WalletEventFactory.DEBIT_FAILED_TOPIC);
+  }
+
+  @Test
+  void refundsLockedStakesAndPaysHouseFundedWinnings() {
+    UUID refundUser = UUID.fromString("019b76da-a000-7000-8000-00000000001e");
+    wallet.openAccount(
+        new OpenAccountCommand(refundUser, com.sportsbook.protocol.value.Currency.KRW));
+    wallet.deposit(
+        new DepositCommand(refundUser, Money.krw(100L), IdempotencyKey.of("deposit:credit-seed")));
+    wallet.debit(
+        new DebitCommand(refundUser, Money.krw(100L), IdempotencyKey.of("debit:credit-seed")));
+    CreditCommand bettingRefund =
+        new CreditCommand(
+            refundUser,
+            Money.krw(40L),
+            CreditCommand.Source.USER_LOCKED,
+            CreditReason.REFUND,
+            IdempotencyKey.of("credit:betting-refund"));
+    CreditCommand settlementVoid =
+        new CreditCommand(
+            refundUser,
+            Money.krw(10L),
+            CreditCommand.Source.USER_LOCKED,
+            CreditReason.VOID,
+            IdempotencyKey.of("credit:settlement-void"));
+
+    var refund = wallet.credit(com.sportsbook.wallet.domain.WalletCaller.BETTING, bettingRefund);
+    var voided =
+        wallet.credit(com.sportsbook.wallet.domain.WalletCaller.SETTLEMENT, settlementVoid);
+
+    assertThat(wallet.credit(com.sportsbook.wallet.domain.WalletCaller.BETTING, bettingRefund))
+        .isEqualTo(refund);
+    assertThat(wallet.credit(com.sportsbook.wallet.domain.WalletCaller.SETTLEMENT, settlementVoid))
+        .isEqualTo(voided);
+    assertThat(wallet.requireAccount(refundUser).available()).isEqualTo(Money.krw(50L));
+    assertThat(wallet.requireAccount(refundUser).locked()).isEqualTo(Money.krw(50L));
+    assertThat(refund.reason()).isEqualTo(com.sportsbook.wallet.domain.LedgerReason.BET_REFUND);
+
+    UUID payoutUser = UUID.fromString("019b76da-a000-7000-8000-00000000001f");
+    wallet.openAccount(
+        new OpenAccountCommand(payoutUser, com.sportsbook.protocol.value.Currency.KRW));
+    CreditCommand payout =
+        new CreditCommand(
+            payoutUser,
+            Money.krw(250L),
+            CreditCommand.Source.HOUSE_POOL,
+            CreditReason.PAYOUT,
+            IdempotencyKey.of("credit:settlement-payout"));
+    var paid = wallet.credit(com.sportsbook.wallet.domain.WalletCaller.SETTLEMENT, payout);
+
+    assertThat(wallet.credit(com.sportsbook.wallet.domain.WalletCaller.SETTLEMENT, payout))
+        .isEqualTo(paid);
+    assertThat(wallet.requireAccount(payoutUser).available()).isEqualTo(Money.krw(250L));
+    assertThat(paid.reason()).isEqualTo(com.sportsbook.wallet.domain.LedgerReason.BET_PAYOUT);
+    assertThat(outboxFor(payout.idempotencyKey())).hasSize(1);
+
+    CreditCommand changedReason =
+        new CreditCommand(
+            refundUser,
+            settlementVoid.amount(),
+            settlementVoid.source(),
+            CreditReason.REFUND,
+            settlementVoid.idempotencyKey());
+    assertThatThrownBy(
+            () ->
+                wallet.credit(com.sportsbook.wallet.domain.WalletCaller.SETTLEMENT, changedReason))
+        .isInstanceOf(IdempotencyConflictException.class);
+    assertThatThrownBy(
+            () ->
+                wallet.credit(
+                    com.sportsbook.wallet.domain.WalletCaller.BETTING,
+                    new CreditCommand(
+                        refundUser,
+                        Money.krw(1L),
+                        CreditCommand.Source.HOUSE_POOL,
+                        CreditReason.PAYOUT,
+                        IdempotencyKey.of("credit:forbidden"))))
+        .isInstanceOf(RuntimeException.class);
   }
 
   @Test
