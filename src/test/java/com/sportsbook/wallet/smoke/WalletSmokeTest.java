@@ -7,6 +7,7 @@ import com.sportsbook.wallet.domain.WalletCaller;
 import com.sportsbook.wallet.outbox.KafkaOutboxDispatcher;
 import com.sportsbook.wallet.outbox.WalletEventFactory;
 import com.sportsbook.wallet.persistence.OutboxDeliveryRepository;
+import com.sportsbook.wallet.service.RecoveryWorker;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -35,6 +36,7 @@ class WalletSmokeTest extends WalletSmokeFixture {
   @Autowired StringRedisTemplate redis;
   @Autowired OutboxDeliveryRepository outbox;
   @Autowired KafkaOutboxDispatcher dispatcher;
+  @Autowired RecoveryWorker recovery;
 
   @Test
   void servesAuthenticatedDurableReplayAcrossPostgresAndRedis() throws Exception {
@@ -143,6 +145,76 @@ class WalletSmokeTest extends WalletSmokeFixture {
                   message.lease().eventId()))
           .isTrue();
     }
+  }
+
+  @Test
+  void wakesAndRecoversBlockedAdjustments() throws Exception {
+    UUID userId = UUID.fromString("019b783d-1000-7000-8000-000000000004");
+    UUID revisionId = UUID.fromString("019b783d-1000-7000-8000-000000000005");
+    UUID betId = UUID.fromString("019b783d-1000-7000-8000-000000000006");
+    String key = "settlement:revision:" + revisionId;
+    String proofPath = "/internal/v1/wallet/transactions/adjustment/" + revisionId;
+    String account = "{\"userId\":\"" + userId + "\",\"currency\":\"KRW\"}";
+    String adjustment =
+        """
+        {"revisionId":"%s","betId":"%s","revisionNumber":1,"userId":"%s",
+        "previousPayout":{"amount":500,"currency":"KRW"},
+        "newPayout":{"amount":200,"currency":"KRW"}}
+        """
+            .formatted(revisionId, betId, userId);
+    assertThat(
+            request(HttpMethod.POST, ACCOUNT_PATH, WalletCaller.PLATFORM, null, account)
+                .getStatusCode())
+        .isEqualTo(HttpStatus.OK);
+
+    var blocked =
+        request(
+            HttpMethod.POST,
+            "/internal/v1/wallet/transactions/adjustment",
+            WalletCaller.SETTLEMENT,
+            key,
+            adjustment);
+    assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    assertThat(blocked.getHeaders().getLocation()).hasToString(proofPath);
+    assertThat(json.readTree(blocked.getBody()).path("status").textValue()).isEqualTo("BLOCKED");
+    assertThat(count("ledger_entry", key)).isZero();
+
+    var funded =
+        request(
+            HttpMethod.POST,
+            "/internal/v1/wallet/transactions/deposit",
+            WalletCaller.PLATFORM,
+            "smoke:recovery:deposit",
+            transaction(userId, 300L));
+    assertThat(funded.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(recovery.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
+
+    var proof = request(HttpMethod.GET, proofPath, WalletCaller.SETTLEMENT, null, null);
+    var recovered = json.readTree(proof.getBody());
+    assertThat(proof.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(recovered.path("status").textValue()).isEqualTo("APPLIED");
+    assertThat(recovered.path("deltaAmount").longValue()).isEqualTo(-300L);
+    assertThat(recovered.path("operationGroupId").isTextual()).isTrue();
+    assertThat(recovered.path("appliedAt").isTextual()).isTrue();
+    assertThat(recovered.path("nextAttemptAt").isNull()).isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                """
+                SELECT recovery_debt_amount=0 AND recovery_frozen_at IS NULL
+                FROM account WHERE user_id=?
+                """,
+                Boolean.class,
+                userId))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM ledger_entry
+                WHERE idempotency_key=? AND reason='BET_ADJUSTMENT'
+                """,
+                Integer.class,
+                key))
+        .isEqualTo(2);
   }
 
   private int count(String table, String key) {
