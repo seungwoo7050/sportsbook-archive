@@ -39,6 +39,8 @@ class DeployedRiskConfigurationTest {
     assertThat(patterns.repeatedSelection().action()).isEqualTo(PatternAction.REVIEW);
     assertThat(reservations.retention()).isEqualTo(Duration.ofDays(32));
     assertThat(history.maxStakeSamples()).isEqualTo(100);
+    assertThat(source.getProperty("management.endpoint.health.group.readiness.include"))
+        .isEqualTo("readinessState,redis,kafka");
   }
 
   private static <T> T bind(Binder binder, String prefix, Class<T> type) {

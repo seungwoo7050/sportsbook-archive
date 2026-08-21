@@ -21,7 +21,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
       "risk.auth.betting-service-api-key=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "risk.auth.admin-api-key=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "risk.auth.platform-api-key=pppppppppppppppppppppppppppppppp",
-      "management.health.redis.enabled=false"
+      "management.health.redis.enabled=false",
+      "management.endpoint.health.validate-group-membership=false"
     })
 @AutoConfigureMockMvc
 class InternalSecurityIntegrationTest {
