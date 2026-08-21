@@ -2,6 +2,7 @@ package com.sportsbook.wallet.domain;
 
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.domain.error.AccountRecoveryBlockedException;
 import com.sportsbook.wallet.domain.error.BalanceLimitExceededException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.InsufficientBalanceException;
@@ -125,6 +126,12 @@ public class Account {
     return recoveryDebtAmount.signum() > 0;
   }
 
+  public void requireOutboundAllowed() {
+    if (isOutboundFrozen()) {
+      throw new AccountRecoveryBlockedException(userId);
+    }
+  }
+
   public long queueRecoveryDebt(Money amount, Instant now) {
     requirePositive(amount);
     requireSameCurrency(amount);
@@ -176,6 +183,7 @@ public class Account {
     requirePositive(amount);
     requireSameCurrency(amount);
     Objects.requireNonNull(now, "now");
+    requireOutboundAllowed();
     if (available.amount() < amount.amount()) {
       throw new InsufficientBalanceException(userId, amount, available.toMoney());
     }
@@ -187,6 +195,7 @@ public class Account {
     requirePositive(amount);
     requireSameCurrency(amount);
     Objects.requireNonNull(now, "now");
+    requireOutboundAllowed();
     if (available.amount() < amount.amount()) {
       throw new InsufficientBalanceException(userId, amount, available.toMoney());
     }
