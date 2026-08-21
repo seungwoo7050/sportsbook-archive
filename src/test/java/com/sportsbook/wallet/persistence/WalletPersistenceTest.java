@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
+import com.sportsbook.wallet.config.WalletInfrastructureConfig;
 import com.sportsbook.wallet.domain.Account;
 import com.sportsbook.wallet.domain.BalanceBucket;
 import com.sportsbook.wallet.domain.LedgerEntry;
@@ -15,7 +16,11 @@ import com.sportsbook.wallet.domain.WalletFailureSnapshot;
 import com.sportsbook.wallet.domain.WalletOperation;
 import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.WalletOperationStatus;
+import com.sportsbook.wallet.domain.error.AccountNotFoundException;
+import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.domain.error.WalletBusyException;
+import com.sportsbook.wallet.service.WalletService;
+import com.sportsbook.wallet.service.command.OpenAccountCommand;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -38,7 +43,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @DataJpaTest(properties = "spring.test.database.replace=NONE")
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import(IdempotencyKeyLock.class)
+@Import({IdempotencyKeyLock.class, WalletInfrastructureConfig.class, WalletService.class})
 class WalletPersistenceTest {
   @Container
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -48,6 +53,7 @@ class WalletPersistenceTest {
   @Autowired LedgerEntryRepository ledger;
   @Autowired WalletOperationRepository operations;
   @Autowired IdempotencyKeyLock idempotencyLocks;
+  @Autowired WalletService wallet;
   @Autowired javax.sql.DataSource dataSource;
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
@@ -267,6 +273,70 @@ class WalletPersistenceTest {
           .isEmpty();
     } finally {
       transactions.rollback(owner);
+    }
+  }
+
+  @Test
+  void reusesAnAccountOnlyForTheSameCurrency() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000012");
+    OpenAccountCommand krw =
+        new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW);
+
+    Account first = wallet.openAccount(krw);
+    Account replay = wallet.openAccount(krw);
+
+    assertThat(replay.userId()).isEqualTo(first.userId());
+    assertThat(accounts.count()).isGreaterThanOrEqualTo(1L);
+    assertThatThrownBy(
+            () ->
+                wallet.openAccount(
+                    new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.USD)))
+        .isInstanceOf(CurrencyMismatchException.class);
+  }
+
+  @Test
+  void rejectsMissingAccountsWithTheirExactIdentity() {
+    UUID missingUserId = UUID.randomUUID();
+
+    assertThatThrownBy(() -> wallet.requireAccount(missingUserId))
+        .isInstanceOfSatisfying(
+            AccountNotFoundException.class,
+            missing -> assertThat(missing.userId()).isEqualTo(missingUserId));
+  }
+
+  @Test
+  void convergesConcurrentAccountOpeners() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000013");
+    OpenAccountCommand command =
+        new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW);
+    java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+    CompletableFuture<Account> first =
+        CompletableFuture.supplyAsync(
+            () -> {
+              await(start);
+              return wallet.openAccount(command);
+            });
+    CompletableFuture<Account> second =
+        CompletableFuture.supplyAsync(
+            () -> {
+              await(start);
+              return wallet.openAccount(command);
+            });
+
+    start.countDown();
+
+    assertThat(first.join().userId()).isEqualTo(userId);
+    assertThat(second.join().userId()).isEqualTo(userId);
+    assertThat(accounts.findAll().stream().filter(account -> account.userId().equals(userId)))
+        .hasSize(1);
+  }
+
+  private static void await(java.util.concurrent.CountDownLatch latch) {
+    try {
+      latch.await();
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(interrupted);
     }
   }
 }
