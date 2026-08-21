@@ -17,6 +17,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
@@ -159,6 +160,72 @@ class OperatorActionQueueTest {
         .isEqualTo(MarketStatus.CLOSED.name());
     assertThat(redis.opsForHash().get(CacheKeys.eventMarkets(eventId), marketId.value().toString()))
         .isEqualTo(MarketStatus.CLOSED.name());
+  }
+
+  @Test
+  void terminalEventOrMarketRejectsReopenWithoutEnqueueing() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.eventTerminal(eventId), "FINISHED");
+
+    assertThatThrownBy(
+            () ->
+                queue.submit(
+                    IdempotencyKey.of("event-terminal"),
+                    UUID.randomUUID(),
+                    eventId,
+                    marketId,
+                    MarketStatus.OPEN,
+                    "review",
+                    NOW))
+        .isInstanceOf(TerminalMarketReopenException.class);
+
+    redis.delete(CacheKeys.eventTerminal(eventId));
+    redis.opsForValue().set(CacheKeys.marketTerminal(eventId, marketId), "MARKET_CLOSED");
+    assertThatThrownBy(
+            () ->
+                queue.submit(
+                    IdempotencyKey.of("market-terminal"),
+                    UUID.randomUUID(),
+                    eventId,
+                    marketId,
+                    MarketStatus.OPEN,
+                    "review",
+                    NOW))
+        .isInstanceOf(TerminalMarketReopenException.class);
+    assertThat(redis.hasKey(STREAM)).isFalse();
+  }
+
+  @Test
+  void reopenRetainsOverrideUntilAcknowledgedDelivery() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.providerMarket(eventId, marketId), MarketStatus.OPEN.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    redis.opsForValue().set(CacheKeys.market(eventId, marketId), MarketStatus.SUSPENDED.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketFeedHold(eventId, marketId), Long.toString(NOW.toEpochMilli()));
+
+    queue.submit(
+        IdempotencyKey.of("reopen-key"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.OPEN,
+        "review complete",
+        NOW);
+
+    assertThat(redis.opsForValue().get(CacheKeys.marketOverride(eventId, marketId)))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.SUSPENDED.name());
+    var record = redis.opsForStream().range(STREAM, Range.unbounded()).get(0);
+    assertThat(record.getValue()).containsEntry("announcedStatus", MarketStatus.SUSPENDED.name());
   }
 
   private OperatorActionQueue queue() {
