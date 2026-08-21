@@ -10,6 +10,7 @@ import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
 import com.sportsbook.wallet.persistence.AccountRepository;
+import com.sportsbook.wallet.persistence.WalletOperationRepository;
 import com.sportsbook.wallet.service.command.CreditCommand;
 import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
@@ -20,6 +21,7 @@ import com.sportsbook.wallet.service.command.WithdrawCommand;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,16 +36,22 @@ public class WalletService {
   private final TransactionTemplate writeTransaction;
   private final Clock clock;
   private final WalletTransferExecutor transferExecutor;
+  private final WalletOperationRepository operations;
+  private final WalletOutcomeResolver outcomes;
 
   public WalletService(
       AccountRepository accounts,
       TransactionTemplate writeTransaction,
       Clock clock,
-      WalletTransferExecutor transferExecutor) {
+      WalletTransferExecutor transferExecutor,
+      WalletOperationRepository operations,
+      WalletOutcomeResolver outcomes) {
     this.accounts = accounts;
     this.writeTransaction = writeTransaction;
     this.clock = clock;
     this.transferExecutor = transferExecutor;
+    this.operations = operations;
+    this.outcomes = outcomes;
   }
 
   public Account openAccount(OpenAccountCommand command) {
@@ -115,6 +123,18 @@ public class WalletService {
               new LedgerEntry.TransferLeg(command.userId(), BalanceBucket.AVAILABLE),
               LedgerReason.BET_DEBIT);
         });
+  }
+
+  /** Returns the durable debit outcome for the canonical bet-id idempotency key. */
+  public Optional<WalletOperationResult> findDebit(UUID betId) {
+    String operationKey = Objects.requireNonNull(betId, "betId").toString();
+    return operations
+        .findById(operationKey)
+        .filter(
+            operation ->
+                operation.caller() == WalletCaller.BETTING
+                    && operation.kind() == WalletOperationKind.BET_DEBIT)
+        .map(outcomes::resolve);
   }
 
   public WalletOperationResult credit(WalletCaller caller, CreditCommand command) {
