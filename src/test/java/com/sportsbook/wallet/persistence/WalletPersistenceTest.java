@@ -759,6 +759,48 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void rejectsUnauthorizedCreditCallerSourceAndReasonCombinations() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000026");
+    var attempts =
+        java.util.List.of(
+            java.util.Map.entry(
+                WalletCaller.PLATFORM,
+                creditCommand(userId, CreditCommand.Source.HOUSE_POOL, CreditReason.PAYOUT, "1")),
+            java.util.Map.entry(
+                WalletCaller.GATEWAY,
+                creditCommand(userId, CreditCommand.Source.HOUSE_POOL, CreditReason.REFUND, "2")),
+            java.util.Map.entry(
+                WalletCaller.BETTING,
+                creditCommand(userId, CreditCommand.Source.USER_LOCKED, CreditReason.VOID, "3")),
+            java.util.Map.entry(
+                WalletCaller.BETTING,
+                creditCommand(userId, CreditCommand.Source.HOUSE_POOL, CreditReason.REFUND, "4")),
+            java.util.Map.entry(
+                WalletCaller.SETTLEMENT,
+                creditCommand(userId, CreditCommand.Source.HOUSE_POOL, CreditReason.REFUND, "5")),
+            java.util.Map.entry(
+                WalletCaller.SETTLEMENT,
+                creditCommand(userId, CreditCommand.Source.USER_LOCKED, CreditReason.PAYOUT, "6")),
+            java.util.Map.entry(
+                WalletCaller.ADMIN,
+                creditCommand(userId, CreditCommand.Source.HOUSE_POOL, CreditReason.PAYOUT, "7")),
+            java.util.Map.entry(
+                WalletCaller.ADMIN,
+                creditCommand(userId, CreditCommand.Source.USER_LOCKED, CreditReason.REFUND, "8")));
+
+    attempts.forEach(
+        attempt ->
+            assertThatThrownBy(() -> wallet.credit(attempt.getKey(), attempt.getValue()))
+                .isInstanceOf(RuntimeException.class));
+  }
+
+  private static CreditCommand creditCommand(
+      UUID userId, CreditCommand.Source source, CreditReason reason, String suffix) {
+    return new CreditCommand(
+        userId, Money.krw(1L), source, reason, IdempotencyKey.of("credit:forbidden:" + suffix));
+  }
+
+  @Test
   void convergesOneHundredConcurrentRequestsForOneKey() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000019");
     wallet.openAccount(new OpenAccountCommand(userId, com.sportsbook.protocol.value.Currency.KRW));
