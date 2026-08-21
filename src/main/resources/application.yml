@@ -70,6 +70,14 @@ oddsfeed:
     batch-size: 50
     claim-idle: ${CRITICAL_EVENT_CLAIM_IDLE:5s}
     poll-interval-ms: ${CRITICAL_EVENT_POLL_INTERVAL_MS:250}
+  operator:
+    delivery:
+      stream-key: ${OPERATOR_ACTION_STREAM:oddsfeed:operator-actions}
+      consumer-group: ${OPERATOR_ACTION_GROUP:oddsfeed-operator-publisher}
+      consumer-name: ${HOSTNAME:oddsfeed-operator-local}
+      batch-size: 50
+      claim-idle: ${OPERATOR_ACTION_CLAIM_IDLE:5s}
+      poll-interval-ms: ${OPERATOR_ACTION_POLL_INTERVAL_MS:250}
   security:
     internal:
       api-key: ${ADMIN_API_INTERNAL_KEY}
