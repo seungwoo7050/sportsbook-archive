@@ -3,6 +3,12 @@ package com.sportsbook.oddsfeed.publisher;
 import com.sportsbook.oddsfeed.config.KafkaTopicsProperties;
 import com.sportsbook.oddsfeed.config.PublishProperties;
 import com.sportsbook.oddsfeed.kafka.BrokerAvailability;
+import com.sportsbook.protocol.event.EventLifecycle;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
+import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MarketStatusChanged;
+import com.sportsbook.protocol.event.MatchFinalStatus;
+import com.sportsbook.protocol.event.MatchResult;
 import com.sportsbook.protocol.event.OddsChanged;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
@@ -11,6 +17,7 @@ import com.sportsbook.protocol.value.SelectionId;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -61,6 +68,45 @@ public class OddsFeedPublisher {
             next.decimal().toPlainString(),
             changedAt));
     return true;
+  }
+
+  public void publishMarketStatusChanged(
+      EventId eventId,
+      MarketId marketId,
+      MarketStatus previous,
+      MarketStatus next,
+      String reason,
+      Instant occurredAt) {
+    send(
+        topics.marketStatusChanged(),
+        eventId,
+        new MarketStatusChanged(
+            eventId.value().toString(),
+            marketId.value().toString(),
+            previous,
+            next,
+            reason,
+            occurredAt));
+  }
+
+  public void publishEventLifecycle(
+      EventId eventId, EventLifecycleStatus status, Instant scheduledStartAt, Instant occurredAt) {
+    send(
+        topics.eventLifecycle(),
+        eventId,
+        new EventLifecycle(eventId.value().toString(), status, occurredAt, scheduledStartAt));
+  }
+
+  public void publishMatchResult(
+      EventId eventId,
+      String score,
+      MatchFinalStatus finalStatus,
+      Map<String, String> detail,
+      Instant settledAt) {
+    send(
+        topics.matchResult(),
+        eventId,
+        new MatchResult(eventId.value().toString(), score, finalStatus, detail, settledAt));
   }
 
   boolean isSignificantChange(Odds previous, Odds next) {
