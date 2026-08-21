@@ -32,7 +32,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-@SpringBootTest(properties = "wallet.outbox.scheduling-enabled=false")
+@SpringBootTest(
+    properties = {"wallet.outbox.scheduling-enabled=false", "wallet.recovery.retry-base=PT30S"})
 @Testcontainers
 @Import(RecoveryWorkerPersistenceTest.CommitFault.class)
 class RecoveryWorkerPersistenceTest {
@@ -222,6 +223,43 @@ class RecoveryWorkerPersistenceTest {
     assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
     assertThat(accounts.findById(userId).orElseThrow().isOutboundFrozen()).isFalse();
     assertThat(ledger.findByIdempotencyKey(second.idempotencyKey().value())).hasSize(2);
+  }
+
+  @Test
+  void underfundedRecoveryOnlyPersistsItsBackoff() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000019e");
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-00000000019f");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(100L), IdempotencyKey.of("deposit:backoff-seed")));
+    AdjustmentCommand command =
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-0000000001a0"),
+            1L,
+            userId,
+            Money.krw(300L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + revisionId));
+    adjustmentService.adjust(command);
+
+    assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.DEFERRED_FUNDS);
+    assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.NO_WORK);
+
+    var proof = adjustments.findById(revisionId).orElseThrow();
+    assertThat(proof.status()).isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(proof.retryCount()).isEqualTo(1);
+    assertThat(proof.nextAttemptAt()).isAfter(proof.updatedAt());
+    assertThat(operations.findById(command.idempotencyKey().value()).orElseThrow().status())
+        .isEqualTo(WalletOperationStatus.BLOCKED_FUNDS);
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(100L));
+              assertThat(account.recoveryDebtAmount()).isEqualTo(BigInteger.valueOf(300L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
   }
 
   private static void await(CountDownLatch latch) {
