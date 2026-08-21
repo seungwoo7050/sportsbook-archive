@@ -15,6 +15,7 @@ import com.sportsbook.gateway.error.GatewayProblemWriter;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisConnectionException;
 import io.lettuce.core.codec.ByteArrayCodec;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
 import jakarta.servlet.DispatcherType;
 import java.time.Duration;
@@ -168,6 +169,22 @@ class DistributedRateLimiterTest {
     RateLimitProperties.Limit invalid = new RateLimitProperties.Limit(0, Duration.ofSeconds(1));
     assertThatThrownBy(() -> first.tryConsume("invalid", invalid))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void countsFailOpenResultsWithoutDynamicTags() {
+    RedisClient unavailable = mock(RedisClient.class);
+    when(unavailable.connect(any(ByteArrayCodec.class)))
+        .thenThrow(new RedisConnectionException("fixture outage"));
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    RateLimitProperties policies = new RateLimitProperties(true, limit, limit, List.of());
+    RateLimiterService limiter = new RateLimiterService(unavailable, policies, meters);
+
+    limiter.tryConsume("first", limit);
+    limiter.tryConsume("second", limit);
+
+    assertThat(meters.get("gateway.ratelimit.fail.open").counter().count()).isEqualTo(2);
+    assertThat(meters.get("gateway.ratelimit.fail.open").counter().getId().getTags()).isEmpty();
   }
 
   @Test
