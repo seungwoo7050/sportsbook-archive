@@ -1,11 +1,15 @@
 package com.sportsbook.oddsfeed.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.oddsfeed.api.EventCatalog;
 import com.sportsbook.oddsfeed.cache.RedisOddsCache;
 import com.sportsbook.oddsfeed.config.CacheProperties;
+import com.sportsbook.oddsfeed.config.CriticalDeliveryProperties;
+import com.sportsbook.oddsfeed.delivery.CriticalEvent;
+import com.sportsbook.oddsfeed.delivery.CriticalEventQueue;
 import com.sportsbook.oddsfeed.provider.EventSummary;
 import com.sportsbook.oddsfeed.provider.MatchOutcome;
 import com.sportsbook.oddsfeed.provider.OddsProvider;
@@ -19,6 +23,7 @@ import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.protocol.value.SelectionId;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import reactor.core.publisher.Flux;
 
@@ -83,6 +89,42 @@ class FeedOrchestratorTest {
   void holdsLatestOddsWhileTheBrokerIsUnavailable() {
     assertOutageOrder(new RecordingPublisher(new ArrayList<>(), false, false), "hold");
     assertOutageOrder(new RecordingPublisher(new ArrayList<>(), true, true), "publish", "hold");
+  }
+
+  @Test
+  void enqueuesBeforeRestrictingMarketsAndDefersOpening() {
+    assertMarketOrder(MarketStatus.SUSPENDED, false, "enqueue", "cache");
+    assertMarketOrder(MarketStatus.OPEN, false, "enqueue");
+    assertMarketOrder(MarketStatus.SUSPENDED, true, "enqueue");
+  }
+
+  private static void assertMarketOrder(
+      MarketStatus next, boolean failEnqueue, String... expected) {
+    List<String> order = new ArrayList<>();
+    EventId eventId = new EventId(UUID.randomUUID());
+    FeedOrchestrator orchestrator =
+        new FeedOrchestrator(
+            new StubProvider(List.of()),
+            new RecordingCache(Map.of(), order),
+            new RecordingPublisher(order),
+            new EventCatalog(),
+            new RecordingQueue(order, failEnqueue));
+    ProviderEvent event =
+        new ProviderEvent.MarketStatusUpdated(
+            eventId,
+            new MarketId(UUID.randomUUID()),
+            MarketStatus.OPEN,
+            next,
+            "provider update",
+            Instant.EPOCH);
+
+    if (failEnqueue) {
+      assertThatThrownBy(() -> orchestrator.dispatch(eventId, event))
+          .isInstanceOf(IllegalStateException.class);
+    } else {
+      orchestrator.dispatch(eventId, event);
+    }
+    assertThat(order).containsExactly(expected);
   }
 
   private static void assertOutageOrder(RecordingPublisher publisher, String... expected) {
@@ -183,6 +225,37 @@ class FeedOrchestratorTest {
         Instant observedAt) {
       order.add("hold");
       return MarketStatus.SUSPENDED;
+    }
+
+    @Override
+    public MarketStatus storeProviderMarketStatus(
+        EventId eventId, MarketId marketId, MarketStatus status) {
+      order.add("cache");
+      return status;
+    }
+  }
+
+  private static final class RecordingQueue extends CriticalEventQueue {
+    private final List<String> order;
+    private final boolean fail;
+
+    private RecordingQueue(List<String> order, boolean fail) {
+      super(
+          new StringRedisTemplate(),
+          new ObjectMapper(),
+          new CriticalDeliveryProperties("stream", "group", "consumer", 1, Duration.ZERO),
+          new SimpleMeterRegistry());
+      this.order = order;
+      this.fail = fail;
+    }
+
+    @Override
+    public RecordId enqueue(CriticalEvent event) {
+      order.add("enqueue");
+      if (fail) {
+        throw new IllegalStateException("Redis unavailable");
+      }
+      return RecordId.of("1-0");
     }
   }
 
