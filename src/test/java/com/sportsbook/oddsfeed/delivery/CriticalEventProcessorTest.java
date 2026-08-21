@@ -15,6 +15,7 @@ import com.sportsbook.oddsfeed.config.CriticalDeliveryProperties;
 import com.sportsbook.oddsfeed.publisher.OddsFeedPublisher;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -185,6 +186,64 @@ class CriticalEventProcessorTest {
             MarketStatus.CLOSED,
             "EVENT_FINISHED",
             Instant.EPOCH);
+    order.verify(queue).acknowledge(queued);
+  }
+
+  @Test
+  void publishesDirectMatchResultBeforeAcknowledgement() {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.matchResult(
+            eventId, "2-1", MatchFinalStatus.COMPLETED, Map.of("winner", "home"), Instant.EPOCH);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("4-0"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+
+    new CriticalEventProcessor(queue, publisher, mock(RedisOddsCache.class), new EventCatalog())
+        .drain();
+
+    InOrder order = inOrder(publisher, queue);
+    order
+        .verify(publisher)
+        .publishMatchResult(
+            eventId, "2-1", MatchFinalStatus.COMPLETED, Map.of("winner", "home"), Instant.EPOCH);
+    order.verify(queue).acknowledge(queued);
+  }
+
+  @Test
+  void publishesEmbeddedResultAfterItsTerminalLifecycle() {
+    CriticalEventQueue queue = mock(CriticalEventQueue.class);
+    OddsFeedPublisher publisher = mock(OddsFeedPublisher.class);
+    RedisOddsCache cache = mock(RedisOddsCache.class);
+    EventId eventId = new EventId(UUID.randomUUID());
+    CriticalEvent event =
+        CriticalEvent.terminalLifecycle(
+            eventId,
+            EventLifecycleStatus.FINISHED,
+            Instant.EPOCH,
+            Instant.EPOCH,
+            Map.of(),
+            "2-1",
+            MatchFinalStatus.COMPLETED,
+            Map.of("winner", "home"),
+            Instant.EPOCH);
+    QueuedCriticalEvent queued = new QueuedCriticalEvent(RecordId.of("4-1"), event, false);
+    when(queue.poll()).thenReturn(List.of(queued));
+    when(cache.closeEventMarkets(eventId, EventLifecycleStatus.FINISHED)).thenReturn(Map.of());
+    when(cache.getEvent(eventId)).thenReturn(Optional.empty());
+
+    new CriticalEventProcessor(queue, publisher, cache, new EventCatalog()).drain();
+
+    InOrder order = inOrder(publisher, queue);
+    order
+        .verify(publisher)
+        .publishEventLifecycle(
+            eventId, EventLifecycleStatus.FINISHED, Instant.EPOCH, Instant.EPOCH);
+    order
+        .verify(publisher)
+        .publishMatchResult(
+            eventId, "2-1", MatchFinalStatus.COMPLETED, Map.of("winner", "home"), Instant.EPOCH);
     order.verify(queue).acknowledge(queued);
   }
 
