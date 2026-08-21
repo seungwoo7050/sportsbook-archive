@@ -160,6 +160,31 @@ public class RedisOddsCache {
           """,
           String.class);
 
+  private static final RedisScript<String> CLOSE_EVENT_MARKETS =
+      new DefaultRedisScript<>(
+          """
+          redis.call('SET', KEYS[1], ARGV[1], 'NX')
+          local terminalStatus = redis.call('GET', KEYS[1])
+          local inventory = redis.call('HGETALL', KEYS[2])
+          local closed = {}
+          for index = 1, #inventory, 2 do
+            local marketId = inventory[index]
+            local previous = inventory[index + 1]
+            local effectiveKey = ARGV[3] .. marketId
+            local providerKey = ARGV[4] .. marketId
+            local terminalKey = ARGV[5] .. marketId
+            redis.call('SET', terminalKey, 'EVENT_' .. terminalStatus, 'NX')
+            redis.call('PSETEX', providerKey, ARGV[2], 'CLOSED')
+            redis.call('PSETEX', effectiveKey, ARGV[2], 'CLOSED')
+            if previous ~= 'CLOSED' then
+              table.insert(closed, marketId .. '|' .. previous)
+            end
+          end
+          redis.call('PEXPIRE', KEYS[2], ARGV[2])
+          return table.concat(closed, '\\n')
+          """,
+          String.class);
+
   private final StringRedisTemplate redis;
   private final ObjectMapper objectMapper;
   private final Duration ttl;
@@ -277,6 +302,28 @@ public class RedisOddsCache {
                 new MarketId(UUID.fromString(id.toString())),
                 MarketStatus.valueOf(status.toString())));
     return Collections.unmodifiableMap(new LinkedHashMap<>(markets));
+  }
+
+  public Map<UUID, MarketStatus> closeEventMarkets(
+      EventId eventId, EventLifecycleStatus terminalStatus) {
+    String encoded =
+        redis.execute(
+            CLOSE_EVENT_MARKETS,
+            List.of(CacheKeys.eventTerminal(eventId), CacheKeys.eventMarkets(eventId)),
+            terminalStatus.name(),
+            ttlMillis(),
+            "market:" + eventId.value() + ":",
+            "market:provider:" + eventId.value() + ":",
+            "market:terminal:" + eventId.value() + ":");
+    if (encoded == null || encoded.isBlank()) {
+      return Map.of();
+    }
+    Map<UUID, MarketStatus> closed = new TreeMap<>();
+    for (String entry : encoded.split("\\n")) {
+      String[] parts = entry.split("\\|", 2);
+      closed.put(UUID.fromString(parts[0]), MarketStatus.valueOf(parts[1]));
+    }
+    return Collections.unmodifiableMap(new LinkedHashMap<>(closed));
   }
 
   private MarketStatus executeOddsProjection(
