@@ -26,3 +26,24 @@ management:
   otlp:
     tracing:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+spring:
+  application:
+    name: odds-feed-service
+  profiles:
+    default: mock
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+
+oddsfeed:
+  cache:
+    ttl: 24h
