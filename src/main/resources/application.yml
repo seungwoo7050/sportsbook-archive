@@ -16,6 +16,24 @@ spring:
       database: ${GATEWAY_REDIS_DATABASE:0}
       ssl:
         enabled: ${GATEWAY_REDIS_SSL:false}
+  kafka:
+    bootstrap-servers: ${GATEWAY_KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: ${GATEWAY_KAFKA_DELIVERY_TIMEOUT_MS:10000}
+        request.timeout.ms: ${GATEWAY_KAFKA_REQUEST_TIMEOUT_MS:5000}
+        max.block.ms: ${GATEWAY_KAFKA_MAX_BLOCK_MS:5000}
+    listener:
+      ack-mode: record
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
@@ -42,5 +60,15 @@ gateway:
       capacity: ${GATEWAY_RATELIMIT_IP_CAPACITY:60}
       refill-period: ${GATEWAY_RATELIMIT_IP_PERIOD:1m}
     trusted-proxy-cidrs: ${GATEWAY_TRUSTED_PROXY_CIDRS:}
+  topics:
+    odds-changed: ${GATEWAY_TOPIC_ODDS_CHANGED:odds.changed}
+    bet-settled: ${GATEWAY_TOPIC_BET_SETTLED:bet.settled.v1}
+    bet-voided: ${GATEWAY_TOPIC_BET_VOIDED:bet.voided.v1}
+    bet-resolution-revised: ${GATEWAY_TOPIC_BET_RESOLUTION_REVISED:bet.resolution.revised.v1}
+  kafka:
+    retry-interval: ${GATEWAY_KAFKA_RETRY_INTERVAL:1s}
+    retry-attempts: ${GATEWAY_KAFKA_RETRY_ATTEMPTS:2}
+    dlt-wait-timeout: ${GATEWAY_KAFKA_DLT_WAIT_TIMEOUT:11s}
+    dlt-timeout-buffer: ${GATEWAY_KAFKA_DLT_TIMEOUT_BUFFER:1s}
   ws:
     allowed-origins: ${GATEWAY_WS_ALLOWED_ORIGINS:http://localhost:[*],http://127.0.0.1:[*]}
