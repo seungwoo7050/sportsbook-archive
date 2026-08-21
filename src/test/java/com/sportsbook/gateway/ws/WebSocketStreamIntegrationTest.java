@@ -3,13 +3,18 @@ package com.sportsbook.gateway.ws;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.when;
 
+import com.sportsbook.protocol.event.BetSettled;
+import com.sportsbook.protocol.event.Money;
 import com.sportsbook.protocol.event.OddsChanged;
+import com.sportsbook.protocol.event.SettlementResultAvro;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
@@ -17,6 +22,7 @@ import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
 
@@ -68,6 +74,67 @@ class WebSocketStreamIntegrationTest extends WebSocketStreamFixture {
       first.disconnect();
       second.disconnect();
     }
+  }
+
+  @Test
+  void deliversSettledBetOnlyToOwningUser() throws Exception {
+    String owner = UUID.randomUUID().toString();
+    String other = UUID.randomUUID().toString();
+    BetSettled event = betSettled(owner);
+    StompSession ownerSession = connect("/ws/v1/bets", authHeaders(owner));
+    StompSession otherSession = connect("/ws/v1/bets", authHeaders(other));
+    try {
+      BlockingQueue<String> ownerMessages = subscribe(ownerSession, "/user/queue/bets");
+      BlockingQueue<String> otherMessages = subscribe(otherSession, "/user/queue/bets");
+      awaitListener("gateway-settled-listener");
+
+      publish(topics.betSettled(), event.getEventId(), event);
+
+      assertThat(ownerMessages.poll(5, SECONDS))
+          .contains(
+              event.getBetId(),
+              owner,
+              "\"status\":\"SETTLED\"",
+              "\"result\":\"WON\"",
+              "\"revisionNumber\":0");
+      assertThat(ownerMessages.poll(1, SECONDS)).isNull();
+      assertThat(otherMessages.poll(1, SECONDS)).isNull();
+    } finally {
+      ownerSession.disconnect();
+      otherSession.disconnect();
+    }
+  }
+
+  protected StompHeaders authHeaders(String userId) {
+    when(jwtDecoder.decode(userId))
+        .thenReturn(
+            Jwt.withTokenValue(userId)
+                .header("alg", "RS256")
+                .subject(userId)
+                .expiresAt(Instant.now().plusSeconds(60))
+                .build());
+    StompHeaders headers = new StompHeaders();
+    headers.add(HttpHeaders.AUTHORIZATION, "Bearer " + userId);
+    return headers;
+  }
+
+  protected void awaitListener(String id) {
+    await()
+        .atMost(5, SECONDS)
+        .until(() -> !listeners.getListenerContainer(id).getAssignedPartitions().isEmpty());
+  }
+
+  protected static BetSettled betSettled(String userId) {
+    Money stake = Money.newBuilder().setAmount(10_000).setCurrency("KRW").build();
+    return BetSettled.newBuilder()
+        .setBetId(UUID.randomUUID().toString())
+        .setUserId(userId)
+        .setEventId(UUID.randomUUID().toString())
+        .setResult(SettlementResultAvro.WON)
+        .setStake(stake)
+        .setPayout(Money.newBuilder(stake).setAmount(18_500).build())
+        .setSettledAt(Instant.parse("2026-08-21T00:00:01Z"))
+        .build();
   }
 
   protected static OddsChanged oddsChanged(String eventId) {
