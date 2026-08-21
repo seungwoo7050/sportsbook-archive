@@ -34,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest(
     properties = {
+      "wallet.integrity.scheduling-enabled=false",
       "wallet.outbox.scheduling-enabled=false",
       "wallet.recovery.scheduling-enabled=false",
       "wallet.recovery.retry-base=PT30S"

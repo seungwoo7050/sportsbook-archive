@@ -19,6 +19,8 @@ logging:
     org.testcontainers: INFO
 
 wallet:
+  integrity:
+    scheduling-enabled: false
   outbox:
     scheduling-enabled: false
   recovery:
