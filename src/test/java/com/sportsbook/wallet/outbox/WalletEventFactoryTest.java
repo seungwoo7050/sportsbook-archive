@@ -2,6 +2,7 @@ package com.sportsbook.wallet.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sportsbook.protocol.event.WalletCredited;
 import com.sportsbook.protocol.event.WalletDebitFailed;
 import com.sportsbook.protocol.event.WalletDebitFailureReason;
 import com.sportsbook.protocol.event.WalletDebited;
@@ -9,6 +10,8 @@ import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.WalletFailureCode;
 import com.sportsbook.wallet.domain.WalletFailureSnapshot;
+import com.sportsbook.wallet.service.command.CreditCommand;
+import com.sportsbook.wallet.service.command.CreditReason;
 import com.sportsbook.wallet.service.command.DebitCommand;
 import java.time.Instant;
 import java.util.UUID;
@@ -57,6 +60,26 @@ class WalletEventFactoryTest {
     assertThat(event.getRequestedAmount().getAmount()).isEqualTo(1_000L);
   }
 
+  @ParameterizedTest
+  @MethodSource("creditReasons")
+  void mapsEveryCreditedReason(CreditReason reason) {
+    CreditCommand credit =
+        new CreditCommand(
+            USER_ID,
+            Money.krw(1_000L),
+            CreditCommand.Source.HOUSE_POOL,
+            reason,
+            IdempotencyKey.of("credit:" + reason.name().toLowerCase()));
+
+    PendingOutboxMessage message = factory.credited(credit, LEDGER_ENTRY_ID, NOW);
+
+    WalletCredited event = AvroSerializer.deserialize(message.payload(), WalletCredited.class);
+    assertThat(message.topic()).isEqualTo(WalletEventFactory.CREDITED_TOPIC);
+    assertThat(message.partitionKey()).isEqualTo(USER_ID.toString());
+    assertThat(event.getReason().name()).isEqualTo(reason.name());
+    assertThat(event.getLedgerTxId()).isEqualTo(LEDGER_ENTRY_ID.toString());
+  }
+
   private void assertCommon(PendingOutboxMessage message, String topic, String schema) {
     assertThat(message.operationKey()).isEqualTo(BET_ID.toString());
     assertThat(message.deduplicationKey()).isEqualTo(BET_ID.toString());
@@ -75,5 +98,9 @@ class WalletEventFactoryTest {
             WalletFailureCode.ACCOUNT_NOT_FOUND, WalletDebitFailureReason.ACCOUNT_NOT_FOUND),
         Arguments.of(
             WalletFailureCode.CURRENCY_MISMATCH, WalletDebitFailureReason.CURRENCY_MISMATCH));
+  }
+
+  private static Stream<CreditReason> creditReasons() {
+    return Stream.of(CreditReason.values());
   }
 }
