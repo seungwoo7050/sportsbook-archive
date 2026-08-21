@@ -1,7 +1,10 @@
 local maxExact = 9007199254740991
 local now = tonumber(ARGV[1])
+local retention = tonumber(ARGV[2])
+local userId = ARGV[13]
 local currency = ARGV[14]
 local count = tonumber(ARGV[15])
+local expiredCount = 0
 
 local function exact(text, positive)
   if not text or not string.match(text, "^%d+$") then return nil end
@@ -19,6 +22,20 @@ local function typeError(key, expected)
 end
 
 local function failure(message) return {ok = false, error = message} end
+
+local function split(encoded, expected)
+  local values = {}
+  for value in string.gmatch(encoded or "", "[^,]+") do table.insert(values, value) end
+  if #values ~= expected then return nil end
+  return values
+end
+
+local function decrement(key, amount)
+  local current = exact(redis.call("GET", key), false)
+  local nextValue = current - amount
+  if nextValue == 0 then redis.call("DEL", key)
+  else redis.call("SET", key, string.format("%.0f", nextValue)) end
+end
 
 local function amount(member)
   return exact(string.match(member, "|([0-9]+)$"), true)
@@ -74,9 +91,79 @@ local function limitSlot(counter, activeValue, activeError, field)
 end
 
 if not now or now < 0 or now > maxExact or not count or count < 1
-  or #KEYS ~= 17 + count * 2 then
+  or not retention or retention <= 0 or #KEYS ~= 17 + count * 2 then
   return redis.error_reply("invalid snapshot request")
 end
+
+local activeBase = "risk:reservations:user:{" .. userId .. "}"
+local plans, stakeTotals, selectionTotal = {}, {}, 0
+local cleanupError = typeError(KEYS[10], "zset") or typeError(KEYS[13], "zset")
+  or typeError(KEYS[14], "string") or typeError(KEYS[17], "string")
+if cleanupError then return redis.error_reply(cleanupError) end
+for _, activeBetId in ipairs(redis.call("ZRANGE", KEYS[10], 0, -1)) do
+  local lifecycle = "risk:reservation:" .. activeBetId
+  if keyType(lifecycle) ~= "hash" then return redis.error_reply("missing lifecycle") end
+  local state = redis.call("HGET", lifecycle, "state")
+  local expiresAt = exact(redis.call("HGET", lifecycle, "expiresAt"), false)
+  if not expiresAt then return redis.error_reply("corrupt lifecycle expiry") end
+  if state ~= "RESERVED" or expiresAt <= now then
+    local stakeText = redis.call("HGET", lifecycle, "stake")
+    local countText = redis.call("HGET", lifecycle, "selectionCount")
+    local oldCurrency = redis.call("HGET", lifecycle, "currency")
+    local stake = exact(stakeText, true)
+    local oldCount = exact(countText, true)
+    local oldSelections = split(redis.call("HGET", lifecycle, "selections"), oldCount or -1)
+    if redis.call("HGET", lifecycle, "userId") ~= userId or not stake
+      or not oldCount or not oldCurrency or not oldSelections then
+      return redis.error_reply("corrupt active lifecycle")
+    end
+    local stakeBase = activeBase .. ":stakes:" .. string.lower(oldCurrency)
+    local entries, sum = stakeBase .. ":entries", stakeBase .. ":sum"
+    local planError = typeError(entries, "zset") or typeError(sum, "string")
+    if planError or not redis.call("ZSCORE", entries, activeBetId .. "|" .. stakeText)
+      or not redis.call("ZSCORE", KEYS[13], activeBetId .. "|" .. countText) then
+      return redis.error_reply(planError or "missing active footprint")
+    end
+    for _, selectionId in ipairs(oldSelections) do
+      local selectionKey = activeBase .. ":selection:" .. selectionId
+      local selectionError = typeError(selectionKey, "zset")
+      if selectionError or not redis.call("ZSCORE", selectionKey, activeBetId) then
+        return redis.error_reply(selectionError or "missing selection footprint")
+      end
+    end
+    table.insert(plans, {activeBetId, lifecycle, state, stakeText, countText,
+      entries, sum, oldSelections})
+    stakeTotals[sum] = (stakeTotals[sum] or 0) + stake
+    selectionTotal = selectionTotal + oldCount
+  end
+end
+for sum, value in pairs(stakeTotals) do
+  local current = exact(redis.call("GET", sum), false)
+  if not current or current < value then return redis.error_reply("corrupt active stake sum") end
+end
+if #plans > 0 then
+  local currentSelections = exact(redis.call("GET", KEYS[14]), false)
+  local gauge = exact(redis.call("GET", KEYS[17]), false)
+  if not currentSelections or currentSelections < selectionTotal or not gauge or gauge < #plans then
+    return redis.error_reply("corrupt active totals")
+  end
+end
+for _, plan in ipairs(plans) do
+  redis.call("ZREM", KEYS[10], plan[1])
+  redis.call("ZREM", plan[6], plan[1] .. "|" .. plan[4])
+  redis.call("ZREM", KEYS[13], plan[1] .. "|" .. plan[5])
+  for _, selectionId in ipairs(plan[8]) do
+    redis.call("ZREM", activeBase .. ":selection:" .. selectionId, plan[1])
+  end
+  if plan[3] == "RESERVED" then
+    redis.call("HSET", plan[2], "state", "EXPIRED", "expiredAt", string.format("%.0f", now))
+    redis.call("PEXPIRE", plan[2], retention)
+    expiredCount = expiredCount + 1
+  end
+end
+for sum, value in pairs(stakeTotals) do decrement(sum, value) end
+if selectionTotal > 0 then decrement(KEYS[14], selectionTotal) end
+if #plans > 0 then decrement(KEYS[17], #plans) end
 local activeStake, activeStakeError = active(KEYS[11], KEYS[12])
 local activeSelections, activeSelectionError = active(KEYS[13], KEYS[14])
 local limits = {
@@ -137,5 +224,5 @@ for index = 1, count do
     slot = patternCount(KEYS[17 + index], KEYS[17 + count + index],
       ARGV[11] == "1", tonumber(ARGV[12]))})
 end
-return cjson.encode({version = "1", expired = "0", limits = limits,
+return cjson.encode({version = "1", expired = string.format("%.0f", expiredCount), limits = limits,
   patterns = {rapid = rapid, stakes = confirmedStakes(), selections = selectionFacts}})
