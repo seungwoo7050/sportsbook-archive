@@ -173,6 +173,57 @@ class RecoveryWorkerPersistenceTest {
     assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).hasSize(2);
   }
 
+  @Test
+  void oneTransactionCollectsOnlyTheOldestHead() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000199");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(250L), IdempotencyKey.of("deposit:fifo-seed")));
+    UUID firstId = UUID.fromString("019b76da-a000-7000-8000-00000000019a");
+    UUID secondId = UUID.fromString("019b76da-a000-7000-8000-00000000019b");
+    AdjustmentCommand first =
+        new AdjustmentCommand(
+            firstId,
+            UUID.fromString("019b76da-a000-7000-8000-00000000019c"),
+            1L,
+            userId,
+            Money.krw(300L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + firstId));
+    AdjustmentCommand second =
+        new AdjustmentCommand(
+            secondId,
+            UUID.fromString("019b76da-a000-7000-8000-00000000019d"),
+            1L,
+            userId,
+            Money.krw(200L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + secondId));
+    adjustmentService.adjust(first);
+    adjustmentService.adjust(second);
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(250L), IdempotencyKey.of("deposit:fifo-wake")));
+
+    assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
+
+    assertThat(adjustments.findById(firstId).orElseThrow().status())
+        .isEqualTo(AdjustmentStatus.APPLIED);
+    assertThat(adjustments.findById(secondId).orElseThrow().status())
+        .isEqualTo(AdjustmentStatus.BLOCKED);
+    assertThat(ledger.findByIdempotencyKey(first.idempotencyKey().value())).hasSize(2);
+    assertThat(ledger.findByIdempotencyKey(second.idempotencyKey().value())).isEmpty();
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(200L));
+              assertThat(account.recoveryDebtAmount()).isEqualTo(BigInteger.valueOf(200L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
+    assertThat(worker.recoverOne()).isEqualTo(RecoveryWorker.Result.APPLIED);
+    assertThat(accounts.findById(userId).orElseThrow().isOutboundFrozen()).isFalse();
+    assertThat(ledger.findByIdempotencyKey(second.idempotencyKey().value())).hasSize(2);
+  }
+
   private static void await(CountDownLatch latch) {
     try {
       latch.await();
