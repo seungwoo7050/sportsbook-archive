@@ -73,38 +73,53 @@ if errorText then return redis.error_reply(errorText) end
 
 local activeBase, cleanups, stakeDecrements =
   "risk:reservations:user:{" .. userId .. "}", {}, {}
-local selectionDecrement = 0
-for _, activeBetId in ipairs(redis.call("ZRANGE", KEYS[2], 0, -1)) do
+local selectionDecrement, expectedSelections = 0, 0
+local expectedStakes = {[KEYS[4]] = 0}
+local expectedStakeEntries = {[KEYS[3]] = 0}
+local expectedSelectionEntries = {}
+for index = 1, selectionCount do
+  expectedSelectionEntries[KEYS[18 + selectionCount + index]] = 0
+end
+local activeBetIds = redis.call("ZRANGE", KEYS[2], 0, -1)
+for _, activeBetId in ipairs(activeBetIds) do
   local lifecycle = "risk:reservation:" .. activeBetId
   if keyType(lifecycle) ~= "hash" then return redis.error_reply("missing active lifecycle") end
   local state = redis.call("HGET", lifecycle, "state")
   local expiresAt = exact(redis.call("HGET", lifecycle, "expiresAt"), false)
   if not expiresAt then return redis.error_reply("corrupt active expiry") end
+  local oldStakeText = redis.call("HGET", lifecycle, "stake")
+  local oldCountText = redis.call("HGET", lifecycle, "selectionCount")
+  local oldCurrency = redis.call("HGET", lifecycle, "currency")
+  local oldStake, oldCount = exact(oldStakeText, true), exact(oldCountText, true)
+  local oldSelections = split(redis.call("HGET", lifecycle, "selections"), oldCount or -1)
+  if redis.call("HGET", lifecycle, "userId") ~= userId or not oldStake
+    or not oldCount or not oldCurrency or not oldSelections then
+    return redis.error_reply("corrupt active lifecycle")
+  end
+  if not string.match(oldCurrency, "^[A-Z]+$") then return redis.error_reply("corrupt currency") end
+  local stakeBase = activeBase .. ":stakes:" .. string.lower(oldCurrency)
+  local entries, sum = stakeBase .. ":entries", stakeBase .. ":sum"
+  local cleanupError = typeError(entries, "zset") or typeError(sum, "string")
+  if cleanupError or not redis.call("ZSCORE", entries, activeBetId .. "|" .. oldStakeText)
+    or not redis.call("ZSCORE", KEYS[5], activeBetId .. "|" .. oldCountText) then
+    return redis.error_reply(cleanupError or "missing active footprint")
+  end
+  local nextExpectedStake = checkedAdd(expectedStakes[sum] or 0, oldStake)
+  local nextExpectedSelections = checkedAdd(expectedSelections, oldCount)
+  if not nextExpectedStake or not nextExpectedSelections then
+    return redis.error_reply("active footprint exceeds exact range")
+  end
+  expectedStakes[sum], expectedSelections = nextExpectedStake, nextExpectedSelections
+  expectedStakeEntries[entries] = (expectedStakeEntries[entries] or 0) + 1
+  for _, selectionId in ipairs(oldSelections) do
+    local key = activeBase .. ":selection:" .. selectionId
+    local selectionError = typeError(key, "zset")
+    if selectionError or not redis.call("ZSCORE", key, activeBetId) then
+      return redis.error_reply(selectionError or "missing selection footprint")
+    end
+    expectedSelectionEntries[key] = (expectedSelectionEntries[key] or 0) + 1
+  end
   if state ~= "RESERVED" or expiresAt <= now then
-    local oldStakeText = redis.call("HGET", lifecycle, "stake")
-    local oldCountText = redis.call("HGET", lifecycle, "selectionCount")
-    local oldCurrency = redis.call("HGET", lifecycle, "currency")
-    local oldStake, oldCount = exact(oldStakeText, true), exact(oldCountText, true)
-    local oldSelections = split(redis.call("HGET", lifecycle, "selections"), oldCount or -1)
-    if redis.call("HGET", lifecycle, "userId") ~= userId or not oldStake
-      or not oldCount or not oldCurrency or not oldSelections then
-      return redis.error_reply("corrupt active lifecycle")
-    end
-    if not string.match(oldCurrency, "^[A-Z]+$") then return redis.error_reply("corrupt currency") end
-    local stakeBase = activeBase .. ":stakes:" .. string.lower(oldCurrency)
-    local entries, sum = stakeBase .. ":entries", stakeBase .. ":sum"
-    local cleanupError = typeError(entries, "zset") or typeError(sum, "string")
-    if cleanupError or not redis.call("ZSCORE", entries, activeBetId .. "|" .. oldStakeText)
-      or not redis.call("ZSCORE", KEYS[5], activeBetId .. "|" .. oldCountText) then
-      return redis.error_reply(cleanupError or "missing active footprint")
-    end
-    for _, selectionId in ipairs(oldSelections) do
-      local key = activeBase .. ":selection:" .. selectionId
-      local selectionError = typeError(key, "zset")
-      if selectionError or not redis.call("ZSCORE", key, activeBetId) then
-        return redis.error_reply(selectionError or "missing selection footprint")
-      end
-    end
     table.insert(cleanups, {activeBetId, lifecycle, state, oldStakeText, oldCountText,
       entries, sum, oldSelections})
     local previous = stakeDecrements[sum] or 0
@@ -113,6 +128,31 @@ for _, activeBetId in ipairs(redis.call("ZRANGE", KEYS[2], 0, -1)) do
     end
     stakeDecrements[sum] = previous + oldStake; selectionDecrement = selectionDecrement + oldCount
   end
+end
+for sum, value in pairs(expectedStakes) do
+  if exact(redis.call("GET", sum) or "0", false) ~= value then
+    return redis.error_reply("corrupt active stake aggregate")
+  end
+end
+for entries, count in pairs(expectedStakeEntries) do
+  if redis.call("ZCARD", entries) ~= count then
+    return redis.error_reply("corrupt active stake entries")
+  end
+end
+if exact(redis.call("GET", KEYS[6]) or "0", false) ~= expectedSelections then
+  return redis.error_reply("corrupt active selection aggregate")
+end
+if redis.call("ZCARD", KEYS[5]) ~= #activeBetIds then
+  return redis.error_reply("corrupt active selection entries")
+end
+for key, count in pairs(expectedSelectionEntries) do
+  if redis.call("ZCARD", key) ~= count then
+    return redis.error_reply("corrupt per-selection entries")
+  end
+end
+local activeGauge = exact(redis.call("GET", KEYS[18]) or "0", false)
+if not activeGauge or activeGauge < #activeBetIds then
+  return redis.error_reply("corrupt active gauge")
 end
 for sum, value in pairs(stakeDecrements) do
   local current = exact(redis.call("GET", sum), false)
