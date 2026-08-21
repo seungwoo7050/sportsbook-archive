@@ -1,6 +1,7 @@
 package com.sportsbook.wallet.service;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
@@ -67,6 +68,26 @@ class WalletTransferTopologyTest {
                 topologies.forEach(
                     topology -> WalletOperationResult.fromExisting(topology.entries())))
         .doesNotThrowAnyException();
+  }
+
+  @Test
+  void rejectsCounterpartyAndBucketMismatches() {
+    List<Topology> invalid =
+        List.of(
+            new Topology(
+                LedgerReason.DEPOSIT,
+                USER,
+                BalanceBucket.AVAILABLE,
+                SystemAccountIds.HOUSE,
+                BalanceBucket.AVAILABLE),
+            new Topology(
+                LedgerReason.BET_DEBIT, USER, BalanceBucket.AVAILABLE, USER, BalanceBucket.LOCKED));
+
+    invalid.forEach(
+        topology ->
+            assertThatThrownBy(() -> WalletOperationResult.fromExisting(topology.entries()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("topology does not match reason"));
   }
 
   private record Topology(
