@@ -9,6 +9,7 @@ import com.sportsbook.wallet.domain.WalletOperation;
 import com.sportsbook.wallet.domain.WalletOperationKind;
 import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.domain.error.CurrencyMismatchException;
+import com.sportsbook.wallet.domain.error.WalletAccessDeniedException;
 import com.sportsbook.wallet.outbox.OutboxAppender;
 import com.sportsbook.wallet.outbox.WalletEventFactory;
 import com.sportsbook.wallet.persistence.AccountRepository;
@@ -184,14 +185,15 @@ public class WalletTransferExecutor {
                 && command.reason() == CreditReason.REFUND)
             || (caller == WalletCaller.SETTLEMENT
                 && ((command.source() == CreditCommand.Source.USER_LOCKED
-                        && command.reason() != CreditReason.PAYOUT)
+                        && (command.reason() == CreditReason.VOID
+                            || command.reason() == CreditReason.REFUND))
                     || (command.source() == CreditCommand.Source.HOUSE_POOL
                         && command.reason() == CreditReason.PAYOUT)))
             || (caller == WalletCaller.ADMIN
                 && command.source() == CreditCommand.Source.HOUSE_POOL
                 && command.reason() == CreditReason.REFUND);
     if (!allowed) {
-      throw new IllegalArgumentException("Caller is not allowed for credit source and reason");
+      throw new WalletAccessDeniedException(caller, "credit source and reason");
     }
   }
 
