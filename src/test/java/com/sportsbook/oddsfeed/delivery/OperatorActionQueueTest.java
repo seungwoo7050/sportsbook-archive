@@ -1,6 +1,7 @@
 package com.sportsbook.oddsfeed.delivery;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.oddsfeed.config.CacheProperties;
 import com.sportsbook.oddsfeed.config.OperatorDeliveryProperties;
@@ -67,6 +68,46 @@ class OperatorActionQueueTest {
     assertThat(replay.outcome()).isEqualTo(OperatorActionSubmission.Outcome.REPLAYED);
     assertThat(replay.actionId()).isEqualTo(originalActionId);
     assertThat(replay.recordId()).isEqualTo(created.recordId());
+    assertThat(redis.opsForStream().size(STREAM)).isOne();
+  }
+
+  @Test
+  void changedRequestOrReusedActionIdReturnsConflict() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    UUID actionId = UUID.randomUUID();
+    queue.submit(
+        IdempotencyKey.of("stable-key"),
+        actionId,
+        eventId,
+        marketId,
+        MarketStatus.SUSPENDED,
+        "incident",
+        NOW);
+
+    assertThatThrownBy(
+            () ->
+                queue.submit(
+                    IdempotencyKey.of("stable-key"),
+                    UUID.randomUUID(),
+                    eventId,
+                    marketId,
+                    MarketStatus.SUSPENDED,
+                    "different",
+                    NOW))
+        .isInstanceOf(IdempotencyConflictException.class);
+    assertThatThrownBy(
+            () ->
+                queue.submit(
+                    IdempotencyKey.of("another-key"),
+                    actionId,
+                    eventId,
+                    marketId,
+                    MarketStatus.SUSPENDED,
+                    "incident",
+                    NOW))
+        .isInstanceOf(IdempotencyConflictException.class);
     assertThat(redis.opsForStream().size(STREAM)).isOne();
   }
 
