@@ -1,12 +1,16 @@
 package com.sportsbook.oddsfeed.delivery;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.MarketStatus;
+import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.value.EventId;
 import com.sportsbook.protocol.value.MarketId;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -52,5 +56,35 @@ class CriticalEventTest {
     assertThat(event.scheduledStartAt()).isEqualTo(kickoff);
     assertThat(event.occurredAt()).isEqualTo(occurredAt);
     assertThat(event.marketId()).isNull();
+  }
+
+  @Test
+  void isolatesTerminalMarketAndResultSnapshots() {
+    Map<UUID, MarketStatus> markets = new HashMap<>();
+    markets.put(marketId.value(), MarketStatus.OPEN);
+    Map<String, String> detail = new HashMap<>();
+    detail.put("winner", "home");
+    Instant settledAt = Instant.parse("2026-06-01T20:00:00Z");
+
+    CriticalEvent event =
+        CriticalEvent.terminalLifecycle(
+            eventId,
+            EventLifecycleStatus.FINISHED,
+            Instant.EPOCH,
+            settledAt,
+            markets,
+            "2-1",
+            MatchFinalStatus.COMPLETED,
+            detail,
+            settledAt);
+    markets.clear();
+    detail.clear();
+
+    assertThat(event.terminalMarkets()).containsEntry(marketId.value(), MarketStatus.OPEN);
+    assertThat(event.resultDetail()).containsEntry("winner", "home");
+    assertThat(event.score()).isEqualTo("2-1");
+    assertThat(event.resultSettledAt()).isEqualTo(settledAt);
+    assertThatThrownBy(() -> event.terminalMarkets().clear())
+        .isInstanceOf(UnsupportedOperationException.class);
   }
 }
