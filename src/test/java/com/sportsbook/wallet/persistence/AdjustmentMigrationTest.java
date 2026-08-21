@@ -195,6 +195,65 @@ class AdjustmentMigrationTest {
     assertRequestConstraint(external, "settlement:revision:" + external.revisionId());
   }
 
+  @Test
+  void rejectsInvalidStatusShapeAndDuplicateAccountSequence() {
+    UUIDs applied = UUIDs.create("000000000231", "000000000232", "000000000233", "000000000234");
+    String appliedKey = "settlement:revision:" + applied.revisionId();
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(transactions)
+                    .executeWithoutResult(
+                        ignored -> {
+                          insertSucceededOperation(applied, appliedKey, applied.groupId());
+                          insertAppliedProof(applied, appliedKey, applied.groupId());
+                          jdbc.update(
+                              "UPDATE wallet_adjustment SET status='BLOCKED' WHERE revision_id=?",
+                              applied.revisionId());
+                        }))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+    UUIDs first = UUIDs.create("000000000241", "000000000242", "000000000243", "000000000244");
+    UUIDs second = UUIDs.create("000000000245", "000000000246", "000000000243", "000000000247");
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(transactions)
+                    .executeWithoutResult(
+                        ignored -> {
+                          insertBlocked(first, 1L);
+                          insertBlocked(second, 1L);
+                        }))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+  }
+
+  private void insertBlocked(UUIDs ids, long sequence) {
+    String key = "settlement:revision:" + ids.revisionId();
+    jdbc.update(
+        """
+        INSERT INTO wallet_operation (
+            idempotency_key, caller_id, operation_kind, user_id, request_amount,
+            request_currency, request_fingerprint, status, requested_at, updated_at
+        ) VALUES (?, 'SETTLEMENT', 'BET_ADJUSTMENT', ?, 5, 'KRW', ?,
+                  'BLOCKED_FUNDS', now(), now())
+        """,
+        key,
+        ids.userId(),
+        "a".repeat(64));
+    jdbc.update(
+        """
+        INSERT INTO wallet_adjustment (
+            revision_id, idempotency_key, bet_id, revision_number, user_id,
+            previous_payout_amount, new_payout_amount, delta_amount, currency,
+            status, queue_sequence, queued_at, next_attempt_at, created_at, updated_at
+        ) VALUES (?, ?, ?, 1, ?, 10, 5, -5, 'KRW', 'BLOCKED', ?,
+                  now(), now(), now(), now())
+        """,
+        ids.revisionId(),
+        key,
+        ids.betId(),
+        ids.userId(),
+        sequence);
+  }
+
   private void assertRequestConstraint(UUIDs ids, String key) {
     Throwable failure =
         catchThrowable(
@@ -207,6 +266,7 @@ class AdjustmentMigrationTest {
                         }));
     assertThat(failure).rootCause().hasMessageContaining("ck_wallet_adjustment_request");
   }
+
   private void insertAppliedProof(UUIDs ids, String key, java.util.UUID groupId) {
     jdbc.update(
         """
