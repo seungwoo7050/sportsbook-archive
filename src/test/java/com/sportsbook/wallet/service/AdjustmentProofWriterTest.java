@@ -7,7 +7,9 @@ import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.wallet.domain.Account;
 import com.sportsbook.wallet.domain.AdjustmentStatus;
+import com.sportsbook.wallet.domain.WalletFailureCode;
 import com.sportsbook.wallet.domain.WalletOperation;
+import com.sportsbook.wallet.domain.error.AccountNotFoundException;
 import com.sportsbook.wallet.persistence.AccountRepository;
 import com.sportsbook.wallet.persistence.LedgerEntryRepository;
 import com.sportsbook.wallet.persistence.OutboxEventRepository;
@@ -115,6 +117,23 @@ class AdjustmentProofWriterTest {
         .get()
         .extracting(proof -> proof.status(), proof -> proof.queueSequence())
         .containsExactly(AdjustmentStatus.BLOCKED, 1L);
+  }
+
+  @Test
+  void persistsARejectedProofAndItsExactOperationFailure() {
+    AdjustmentCommand command = command(1_000L, 700L);
+
+    WalletOperation operation =
+        writer.reject(command, "d".repeat(64), new AccountNotFoundException(USER_ID), NOW);
+    operations.saveAndFlush(operation);
+    adjustments.flush();
+
+    assertThat(operation.failure().code()).isEqualTo(WalletFailureCode.ACCOUNT_NOT_FOUND);
+    assertThat(adjustments.findById(REVISION_ID))
+        .get()
+        .extracting(proof -> proof.status())
+        .isEqualTo(AdjustmentStatus.REJECTED);
+    assertThat(ledger.findByIdempotencyKey(command.idempotencyKey().value())).isEmpty();
   }
 
   private AdjustmentCommand command(long previous, long next) {
