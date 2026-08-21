@@ -1,0 +1,33 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+
+# IDEs
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Local runtime configuration
+.env
+.env.*
+!.env.example
+*.local.yml
+
+# Logs and diagnostics
+*.log
+hs_err_pid*
+
+# Load and smoke test runtime files
+load-test/scenarios/users.txt
+load-test/results/
+load-test/raw/
