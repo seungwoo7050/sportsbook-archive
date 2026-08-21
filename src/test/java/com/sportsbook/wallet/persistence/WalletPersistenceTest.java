@@ -400,6 +400,45 @@ class WalletPersistenceTest {
   }
 
   @Test
+  void replaysSuccessfulOutboundKeysBeforeCheckingARecoveryFreeze() {
+    UUID userId = UUID.fromString("019b76da-a000-7000-8000-00000000016b");
+    wallet.openAccount(new OpenAccountCommand(userId, Money.krw(0L).currency()));
+    wallet.deposit(
+        new DepositCommand(userId, Money.krw(500L), IdempotencyKey.of("deposit:replay-freeze")));
+    WithdrawCommand withdraw =
+        new WithdrawCommand(
+            userId, Money.krw(50L), IdempotencyKey.of("withdraw:success-before-freeze"));
+    DebitCommand debit =
+        new DebitCommand(userId, Money.krw(100L), IdempotencyKey.of("debit:success-before-freeze"));
+    var withdrawSuccess = wallet.withdraw(withdraw);
+    var debitSuccess = wallet.debit(debit);
+    UUID revisionId = UUID.fromString("019b76da-a000-7000-8000-00000000016c");
+    adjustmentService.adjust(
+        new AdjustmentCommand(
+            revisionId,
+            UUID.fromString("019b76da-a000-7000-8000-00000000016d"),
+            1L,
+            userId,
+            Money.krw(400L),
+            Money.krw(0L),
+            IdempotencyKey.of("settlement:revision:" + revisionId)));
+
+    assertThat(wallet.withdraw(withdraw)).isEqualTo(withdrawSuccess);
+    assertThat(wallet.debit(debit)).isEqualTo(debitSuccess);
+
+    assertThat(accounts.findById(userId).orElseThrow())
+        .satisfies(
+            account -> {
+              assertThat(account.available()).isEqualTo(Money.krw(350L));
+              assertThat(account.locked()).isEqualTo(Money.krw(100L));
+              assertThat(account.isOutboundFrozen()).isTrue();
+            });
+    assertThat(ledger.findByIdempotencyKey(withdraw.idempotencyKey().value())).hasSize(2);
+    assertThat(ledger.findByIdempotencyKey(debit.idempotencyKey().value())).hasSize(2);
+    assertThat(outboxFor(debit.idempotencyKey())).hasSize(1);
+  }
+
+  @Test
   void migratesFinalConstraintsAndAdjustmentReason() {
     UUID userId = UUID.fromString("019b76da-a000-7000-8000-000000000010");
     jdbc.update(
