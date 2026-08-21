@@ -413,6 +413,70 @@ class OperatorActionQueueTest {
     assertThat(redis.getExpire(OperatorActionQueue.committedKey(eventId, marketId))).isEqualTo(-1);
   }
 
+  @Test
+  void deliveryDecisionSkipsAReopenAfterATerminalLatch() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.providerMarket(eventId, marketId), MarketStatus.OPEN.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    queue.submit(
+        IdempotencyKey.of("terminal-after-submit"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.OPEN,
+        "review complete",
+        NOW);
+    QueuedOperatorMarketAction reopen = queue.poll().get(0);
+
+    redis.opsForValue().set(CacheKeys.marketTerminal(eventId, marketId), "MARKET_CLOSED");
+
+    assertThat(queue.deliveryDecision(reopen.action()).outcome())
+        .isEqualTo(OperatorDeliveryDecision.Outcome.SKIP);
+    assertThat(queue.complete(reopen.action())).isEqualTo(OperatorActionQueue.Completion.APPLIED);
+    assertThat(redis.opsForValue().get(CacheKeys.market(eventId, marketId)))
+        .isEqualTo(MarketStatus.CLOSED.name());
+    assertThat(redis.hasKey(CacheKeys.marketOverride(eventId, marketId))).isTrue();
+  }
+
+  @Test
+  void deliveryDecisionSkipsAReopenSupersededByANewerClose() {
+    OperatorActionQueue queue = queue();
+    EventId eventId = new EventId(UUID.randomUUID());
+    MarketId marketId = new MarketId(UUID.randomUUID());
+    redis.opsForValue().set(CacheKeys.providerMarket(eventId, marketId), MarketStatus.OPEN.name());
+    redis
+        .opsForValue()
+        .set(CacheKeys.marketOverride(eventId, marketId), MarketStatus.SUSPENDED.name());
+    queue.submit(
+        IdempotencyKey.of("superseded-reopen"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.OPEN,
+        "review complete",
+        NOW);
+    queue.submit(
+        IdempotencyKey.of("newer-close"),
+        UUID.randomUUID(),
+        eventId,
+        marketId,
+        MarketStatus.CLOSED,
+        "incident returned",
+        NOW);
+    List<QueuedOperatorMarketAction> actions = queue.poll();
+
+    assertThat(queue.deliveryDecision(actions.get(0).action()).outcome())
+        .isEqualTo(OperatorDeliveryDecision.Outcome.SKIP);
+    assertThat(queue.complete(actions.get(0).action()))
+        .isEqualTo(OperatorActionQueue.Completion.SUPERSEDED);
+    assertThat(queue.deliveryDecision(actions.get(1).action()).announcedStatus())
+        .isEqualTo(MarketStatus.CLOSED);
+  }
+
   private OperatorActionQueue queue() {
     return queue("consumer", Duration.ZERO);
   }
