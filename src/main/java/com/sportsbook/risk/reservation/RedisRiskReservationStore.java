@@ -7,6 +7,7 @@ import com.sportsbook.risk.policy.RiskLimitProperties;
 import com.sportsbook.risk.policy.RiskPatternProperties;
 import com.sportsbook.risk.service.RiskCheckCommand;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -19,6 +20,8 @@ public final class RedisRiskReservationStore implements RiskReservationStore {
       RedisLuaScriptLoader.stringScript("risk-reserve.lua");
   private static final RedisScript<String> COMMIT =
       RedisLuaScriptLoader.stringScript("risk-commit.lua");
+  private static final RedisScript<String> PROJECT_ACCEPTED =
+      RedisLuaScriptLoader.stringScript("risk-project-accepted.lua");
   private static final RedisScript<String> RELEASE =
       RedisLuaScriptLoader.stringScript("risk-release.lua");
 
@@ -56,19 +59,27 @@ public final class RedisRiskReservationStore implements RiskReservationStore {
   public ReservationTransition commit(BetId betId, String token, Instant now) {
     ReservationTransitionRequest request =
         ReservationTransitionRequest.commit(betId, token, now, reservations, patterns, history);
-    return executeTransition(COMMIT, request, "commit");
+    return executeTransition(COMMIT, request.keys(), request.arguments(), "commit");
+  }
+
+  @Override
+  public ReservationTransition projectAccepted(RiskCheckCommand command, String fingerprint) {
+    AcceptedProjectionRequest request =
+        AcceptedProjectionRequest.from(command, fingerprint, reservations, patterns, history);
+    return executeTransition(
+        PROJECT_ACCEPTED, request.keys(), request.arguments(), "accepted projection");
   }
 
   @Override
   public ReservationTransition release(BetId betId, Instant now) {
     ReservationTransitionRequest request =
         ReservationTransitionRequest.release(betId, now, reservations);
-    return executeTransition(RELEASE, request, "release");
+    return executeTransition(RELEASE, request.keys(), request.arguments(), "release");
   }
 
   private ReservationTransition executeTransition(
-      RedisScript<String> script, ReservationTransitionRequest request, String operation) {
-    String raw = redis.execute(script, request.keys(), request.arguments().toArray());
+      RedisScript<String> script, List<String> keys, List<String> arguments, String operation) {
+    String raw = redis.execute(script, keys, arguments.toArray());
     if (raw == null) {
       throw new IllegalStateException("Redis " + operation + " script returned no result");
     }

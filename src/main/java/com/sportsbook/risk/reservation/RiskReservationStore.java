@@ -10,5 +10,7 @@ public interface RiskReservationStore {
 
   ReservationTransition commit(BetId betId, String token, Instant now);
 
+  ReservationTransition projectAccepted(RiskCheckCommand command, String fingerprint);
+
   ReservationTransition release(BetId betId, Instant now);
 }
