@@ -31,6 +31,7 @@ public class WalletTransferExecutor {
   private final WalletTransferWriter transfers;
   private final WalletOutcomeResolver outcomes;
   private final OutboxAppender outboxAppender;
+  private final RecoveryWakeService recoveryWake;
   private final Clock clock;
   private final WalletEventFactory eventFactory = new WalletEventFactory();
 
@@ -40,12 +41,14 @@ public class WalletTransferExecutor {
       WalletTransferWriter transfers,
       WalletOutcomeResolver outcomes,
       OutboxAppender outboxAppender,
+      RecoveryWakeService recoveryWake,
       Clock clock) {
     this.accounts = accounts;
     this.operations = operations;
     this.transfers = transfers;
     this.outcomes = outcomes;
     this.outboxAppender = outboxAppender;
+    this.recoveryWake = recoveryWake;
     this.clock = clock;
   }
 
@@ -150,6 +153,9 @@ public class WalletTransferExecutor {
     try {
       Account account = lockAccount(userId, amount);
       WalletTransferPlan plan = mutation.apply(account, now);
+      if (kind == WalletOperationKind.DEPOSIT || credit != null) {
+        recoveryWake.wake(account);
+      }
       receipt =
           transfers.writeReceipt(
               plan.destination(), plan.source(), amount, plan.reason(), key, userId, now);
