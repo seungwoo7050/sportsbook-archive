@@ -75,4 +75,17 @@ public class AdjustmentProofWriter {
         result.operationGroupId(),
         now);
   }
+
+  public WalletOperation block(
+      AdjustmentCommand command, String fingerprint, Account account, Instant now) {
+    long queueSequence = account.queueRecoveryDebt(command.absoluteDelta(), now);
+    adjustments.save(WalletAdjustment.blocked(command, queueSequence, now));
+    return WalletOperation.blockedFunds(
+        command.idempotencyKey(),
+        WalletCaller.SETTLEMENT,
+        command.userId(),
+        command.absoluteDelta(),
+        fingerprint,
+        now);
+  }
 }
