@@ -23,6 +23,15 @@ class MigrationBlobTest {
         .contains("PRIMARY KEY", "UNIQUE (bet_id, leg_index)", "WHERE status = 'PENDING'");
   }
 
+  @Test
+  void preservesV3OutboxBlobAndUnpublishedIndex() throws IOException {
+    Path migration = MIGRATIONS.resolve("V3__outbox.sql");
+
+    assertThat(gitBlobOid(migration)).isEqualTo("a9b136b813195a6680895376877f69c2049ab19b");
+    assertThat(Files.readString(migration))
+        .contains("CREATE TABLE outbox_event", "WHERE published_at IS NULL");
+  }
+
   private static String gitBlobOid(Path path) throws IOException {
     byte[] content = Files.readAllBytes(path);
     byte[] header = ("blob " + content.length + "\0").getBytes(StandardCharsets.UTF_8);
