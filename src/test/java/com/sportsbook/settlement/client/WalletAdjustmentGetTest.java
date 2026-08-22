@@ -1,14 +1,17 @@
 package com.sportsbook.settlement.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.net.URI;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -42,6 +45,26 @@ class WalletAdjustmentGetTest {
     assertThat(proof.operationGroupId()).isEqualTo(operationId);
     assertThat(proof.appliedAt()).isNotNull();
     server.verify();
+  }
+
+  @Test
+  void rejectsNon200ProofReads() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    WalletClient client =
+        new WalletClient(
+            builder,
+            new WalletEndpointProperties(URI.create("http://wallet.test")),
+            new WalletAuthenticationHeaders(
+                new WalletCredentials("0123456789abcdef0123456789abcdef")));
+    UUID revisionId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://wallet.test" + WalletClient.ADJUSTMENT_PATH + "/" + revisionId))
+        .andRespond(withStatus(HttpStatus.ACCEPTED));
+
+    assertThatThrownBy(() -> client.findAdjustment(revisionId))
+        .isInstanceOf(WalletFailurePolicy.TransientFailure.class)
+        .hasMessageContaining("WALLET_MALFORMED_RESPONSE");
   }
 
   private static String proofJson(UUID revisionId, UUID betId, UUID userId, UUID operationId) {
