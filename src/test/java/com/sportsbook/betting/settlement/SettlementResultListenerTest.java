@@ -1,19 +1,23 @@
 package com.sportsbook.betting.settlement;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.sportsbook.betting.config.BettingTopics;
 import com.sportsbook.betting.config.PermanentKafkaException;
+import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.outbox.AvroSerializer;
 import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.SettlementResultAvro;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
@@ -29,7 +33,7 @@ class SettlementResultListenerTest {
     BetResolutionRevised event = revision();
     ConsumerRecord<byte[], byte[]> record = record(event, event.getBetId());
 
-    new SettlementResultListener(settlement).onResolution(record);
+    new SettlementResultListener(settlement, new SimpleMeterRegistry()).onResolution(record);
 
     verify(settlement).apply(eq(event), anyString());
   }
@@ -40,7 +44,10 @@ class SettlementResultListenerTest {
     BetResolutionRevised event = revision();
     ConsumerRecord<byte[], byte[]> record = record(event, UUID.randomUUID().toString());
 
-    assertThatThrownBy(() -> new SettlementResultListener(settlement).onResolution(record))
+    assertThatThrownBy(
+            () ->
+                new SettlementResultListener(settlement, new SimpleMeterRegistry())
+                    .onResolution(record))
         .isInstanceOf(PermanentKafkaException.class)
         .hasMessageContaining("Kafka key");
     verifyNoInteractions(settlement);
@@ -57,7 +64,10 @@ class SettlementResultListenerTest {
             UUID.randomUUID().toString().getBytes(StandardCharsets.US_ASCII),
             null);
 
-    assertThatThrownBy(() -> new SettlementResultListener(settlement).onResolution(record))
+    assertThatThrownBy(
+            () ->
+                new SettlementResultListener(settlement, new SimpleMeterRegistry())
+                    .onResolution(record))
         .isInstanceOf(PermanentKafkaException.class)
         .hasMessageContaining("payload");
     verifyNoInteractions(settlement);
@@ -78,7 +88,7 @@ class SettlementResultListenerTest {
 
     assertThatThrownBy(
             () ->
-                new SettlementResultListener(settlement)
+                new SettlementResultListener(settlement, new SimpleMeterRegistry())
                     .onResolution(record(BettingTopics.BET_VOIDED, event, event.getEventId())))
         .isInstanceOf(PermanentKafkaException.class)
         .hasMessageContaining("settled VOID");
@@ -100,10 +110,31 @@ class SettlementResultListenerTest {
             .setResultDetail(java.util.Map.of("reason", "MARKET_VOID"))
             .build();
 
-    new SettlementResultListener(settlement)
+    new SettlementResultListener(settlement, new SimpleMeterRegistry())
         .onResolution(record(BettingTopics.BET_SETTLED, event, event.getEventId()));
 
     verify(settlement).apply(eq(event), anyString());
+  }
+
+  @Test
+  void countsOnlyAppliedRevisionGaps() throws Exception {
+    BetSettlementService settlement = mock(BetSettlementService.class);
+    BetResolutionRevised event = revision();
+    ConsumerRecord<byte[], byte[]> record = record(event, event.getBetId());
+    SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    when(settlement.apply(eq(event), anyString()))
+        .thenReturn(
+            Bet.RevisionApplyResult.APPLIED,
+            Bet.RevisionApplyResult.APPLIED_WITH_GAP,
+            Bet.RevisionApplyResult.DUPLICATE);
+    SettlementResultListener listener = new SettlementResultListener(settlement, meters);
+
+    listener.onResolution(record);
+    assertThat(meters.counter(SettlementResultListener.REVISION_GAP_METRIC).count()).isZero();
+    listener.onResolution(record);
+    listener.onResolution(record);
+
+    assertThat(meters.counter(SettlementResultListener.REVISION_GAP_METRIC).count()).isEqualTo(1);
   }
 
   private static ConsumerRecord<byte[], byte[]> record(BetResolutionRevised event, String key) {
