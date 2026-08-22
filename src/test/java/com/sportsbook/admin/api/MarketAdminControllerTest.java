@@ -22,12 +22,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 class MarketAdminControllerTest {
 
-  private static final UUID EVENT =
-      UUID.fromString("018f0000-0000-7000-8000-000000000135");
-  private static final UUID MARKET =
-      UUID.fromString("018f0000-0000-7000-8000-000000000136");
-  private static final UUID ACTION =
-      UUID.fromString("018f0000-0000-7000-8000-000000000137");
+  private static final UUID EVENT = UUID.fromString("018f0000-0000-7000-8000-000000000135");
+  private static final UUID MARKET = UUID.fromString("018f0000-0000-7000-8000-000000000136");
+  private static final UUID ACTION = UUID.fromString("018f0000-0000-7000-8000-000000000137");
 
   @Test
   void delegatesSuspensionWithTheAttemptIdentity() {
@@ -54,8 +51,7 @@ class MarketAdminControllerTest {
 
     assertThat(method.getAnnotation(PreAuthorize.class).value())
         .isEqualTo("hasAnyRole('ADMIN','TRADER')");
-    assertThat(method.getAnnotation(ResponseStatus.class).value())
-        .isEqualTo(HttpStatus.ACCEPTED);
+    assertThat(method.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.ACCEPTED);
     Audited audited = method.getAnnotation(Audited.class);
     assertThat(audited.action()).isEqualTo(AdminAction.MARKET_SUSPEND);
     assertThat(audited.target()).isEqualTo("#eventId + '/' + #marketId");
@@ -68,8 +64,7 @@ class MarketAdminControllerTest {
     MarketStatusPayload body = new MarketStatusPayload("event completed");
     AdminContext context = new AdminContext("operator-1", AdminRole.ADMIN, ACTION, "trace-1");
 
-    new MarketAdminController(markets)
-        .close(EVENT, MARKET, body, context, requestWithKey());
+    new MarketAdminController(markets).close(EVENT, MARKET, body, context, requestWithKey());
 
     verify(markets)
         .changeStatus(
@@ -82,10 +77,31 @@ class MarketAdminControllerTest {
     Method method = actionMethod("close");
     assertThat(method.getAnnotation(PreAuthorize.class).value())
         .isEqualTo("hasAnyRole('ADMIN','TRADER')");
-    assertThat(method.getAnnotation(ResponseStatus.class).value())
-        .isEqualTo(HttpStatus.ACCEPTED);
-    assertThat(method.getAnnotation(Audited.class).action())
-        .isEqualTo(AdminAction.MARKET_CLOSE);
+    assertThat(method.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.ACCEPTED);
+    assertThat(method.getAnnotation(Audited.class).action()).isEqualTo(AdminAction.MARKET_CLOSE);
+  }
+
+  @Test
+  void delegatesGuardsAndAuditsReopening() throws NoSuchMethodException {
+    MarketClient markets = mock(MarketClient.class);
+    MarketStatusPayload body = new MarketStatusPayload("feed corrected");
+    AdminContext context = new AdminContext("operator-1", AdminRole.ADMIN, ACTION, "trace-1");
+
+    new MarketAdminController(markets).reopen(EVENT, MARKET, body, context, requestWithKey());
+
+    verify(markets)
+        .changeStatus(
+            EVENT,
+            MARKET,
+            MarketClient.Action.REOPEN,
+            body,
+            IdempotencyKey.of("market action 01"),
+            ACTION);
+    Method method = actionMethod("reopen");
+    assertThat(method.getAnnotation(PreAuthorize.class).value())
+        .isEqualTo("hasAnyRole('ADMIN','TRADER')");
+    assertThat(method.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.ACCEPTED);
+    assertThat(method.getAnnotation(Audited.class).action()).isEqualTo(AdminAction.MARKET_REOPEN);
   }
 
   private static Method actionMethod(String name) throws NoSuchMethodException {
