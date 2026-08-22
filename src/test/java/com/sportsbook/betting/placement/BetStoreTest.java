@@ -1,8 +1,10 @@
 package com.sportsbook.betting.placement;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetDraft;
@@ -32,6 +34,22 @@ class BetStoreTest {
     InOrder order = inOrder(bets, requests);
     order.verify(bets).saveAndFlush(bet);
     order.verify(requests).saveAndFlush(any(PlacementRequest.class));
+  }
+
+  @Test
+  void locksAndPersistsReservationProofBeforeLaterEffects() {
+    BetRepository bets = mock(BetRepository.class);
+    PlacementRequestRepository requests = mock(PlacementRequestRepository.class);
+    Bet bet = pendingBet();
+    Instant expiresAt = Instant.EPOCH.plusSeconds(60);
+    when(bets.findLockedByBetId(bet.betId())).thenReturn(java.util.Optional.of(bet));
+
+    new BetStore(bets, requests)
+        .recordRiskReservation(
+            bet.betId(), expiresAt, "b".repeat(64), false, Instant.EPOCH.plusSeconds(1));
+
+    assertThat(bet.riskReservationToken()).isEqualTo("b".repeat(64));
+    assertThat(bet.riskReservationExpiresAt()).isEqualTo(expiresAt);
   }
 
   private static Bet pendingBet() {
