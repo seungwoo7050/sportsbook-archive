@@ -1,7 +1,8 @@
 package com.sportsbook.betting.placement;
 
 import com.sportsbook.betting.config.BettingTopics;
-import com.sportsbook.betting.outbox.AvroSerializer;
+import com.sportsbook.betting.config.KafkaMessageValidator;
+import com.sportsbook.betting.config.PermanentKafkaException;
 import com.sportsbook.protocol.event.WalletDebitFailed;
 import com.sportsbook.protocol.event.WalletDebited;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +31,7 @@ public class WalletEventListener {
   @KafkaListener(
       topics = {BettingTopics.WALLET_DEBITED, BettingTopics.WALLET_DEBIT_FAILED},
       groupId = "betting-wallet")
-  public void onWalletEvent(ConsumerRecord<String, byte[]> record) throws NoSuchAlgorithmException {
+  public void onWalletEvent(ConsumerRecord<byte[], byte[]> record) throws NoSuchAlgorithmException {
     EventIdentity identity = identity(record);
     UUID eventId = eventId(record);
     inbox.record(
@@ -39,42 +40,38 @@ public class WalletEventListener {
     inbox.markProcessed(eventId);
   }
 
-  private static EventIdentity identity(ConsumerRecord<String, byte[]> record) {
+  private static EventIdentity identity(ConsumerRecord<byte[], byte[]> record) {
     String userId;
     String betId;
     if (BettingTopics.WALLET_DEBITED.equals(record.topic())) {
-      WalletDebited event = AvroSerializer.deserialize(record.value(), WalletDebited.class);
+      WalletDebited event = KafkaMessageValidator.decode(record.value(), WalletDebited.class);
       userId = event.getUserId();
       betId = event.getIdempotencyKey();
     } else if (BettingTopics.WALLET_DEBIT_FAILED.equals(record.topic())) {
-      WalletDebitFailed event = AvroSerializer.deserialize(record.value(), WalletDebitFailed.class);
+      WalletDebitFailed event =
+          KafkaMessageValidator.decode(record.value(), WalletDebitFailed.class);
       userId = event.getUserId();
       betId = event.getIdempotencyKey();
     } else {
-      throw new IllegalArgumentException("Unsupported wallet topic");
+      throw new PermanentKafkaException("Unsupported wallet topic");
     }
-    UUID user = canonical(userId, "userId");
-    if (!userId.equals(record.key())) {
-      throw new IllegalArgumentException("Wallet Kafka key does not match userId");
-    }
-    return new EventIdentity(canonical(betId, "betId"), user);
+    UUID user = KafkaMessageValidator.canonical(userId, "userId");
+    KafkaMessageValidator.requireKey(record.key(), userId, "Wallet userId");
+    return new EventIdentity(KafkaMessageValidator.canonical(betId, "betId"), user);
   }
 
-  private static UUID eventId(ConsumerRecord<String, byte[]> record) {
+  private static UUID eventId(ConsumerRecord<byte[], byte[]> record) {
     List<Header> values =
         StreamSupport.stream(record.headers().headers("event-id").spliterator(), false).toList();
     if (values.size() != 1) {
-      throw new IllegalArgumentException("Exactly one event-id header is required");
+      throw new PermanentKafkaException("Exactly one event-id header is required");
     }
-    return canonical(new String(values.get(0).value(), StandardCharsets.US_ASCII), "event-id");
-  }
-
-  private static UUID canonical(String value, String name) {
-    UUID parsed = UUID.fromString(value);
-    if (!parsed.toString().equals(value)) {
-      throw new IllegalArgumentException(name + " must be a canonical lowercase UUID");
+    byte[] rawEventId = values.get(0).value();
+    if (rawEventId == null) {
+      throw new PermanentKafkaException("event-id header value is required");
     }
-    return parsed;
+    return KafkaMessageValidator.canonical(
+        new String(rawEventId, StandardCharsets.US_ASCII), "event-id");
   }
 
   private static String sha256(byte[] value) throws NoSuchAlgorithmException {
