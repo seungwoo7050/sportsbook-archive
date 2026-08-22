@@ -39,6 +39,8 @@ class ProductionDefaultsTest {
         .isEqualTo("true");
     assertThat(properties.getProperty("management.endpoints.web.exposure.include"))
         .isEqualTo("health,info,prometheus");
+    assertThat(properties.getProperty("management.endpoint.health.group.readiness.include"))
+        .isEqualTo("readinessState,settlementDependencies");
     assertThat(properties.getProperty("settlement.wallet.base-url"))
         .isEqualTo("http://localhost:8081");
     assertThat(properties.getProperty("settlement.runtime.lease-duration")).isEqualTo("PT30S");
