@@ -368,6 +368,11 @@ public class Bet {
     if (revisionNumber < 1) {
       throw new IllegalArgumentException("revisionNumber must be at least 1");
     }
+    sourceSettledAt = Objects.requireNonNull(sourceSettledAt, "sourceSettledAt");
+    revisedAt = Objects.requireNonNull(revisedAt, "revisedAt");
+    if (sourceSettledAt.isAfter(revisedAt)) {
+      throw new IllegalArgumentException("sourceSettledAt must not be after revisedAt");
+    }
     if (previousPayout.currency() != stake.currency() || previousPayout.isNegative()) {
       throw new IllegalArgumentException("Revision previous payout is invalid");
     }
@@ -399,8 +404,8 @@ public class Bet {
     this.resolutionRevisionId = Objects.requireNonNull(revisionId, "revisionId");
     this.resolutionRevisionNumber = revisionNumber;
     this.resolutionPayloadSha256 = requireHash(payloadHash);
-    this.sourceResultSettledAt = Objects.requireNonNull(sourceSettledAt, "sourceSettledAt");
-    this.resolvedAt = Objects.requireNonNull(revisedAt, "revisedAt");
+    this.sourceResultSettledAt = sourceSettledAt;
+    this.resolvedAt = revisedAt;
     this.updatedAt = revisedAt;
     return gap ? RevisionApplyResult.APPLIED_WITH_GAP : RevisionApplyResult.APPLIED;
   }
