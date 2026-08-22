@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.sportsbook.betting.client.RiskClient;
 import com.sportsbook.betting.client.WalletClient;
+import com.sportsbook.betting.client.WalletOperationResponse;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetDraft;
 import com.sportsbook.betting.domain.BetLeg;
@@ -154,14 +155,68 @@ class BetPlacementServiceTest {
     when(store.rejectAtCreation(any(), any(), any(), any())).thenReturn(bet);
 
     catchThrowableOfType(
-        () ->
-            service(assembler, risk, wallet, mock(), mock(), store)
-                .place(command),
+        () -> service(assembler, risk, wallet, mock(), mock(), store).place(command),
         com.sportsbook.betting.error.ValidationFailedException.class);
 
     org.mockito.Mockito.verify(store)
         .rejectAtCreation(bet.betId(), ErrorCode.VALIDATION_FAILED, "invalid", Instant.EPOCH);
     verifyNoInteractions(wallet);
+  }
+
+  @Test
+  void recoversWalletDebitWithExpectedSemantics() {
+    RiskClient risk = mock(RiskClient.class);
+    WalletClient wallet = mock(WalletClient.class);
+    BetStore store = mock(BetStore.class);
+    Bet bet = pending(command());
+    bet.recordRiskReservation(Instant.EPOCH.plusSeconds(60), "f".repeat(64), false, Instant.EPOCH);
+    UUID operationId = UUID.randomUUID();
+    when(store.findById(bet.betId())).thenReturn(bet);
+    when(wallet.findDebit(bet.betId(), bet.userId(), Money.krw(1_000)))
+        .thenReturn(
+            Optional.of(
+                new WalletOperationResponse(
+                    operationId, bet.userId(), Money.krw(1_000), "BET_DEBIT", Instant.EPOCH)));
+    doAnswer(
+            ignored -> {
+              bet.confirmWallet(operationId, Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .confirmWallet(bet.betId(), operationId, Instant.EPOCH);
+    when(risk.commit(bet.betId(), "f".repeat(64)))
+        .thenThrow(new com.sportsbook.betting.error.DependencyUnavailableException("offline"));
+
+    service(mock(), risk, wallet, mock(), mock(), store).reconcile(bet.betId());
+
+    org.mockito.Mockito.verify(wallet).findDebit(bet.betId(), bet.userId(), Money.krw(1_000));
+    org.mockito.Mockito.verify(wallet, org.mockito.Mockito.never()).debit(any(), any(), any());
+  }
+
+  @Test
+  void isolatesMismatchedRecoveredDebitWithoutRefundingIt() {
+    WalletClient wallet = mock(WalletClient.class);
+    BetStore store = mock(BetStore.class);
+    Bet bet = pending(command());
+    bet.recordRiskReservation(Instant.EPOCH.plusSeconds(60), "a".repeat(64), false, Instant.EPOCH);
+    when(store.findById(bet.betId())).thenReturn(bet);
+    when(wallet.findDebit(bet.betId(), bet.userId(), Money.krw(1_000)))
+        .thenThrow(
+            new com.sportsbook.betting.error.WalletRejectedException(
+                "WALLET_OPERATION_MISMATCH", "mismatch"));
+    doAnswer(
+            ignored -> {
+              bet.requireRiskRelease("VALIDATION_FAILED", "mismatch", Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .requireRiskRelease(any(), any(), any(), any());
+
+    service(mock(), mock(), wallet, mock(), mock(), store).reconcile(bet.betId());
+
+    org.mockito.Mockito.verify(store)
+        .requireRiskRelease(bet.betId(), ErrorCode.VALIDATION_FAILED, "mismatch", Instant.EPOCH);
+    org.mockito.Mockito.verify(wallet, org.mockito.Mockito.never()).refund(any(), any(), any());
   }
 
   @Test
@@ -264,8 +319,7 @@ class BetPlacementServiceTest {
             mock(IdempotencyCache.class),
             store);
     catchThrowableOfType(
-        () -> service.place(command),
-        com.sportsbook.betting.error.ValidationFailedException.class);
+        () -> service.place(command), com.sportsbook.betting.error.ValidationFailedException.class);
 
     org.mockito.Mockito.verify(store)
         .savePreflightRejection(
