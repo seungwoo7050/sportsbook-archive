@@ -18,7 +18,8 @@ class RepositoryLayoutTest {
     String pom = Files.readString(Path.of("pom.xml"));
     assertThat(pom)
         .contains("spotless-maven-plugin")
-        .contains("maven-checkstyle-plugin");
+        .contains("maven-checkstyle-plugin")
+        .contains("<phase>verify</phase>");
     assertThat(Path.of("config/checkstyle/checkstyle.xml")).exists();
   }
 }

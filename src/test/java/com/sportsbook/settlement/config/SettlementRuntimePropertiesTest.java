@@ -18,8 +18,7 @@ class SettlementRuntimePropertiesTest {
 
   @Test
   void rejectsUnsafeBounds() {
-    assertThatThrownBy(
-            () -> new SettlementRuntimeProperties(null, Duration.ZERO, null, 1001))
+    assertThatThrownBy(() -> new SettlementRuntimeProperties(null, Duration.ZERO, null, 1001))
         .isInstanceOf(IllegalArgumentException.class);
   }
 }

@@ -14,7 +14,8 @@ class UuidV7Test {
 
     assertThat(earlier.version()).isEqualTo(7);
     assertThat(earlier.variant()).isEqualTo(2);
-    assertThat(Long.compareUnsigned(earlier.getMostSignificantBits(), later.getMostSignificantBits()))
+    assertThat(
+            Long.compareUnsigned(earlier.getMostSignificantBits(), later.getMostSignificantBits()))
         .isNegative();
   }
 }
