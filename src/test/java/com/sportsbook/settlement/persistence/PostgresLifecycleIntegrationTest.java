@@ -4,9 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.value.Money;
-import com.sportsbook.settlement.execution.SettlementAttempt;
+import com.sportsbook.settlement.execution.SettlementAttemptDraft;
 import com.sportsbook.settlement.execution.SettlementAttemptRepository;
-import com.sportsbook.settlement.execution.SettlementLease;
 import com.sportsbook.settlement.lifecycle.LifecycleObservation;
 import com.sportsbook.settlement.lifecycle.LifecycleStore;
 import java.time.Duration;
@@ -46,7 +45,12 @@ class PostgresLifecycleIntegrationTest extends PostgresIntegrationSupport {
         .isEqualTo(LifecycleStore.RecordResult.TERMINAL_LATCHED);
     assertThat(lifecycles.record(postponed))
         .isEqualTo(LifecycleStore.RecordResult.TERMINAL_LATCHED);
-    assertThat(attempts.claimPending(attempt(claimed, now))).isTrue();
+    assertThat(
+            attempts.claimPending(
+                SettlementAttemptDraft.wholeSlipVoid(
+                    claimed.betId(), claimed.eventId(), "EVENT_CANCELLED", Money.krw(100)),
+                Duration.ofSeconds(30)))
+        .isPresent();
 
     assertThat(lifecycles.findTombstone(claimedEvent))
         .get()
@@ -55,15 +59,5 @@ class PostgresLifecycleIntegrationTest extends PostgresIntegrationSupport {
     assertThat(lifecycles.findActionableTombstones(1))
         .extracting(LifecycleObservation::eventId)
         .containsExactly(actionableEvent);
-  }
-
-  private SettlementAttempt attempt(PendingBet bet, Instant now) {
-    return SettlementAttempt.wholeSlipVoid(
-        bet.betId(),
-        bet.eventId(),
-        "EVENT_CANCELLED",
-        Money.krw(100),
-        SettlementLease.acquire(now, Duration.ofSeconds(30)),
-        now);
   }
 }
