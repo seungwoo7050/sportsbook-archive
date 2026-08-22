@@ -1,5 +1,6 @@
 package com.sportsbook.settlement.domain;
 
+import com.sportsbook.protocol.domain.SettlementResult;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -114,5 +116,29 @@ public class Bet {
 
   public List<BetSelection> selections() {
     return Collections.unmodifiableList(selections);
+  }
+
+  public boolean applySelectionSnapshot(
+      UUID eventId, Map<UUID, SettlementResult> outcomes, boolean clearMissing, Instant now) {
+    if (status != SettlementStatus.PENDING) {
+      throw new IllegalStateException("Cannot update selections after terminal settlement");
+    }
+    boolean changed = false;
+    for (BetSelection selection : selections) {
+      if (selection.eventId().equals(eventId)) {
+        SettlementResult replacement = outcomes.get(selection.selectionId());
+        if (replacement != null || clearMissing) {
+          changed |= selection.replaceOutcome(replacement);
+        }
+      }
+    }
+    if (changed) {
+      updatedAt = Objects.requireNonNull(now, "now");
+    }
+    return changed;
+  }
+
+  public boolean allSelectionsResolved() {
+    return !selections.isEmpty() && selections.stream().allMatch(s -> s.outcome() != null);
   }
 }

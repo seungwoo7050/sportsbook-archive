@@ -1,9 +1,12 @@
 package com.sportsbook.settlement.domain;
 
+import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.settlement.infrastructure.id.UuidV7;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -41,6 +44,10 @@ public class BetSelection {
   @Column(name = "odds", nullable = false, precision = 9, scale = 4, updatable = false)
   private BigDecimal odds;
 
+  @Enumerated(EnumType.STRING)
+  @Column(name = "outcome", length = 8)
+  private SettlementResult outcome;
+
   protected BetSelection() {}
 
   public BetSelection(UUID eventId, UUID marketId, UUID selectionId, Odds odds) {
@@ -56,15 +63,39 @@ public class BetSelection {
     this.legIndex = index;
   }
 
-  public UUID selectionRowId() { return selectionRowId; }
+  boolean replaceOutcome(SettlementResult replacement) {
+    if (outcome == replacement) {
+      return false;
+    }
+    outcome = replacement;
+    return true;
+  }
 
-  public int legIndex() { return legIndex; }
+  public UUID selectionRowId() {
+    return selectionRowId;
+  }
 
-  public UUID eventId() { return eventId; }
+  public int legIndex() {
+    return legIndex;
+  }
 
-  public UUID marketId() { return marketId; }
+  public UUID eventId() {
+    return eventId;
+  }
 
-  public UUID selectionId() { return selectionId; }
+  public UUID marketId() {
+    return marketId;
+  }
 
-  public Odds odds() { return Odds.ofDecimal(odds); }
+  public UUID selectionId() {
+    return selectionId;
+  }
+
+  public Odds odds() {
+    return Odds.ofDecimal(odds);
+  }
+
+  public SettlementResult outcome() {
+    return outcome;
+  }
 }
