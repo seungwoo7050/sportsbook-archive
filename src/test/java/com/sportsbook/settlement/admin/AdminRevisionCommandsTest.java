@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.sportsbook.settlement.observability.SettlementMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,7 +31,9 @@ class AdminRevisionCommandsTest {
             Instant.EPOCH,
             Instant.EPOCH);
     when(revisions.find(revisionId)).thenReturn(Optional.of(view(revisionId, due)));
-    AdminRevisionCommands commands = new AdminRevisionCommands(retry, revisions);
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    AdminRevisionCommands commands =
+        new AdminRevisionCommands(retry, revisions, new SettlementMetrics(registry));
     when(retry.claim(key, revisionId))
         .thenReturn(
             new AdminRevisionRetry.Decision(action, false),
@@ -38,6 +42,16 @@ class AdminRevisionCommandsTest {
     assertThat(commands.retry(key, revisionId))
         .isEqualTo(new AdminRevisionCommands.Receipt(key, "QUEUED", "PENDING", 0, due));
     assertThat(commands.retry(key, revisionId).outcome()).isEqualTo("REPLAY");
+    assertThat(counter(registry, "queued")).isEqualTo(1);
+    assertThat(counter(registry, "replay")).isEqualTo(1);
+  }
+
+  private static double counter(SimpleMeterRegistry registry, String outcome) {
+    return registry
+        .get(SettlementMetrics.OPERATIONS)
+        .tags("flow", "admin_retry", "outcome", outcome)
+        .counter()
+        .count();
   }
 
   private static AdminRevisionQueryRepository.View view(UUID revisionId, Instant due) {

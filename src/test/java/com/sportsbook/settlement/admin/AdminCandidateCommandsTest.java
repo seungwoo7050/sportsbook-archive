@@ -7,10 +7,12 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.settlement.correction.CorrectionFanout;
+import com.sportsbook.settlement.observability.SettlementMetrics;
 import com.sportsbook.settlement.result.AcceptedResult;
 import com.sportsbook.settlement.result.AcceptedResultRepository;
 import com.sportsbook.settlement.result.MatchOutcomeMode;
 import com.sportsbook.settlement.result.ResultFanout;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -24,9 +26,15 @@ class AdminCandidateCommandsTest {
   private final AcceptedResultRepository acceptedResults = mock(AcceptedResultRepository.class);
   private final ResultFanout baseFanout = mock(ResultFanout.class);
   private final CorrectionFanout correctionFanout = mock(CorrectionFanout.class);
+  private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
   private final AdminCandidateCommands commands =
       new AdminCandidateCommands(
-          approvals, rejections, acceptedResults, baseFanout, correctionFanout);
+          approvals,
+          rejections,
+          acceptedResults,
+          baseFanout,
+          correctionFanout,
+          new SettlementMetrics(registry));
 
   @Test
   void redrivesBaseThenCorrectionFanoutForApprovedReplays() {
@@ -47,6 +55,7 @@ class AdminCandidateCommandsTest {
     ordered.verify(acceptedResults).findByEventId(eventId);
     ordered.verify(baseFanout).fanOut(accepted);
     ordered.verify(correctionFanout).fanOut(accepted);
+    assertThat(counter("replay")).isEqualTo(1);
   }
 
   @Test
@@ -59,7 +68,16 @@ class AdminCandidateCommandsTest {
 
     assertThat(commands.reject(key, candidateId, "BAD_RESULT").outcome())
         .isEqualTo("CANDIDATE_REJECTED");
+    assertThat(counter("rejected")).isEqualTo(1);
     verifyNoInteractions(acceptedResults, baseFanout, correctionFanout);
+  }
+
+  private double counter(String outcome) {
+    return registry
+        .get(SettlementMetrics.OPERATIONS)
+        .tags("flow", "admin_action", "outcome", outcome)
+        .counter()
+        .count();
   }
 
   private static AdminAction action(UUID key, UUID target, AdminAction.Outcome outcome) {
