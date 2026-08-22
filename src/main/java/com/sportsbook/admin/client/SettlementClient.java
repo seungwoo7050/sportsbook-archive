@@ -83,4 +83,30 @@ public class SettlementClient {
     return SettlementCandidateReceipt.verify(
         idempotencyKey, SettlementCandidateReceipt.Outcome.CANDIDATE_APPROVED, receipt);
   }
+
+  public SettlementCandidateReceipt rejectCandidate(
+      UUID candidateId, UUID idempotencyKey, SettlementRejectionPayload payload) {
+    var response =
+        failures.execute(
+            () ->
+                http.post()
+                    .uri(
+                        builder ->
+                            builder
+                                .pathSegment("internal", "admin", "result-candidates")
+                                .pathSegment(candidateId.toString(), "reject")
+                                .build())
+                    .header("Idempotency-Key", idempotencyKey.toString())
+                    .body(payload)
+                    .retrieve()
+                    .toEntity(SettlementCandidateReceipt.class));
+    SettlementCandidateReceipt receipt =
+        DownstreamContract.requireBody(
+            response,
+            HttpStatus.OK,
+            ignored -> true,
+            "Settlement candidate rejection must return HTTP 200 with a receipt");
+    return SettlementCandidateReceipt.verify(
+        idempotencyKey, SettlementCandidateReceipt.Outcome.CANDIDATE_REJECTED, receipt);
+  }
 }
