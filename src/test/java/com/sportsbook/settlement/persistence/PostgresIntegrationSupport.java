@@ -1,6 +1,7 @@
 package com.sportsbook.settlement.persistence;
 
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.settlement.correction.CorrectionCatchupScanner;
 import com.sportsbook.settlement.correction.RevisionRecoveryScanner;
 import com.sportsbook.settlement.execution.SettlementAttemptRecovery;
 import com.sportsbook.settlement.lifecycle.LifecycleTombstoneScanner;
@@ -48,6 +49,7 @@ abstract class PostgresIntegrationSupport {
   @MockBean private LifecycleTombstoneScanner lifecycleScanner;
   @MockBean private SettlementAttemptRecovery attemptRecovery;
   @MockBean private RevisionRecoveryScanner revisionRecovery;
+  @MockBean private CorrectionCatchupScanner correctionCatchup;
 
   @BeforeEach
   void resetBusinessTables() {
