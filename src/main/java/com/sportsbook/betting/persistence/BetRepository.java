@@ -1,9 +1,7 @@
 package com.sportsbook.betting.persistence;
 
 import com.sportsbook.betting.domain.Bet;
-import com.sportsbook.protocol.domain.BetStatus;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,9 +25,6 @@ public interface BetRepository extends JpaRepository<Bet, UUID> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @EntityGraph(attributePaths = "legs")
   Optional<Bet> findLockedByBetId(UUID betId);
-
-  @EntityGraph(attributePaths = "legs")
-  List<Bet> findByStatusAndCreatedAtBefore(BetStatus status, Instant threshold, Pageable pageable);
 
   @Transactional
   @Query(

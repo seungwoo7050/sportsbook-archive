@@ -1,16 +1,12 @@
 package com.sportsbook.betting.placement;
 
-import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.persistence.BetRepository;
-import com.sportsbook.protocol.domain.BetStatus;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -22,32 +18,57 @@ public class BetReconciliationJob {
 
   private final BetRepository bets;
   private final BetPlacementService placement;
-  private final Clock clock;
+  private final String owner;
   private final Duration pendingTimeout;
+  private final Duration leaseDuration;
+  private final Duration retryDelay;
 
   public BetReconciliationJob(
       BetRepository bets,
       BetPlacementService placement,
-      Clock clock,
-      @Value("${betting.reconciliation.pending-timeout:30s}") Duration pendingTimeout) {
+      @Value("${random.uuid}") String owner,
+      @Value("${betting.reconciliation.pending-timeout:30s}") Duration pendingTimeout,
+      @Value("${betting.reconciliation.lease-duration:30s}") Duration leaseDuration,
+      @Value("${betting.reconciliation.retry-delay:10s}") Duration retryDelay) {
     this.bets = bets;
     this.placement = placement;
-    this.clock = clock;
-    this.pendingTimeout = pendingTimeout;
+    if (owner == null || owner.isBlank() || owner.length() > 128) {
+      throw new IllegalArgumentException("Reconciliation claim owner must be 1-128 characters");
+    }
+    this.owner = owner;
+    this.pendingTimeout = positive(pendingTimeout, "pendingTimeout");
+    this.leaseDuration = positive(leaseDuration, "leaseDuration");
+    this.retryDelay = positive(retryDelay, "retryDelay");
   }
 
-  @Scheduled(fixedDelayString = "${betting.reconciliation.poll-interval-ms:10000}")
+  @Scheduled(
+      fixedDelayString = "${betting.reconciliation.poll-interval-ms:10000}",
+      scheduler = "reconciliationTaskScheduler")
   public void reconcile() {
-    Instant threshold = clock.instant().minus(pendingTimeout);
-    List<Bet> stale =
-        bets.findByStatusAndCreatedAtBefore(
-            BetStatus.PENDING, threshold, PageRequest.of(0, BATCH_SIZE));
-    for (Bet bet : stale) {
+    List<UUID> claimed =
+        bets.claimReconciliationBatch(
+            owner,
+            pendingTimeout.toMillis(),
+            leaseDuration.toMillis(),
+            retryDelay.toMillis(),
+            BATCH_SIZE);
+    for (UUID betId : claimed) {
       try {
-        placement.reconcile(bet.betId());
+        placement.reconcile(betId);
       } catch (RuntimeException unexpected) {
-        log.error("Placement reconciliation failed for bet {}", bet.betId(), unexpected);
+        log.error("Placement reconciliation failed for bet {}", betId, unexpected);
+      } finally {
+        if (bets.clearReconciliationClaim(betId, owner) == 0) {
+          log.warn("Reconciliation claim was no longer owned for bet {}", betId);
+        }
       }
     }
+  }
+
+  private static Duration positive(Duration value, String name) {
+    if (value == null || value.isZero() || value.isNegative()) {
+      throw new IllegalArgumentException(name + " must be positive");
+    }
+    return value;
   }
 }
