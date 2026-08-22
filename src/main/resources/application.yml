@@ -53,3 +53,9 @@ logging:
     root: INFO
     com.sportsbook.admin: INFO
     org.hibernate.SQL: WARN
+
+admin:
+  security:
+    jwt:
+      public-key: ${ADMIN_JWT_PUBLIC_KEY:}
+      issuer: ${ADMIN_JWT_ISSUER:}
