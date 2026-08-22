@@ -8,9 +8,11 @@ import org.springframework.stereotype.Service;
 public class AuditService {
 
   private final AuditWriteRepository writes;
+  private final AdminActionPublisher publisher;
 
-  public AuditService(AuditWriteRepository writes) {
+  public AuditService(AuditWriteRepository writes, AdminActionPublisher publisher) {
     this.writes = writes;
+    this.publisher = publisher;
   }
 
   public void begin(AdminContext context, String action, String target, String reason) {
@@ -22,10 +24,11 @@ public class AuditService {
     }
   }
 
-  public AuditTerminalRecord complete(
-      UUID actionId, AuditOutcome outcome, Integer httpStatus) {
+  public AuditTerminalRecord complete(UUID actionId, AuditOutcome outcome, Integer httpStatus) {
     try {
-      return writes.complete(actionId, outcome, httpStatus);
+      AuditTerminalRecord terminal = writes.complete(actionId, outcome, httpStatus);
+      publisher.publish(terminal);
+      return terminal;
     } catch (RuntimeException failure) {
       throw new AuditPersistenceException(
           actionId, AuditPersistenceException.Phase.COMPLETE, failure);
