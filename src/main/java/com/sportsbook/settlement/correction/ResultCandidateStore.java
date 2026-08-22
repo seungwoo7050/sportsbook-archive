@@ -4,6 +4,7 @@ import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -99,6 +100,78 @@ public class ResultCandidateStore {
             candidateId);
     if (accepted != 1) {
       throw new IllegalStateException("First result decision lost its candidate");
+    }
+    return true;
+  }
+
+  public Optional<UUID> findAcceptedCandidateId(UUID eventId) {
+    return jdbc
+        .query(
+            """
+            select accepted_candidate_id from match_result
+            where event_id = ? and accepted_candidate_id is not null
+            """,
+            (result, rowNumber) -> result.getObject("accepted_candidate_id", UUID.class),
+            eventId)
+        .stream()
+        .findFirst();
+  }
+
+  @Transactional
+  public boolean replaceAccepted(
+      UUID candidateId, UUID expectedAcceptedId, java.time.Instant decidedAt) {
+    int replaced =
+        jdbc.update(
+            """
+            update match_result m set
+                mode = c.mode, settled_at = c.settled_at, received_at = c.received_at,
+                accepted_candidate_id = c.candidate_id
+            from result_candidate c
+            where c.candidate_id = ? and c.state = 'PENDING'
+              and m.event_id = c.event_id and m.accepted_candidate_id = ?
+            """,
+            candidateId,
+            expectedAcceptedId);
+    if (replaced == 0) {
+      return false;
+    }
+    jdbc.update(
+        """
+        delete from match_selection_result where event_id =
+            (select event_id from result_candidate where candidate_id = ?)
+        """,
+        candidateId);
+    jdbc.update(
+        """
+        insert into match_selection_result (event_id, selection_id, outcome)
+        select c.event_id, s.selection_id, s.outcome
+        from result_candidate c join result_candidate_selection s
+          on s.candidate_id = c.candidate_id where c.candidate_id = ?
+        """,
+        candidateId);
+    int superseded =
+        jdbc.update(
+            """
+            update result_candidate set state = 'SUPERSEDED', decided_at = ?,
+                decision_reason = 'AUTO_CORRECTION'
+            where candidate_id = ? and state = 'ACCEPTED'
+            """,
+            required(decidedAt),
+            expectedAcceptedId);
+    if (superseded != 1) {
+      throw new IllegalStateException("Replacement result lost its accepted candidate");
+    }
+    int accepted =
+        jdbc.update(
+            """
+            update result_candidate set state = 'ACCEPTED', decided_at = ?,
+                decision_reason = 'AUTO_CORRECTION'
+            where candidate_id = ? and state = 'PENDING'
+            """,
+            required(decidedAt),
+            candidateId);
+    if (accepted != 1) {
+      throw new IllegalStateException("Replacement result lost its pending candidate");
     }
     return true;
   }

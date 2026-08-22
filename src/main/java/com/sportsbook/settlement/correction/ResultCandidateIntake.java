@@ -17,6 +17,7 @@ public class ResultCandidateIntake {
 
   @Transactional
   public IntakeResult ingest(MatchResultRecord result) {
+    var accepted = store.findAcceptedCandidateId(result.eventId());
     String fingerprint =
         fingerprints.fingerprint(result.eventId(), result.mode(), result.outcomes());
     ResultCandidate candidate =
@@ -27,15 +28,21 @@ public class ResultCandidateIntake {
             result.outcomes(),
             result.settledAt(),
             result.receivedAt(),
-            null);
+            accepted.orElse(null));
     ResultCandidateStore.RecordOutcome recorded = store.record(candidate);
     if (recorded.kind() != ResultCandidateStore.RecordKind.CREATED) {
       return recorded.kind() == ResultCandidateStore.RecordKind.EXACT_REPLAY
           ? IntakeResult.EXACT_REPLAY
           : IntakeResult.NO_CHANGE;
     }
-    return store.acceptFirst(candidate.candidateId(), result.receivedAt())
-        ? IntakeResult.FIRST_ACCEPTED
+    if (accepted.isEmpty()) {
+      return store.acceptFirst(candidate.candidateId(), result.receivedAt())
+          ? IntakeResult.FIRST_ACCEPTED
+          : IntakeResult.CORRECTION_PENDING;
+    }
+    return store.replaceAccepted(
+            candidate.candidateId(), accepted.orElseThrow(), result.receivedAt())
+        ? IntakeResult.AUTO_CORRECTION_ACCEPTED
         : IntakeResult.CORRECTION_PENDING;
   }
 
@@ -43,6 +50,7 @@ public class ResultCandidateIntake {
     EXACT_REPLAY,
     NO_CHANGE,
     FIRST_ACCEPTED,
+    AUTO_CORRECTION_ACCEPTED,
     CORRECTION_PENDING
   }
 }
