@@ -256,6 +256,50 @@ class BetTest {
         .hasMessageContaining("Conflicting equal");
   }
 
+  @Test
+  void rejectsRevisionForAnUnselectedEvent() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+
+    assertThatThrownBy(
+            () ->
+                bet.applyRevision(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    1,
+                    SettlementResult.LOST,
+                    SettlementResult.WON,
+                    Money.krw(0),
+                    Money.krw(2_000),
+                    NOW,
+                    NOW.plusSeconds(1),
+                    "a".repeat(64)))
+        .hasMessageContaining("selected leg");
+  }
+
+  @Test
+  void rejectsInvalidPreviousPayoutEvenAcrossAGap() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+    UUID eventId = bet.legs().get(0).eventId();
+
+    for (Money invalid :
+        List.of(Money.usd(0), new Money(-1, com.sportsbook.protocol.value.Currency.KRW))) {
+      assertThatThrownBy(
+              () ->
+                  bet.applyRevision(
+                      eventId,
+                      UUID.randomUUID(),
+                      2,
+                      SettlementResult.LOST,
+                      SettlementResult.WON,
+                      invalid,
+                      Money.krw(2_000),
+                      NOW,
+                      NOW.plusSeconds(1),
+                      "b".repeat(64)))
+          .hasMessageContaining("previous payout");
+    }
+  }
+
   static Bet.RevisionApplyResult revise(Bet bet, UUID revisionId, String hash) {
     return bet.applyRevision(
         bet.legs().get(0).eventId(),
