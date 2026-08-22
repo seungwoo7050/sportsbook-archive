@@ -17,6 +17,12 @@ class MigrationContractTest {
         .isEqualTo("ecab4d9c22ab9bc83b35999db9c8a5c08abf8a80fc8e9263f23bcd369a84f29c");
   }
 
+  @Test
+  void preservesTransactionalOutboxSchema() {
+    assertThat(sha256("V2__outbox.sql"))
+        .isEqualTo("28161d23320d94a41d17b64a1dd0e2c9513fdfa74ac10ea1fb86bc4edf2c3d39");
+  }
+
   private String sha256(String migration) {
     try (InputStream input =
         getClass().getResourceAsStream("/db/migration/" + migration)) {
