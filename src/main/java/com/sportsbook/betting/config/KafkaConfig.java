@@ -3,7 +3,6 @@ package com.sportsbook.betting.config;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,10 +11,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
-import org.springframework.kafka.listener.CommonErrorHandler;
-import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
-import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.util.backoff.FixedBackOff;
 
 @Configuration
 public class KafkaConfig {
@@ -35,15 +30,6 @@ public class KafkaConfig {
   KafkaTemplate<String, byte[]> bettingKafkaTemplate(
       ProducerFactory<String, byte[]> bettingProducerFactory) {
     return new KafkaTemplate<>(bettingProducerFactory);
-  }
-
-  @Bean
-  CommonErrorHandler walletConsumerErrorHandler(KafkaTemplate<String, byte[]> kafka) {
-    DeadLetterPublishingRecoverer recoverer =
-        new DeadLetterPublishingRecoverer(
-            kafka,
-            (record, failure) -> new TopicPartition(record.topic() + ".dlt", record.partition()));
-    return new DefaultErrorHandler(recoverer, new FixedBackOff(500, 3));
   }
 
   static Map<String, Object> producerProperties(String bootstrapServers) {
