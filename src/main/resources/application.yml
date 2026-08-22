@@ -65,6 +65,7 @@ management:
 gateway:
   downstream:
     betting-uri: ${GATEWAY_BETTING_URI:http://localhost:8082}
+    betting-api-key: ${GATEWAY_BETTING_API_KEY:}
     odds-feed-uri: ${GATEWAY_ODDS_FEED_URI:http://localhost:8085}
     wallet:
       uri: ${GATEWAY_WALLET_URI:http://localhost:8081}
