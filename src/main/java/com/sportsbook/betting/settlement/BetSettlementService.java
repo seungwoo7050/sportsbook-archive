@@ -5,6 +5,7 @@ import com.sportsbook.betting.domain.SystemBetCalculator;
 import com.sportsbook.betting.domain.VoidReason;
 import com.sportsbook.betting.persistence.BetRepository;
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.value.Currency;
@@ -54,6 +55,22 @@ public class BetSettlementService {
     }
     bet.voidBase(
         eventId, VoidReason.valueOf(event.getReason().name()), event.getVoidedAt(), payloadHash);
+  }
+
+  @Transactional
+  public Bet.RevisionApplyResult apply(BetResolutionRevised event, String payloadHash) {
+    Bet bet = owned(event.getBetId(), event.getUserId());
+    return bet.applyRevision(
+        canonical(event.getEventId()),
+        canonical(event.getRevisionId()),
+        event.getRevisionNumber(),
+        SettlementResult.valueOf(event.getPreviousResult().name()),
+        SettlementResult.valueOf(event.getNewResult().name()),
+        money(event.getPreviousPayout()),
+        money(event.getNewPayout()),
+        event.getSourceResultSettledAt(),
+        event.getRevisedAt(),
+        payloadHash);
   }
 
   private Bet owned(String rawBetId, String rawUserId) {
