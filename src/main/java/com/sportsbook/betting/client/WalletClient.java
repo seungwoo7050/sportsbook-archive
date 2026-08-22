@@ -19,6 +19,7 @@ import org.springframework.web.client.RestClientException;
 public class WalletClient {
 
   private static final String DEBIT = "/internal/v1/wallet/transactions/debit";
+  private static final String CREDIT = "/internal/v1/wallet/transactions/credit";
   private static final String DEBIT_REASON = "BET_DEBIT";
   private static final String REFUND_REASON = "BET_REFUND";
 
@@ -86,11 +87,27 @@ public class WalletClient {
     }
   }
 
-  private static UUID requireOperationId(WalletOperationResponse response) {
-    if (response == null || response.operationGroupId() == null) {
-      throw new DependencyUnavailableException("Wallet returned no operationGroupId");
+  public UUID refund(UUID betId, UUID userId, Money fullExposure) {
+    try {
+      WalletOperationResponse response =
+          http.post()
+              .uri(CREDIT)
+              .header("Idempotency-Key", "refund:" + betId)
+              .contentType(MediaType.APPLICATION_JSON)
+              .body(WalletCreditRequest.refund(userId, fullExposure))
+              .retrieve()
+              .onStatus(
+                  HttpStatusCode::is4xxClientError,
+                  (request, error) -> {
+                    throw problems.map(problems.read(error));
+                  })
+              .body(WalletOperationResponse.class);
+      return requireProof(response, userId, fullExposure, REFUND_REASON);
+    } catch (BetPlacementException exception) {
+      throw exception;
+    } catch (RestClientException exception) {
+      throw new DependencyUnavailableException("Wallet refund is unavailable", exception);
     }
-    return response.operationGroupId();
   }
 
   private static UUID requireProof(
