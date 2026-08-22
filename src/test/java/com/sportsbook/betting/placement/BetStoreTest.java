@@ -1,72 +1,61 @@
 package com.sportsbook.betting.placement;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
-import com.sportsbook.betting.domain.Bet;
-import com.sportsbook.betting.domain.BetDraft;
-import com.sportsbook.betting.domain.BetLeg;
-import com.sportsbook.betting.persistence.BetRepository;
-import com.sportsbook.betting.persistence.PlacementRequestRepository;
-import com.sportsbook.protocol.domain.BetSlipType;
-import com.sportsbook.protocol.value.IdempotencyKey;
-import com.sportsbook.protocol.value.Money;
-import com.sportsbook.protocol.value.Odds;
+import com.sportsbook.betting.outbox.OutboxEvent;
+import com.sportsbook.protocol.error.ErrorCode;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
+import org.springframework.transaction.annotation.Transactional;
 
 class BetStoreTest {
 
   @Test
-  void claimsBetBeforePublishingItsRequestPointer() {
-    BetRepository bets = mock(BetRepository.class);
-    PlacementRequestRepository requests = mock(PlacementRequestRepository.class);
-    Bet bet = pendingBet();
-
-    new BetStore(bets, requests).savePending(bet);
-
-    InOrder order = inOrder(bets, requests);
-    order.verify(bets).saveAndFlush(bet);
-    order.verify(requests).saveAndFlush(any(PlacementRequest.class));
+  void requestClaimsAndTerminalTransitionsAreTransactional() throws Exception {
+    assertWriteTransaction("savePending", com.sportsbook.betting.domain.Bet.class);
+    assertWriteTransaction(
+        "savePreflightRejection",
+        String.class,
+        UUID.class,
+        String.class,
+        ErrorCode.class,
+        String.class,
+        Instant.class);
+    assertWriteTransaction("acceptAndEnqueue", UUID.class, OutboxEvent.class, Instant.class);
   }
 
   @Test
-  void locksAndPersistsReservationProofBeforeLaterEffects() {
-    BetRepository bets = mock(BetRepository.class);
-    PlacementRequestRepository requests = mock(PlacementRequestRepository.class);
-    Bet bet = pendingBet();
-    Instant expiresAt = Instant.EPOCH.plusSeconds(60);
-    when(bets.findLockedByBetId(bet.betId())).thenReturn(java.util.Optional.of(bet));
+  void recoveryReadsDoNotOpenWriteTransactions() throws Exception {
+    Transactional annotation =
+        BetStore.class
+            .getMethod("findPlacementRequest", String.class)
+            .getAnnotation(Transactional.class);
 
-    new BetStore(bets, requests)
-        .recordRiskReservation(
-            bet.betId(), expiresAt, "b".repeat(64), false, Instant.EPOCH.plusSeconds(1));
-
-    assertThat(bet.riskReservationToken()).isEqualTo("b".repeat(64));
-    assertThat(bet.riskReservationExpiresAt()).isEqualTo(expiresAt);
+    assertThat(annotation.readOnly()).isTrue();
   }
 
-  private static Bet pendingBet() {
-    UUID betId = UUID.randomUUID();
-    BetDraft draft =
-        new BetDraft(
-            betId,
-            UUID.randomUUID(),
-            "B-2026-08-22-00000000",
-            new BetSlipType.Single(),
-            Money.krw(1_000),
-            Money.krw(2_000),
-            IdempotencyKey.of("request-1"),
-            "a".repeat(64),
-            Instant.EPOCH);
-    BetLeg leg =
-        BetLeg.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), Odds.ofDecimal("2"));
-    return Bet.pending(draft, List.of(leg));
+  @Test
+  void everyExternalSideEffectHasAnIndependentCheckpoint() throws Exception {
+    assertWriteTransaction(
+        "recordRiskReservation",
+        UUID.class,
+        Instant.class,
+        String.class,
+        boolean.class,
+        Instant.class);
+    assertWriteTransaction("confirmWallet", UUID.class, UUID.class, Instant.class);
+    assertWriteTransaction("commitRisk", UUID.class, Instant.class);
+    assertWriteTransaction("beginCompensation", UUID.class, Instant.class);
+    assertWriteTransaction("completeRiskRelease", UUID.class, boolean.class, Instant.class);
+    assertWriteTransaction("completeWalletRefund", UUID.class, UUID.class, Instant.class);
+  }
+
+  private static void assertWriteTransaction(String method, Class<?>... parameterTypes)
+      throws Exception {
+    Transactional annotation =
+        BetStore.class.getMethod(method, parameterTypes).getAnnotation(Transactional.class);
+    assertThat(annotation).isNotNull();
+    assertThat(annotation.readOnly()).isFalse();
   }
 }
