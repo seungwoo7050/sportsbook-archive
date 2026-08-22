@@ -19,12 +19,23 @@ public record BetResponse(
     Money maxPayout,
     List<SelectionView> selections,
     String rejectionReason,
+    ResolutionView resolution,
     Instant createdAt) {
 
   public record SlipTypeView(String type, Integer minWins, Integer totalSelections) {}
 
   public record SelectionView(
       UUID eventId, UUID marketId, UUID selectionId, String oddsAtSubmission) {}
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public record ResolutionView(
+      String settlementResult,
+      Money settledPayout,
+      String voidReason,
+      Instant resolvedAt,
+      UUID resolutionEventId,
+      UUID resolutionRevisionId,
+      Long resolutionRevisionNumber) {}
 
   public static BetResponse from(Bet bet) {
     BetSlipType type = bet.slipType();
@@ -43,6 +54,17 @@ public record BetResponse(
                         leg.selectionId(),
                         leg.oddsAtSubmission().decimal().toPlainString()))
             .toList();
+    ResolutionView resolution =
+        bet.resolvedAt() == null
+            ? null
+            : new ResolutionView(
+                bet.settlementResult() == null ? null : bet.settlementResult().name(),
+                bet.settledPayout(),
+                bet.voidReason() == null ? null : bet.voidReason().name(),
+                bet.resolvedAt(),
+                bet.resolutionEventId(),
+                bet.resolutionRevisionId(),
+                Math.max(0L, bet.resolutionRevisionNumber()));
     return new BetResponse(
         bet.betId(),
         bet.betReference(),
@@ -53,6 +75,7 @@ public record BetResponse(
         bet.maxPayout(),
         selections,
         bet.rejectionReason(),
+        resolution,
         bet.createdAt());
   }
 }

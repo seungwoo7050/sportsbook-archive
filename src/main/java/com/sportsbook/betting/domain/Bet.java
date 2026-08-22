@@ -582,6 +582,10 @@ public class Bet {
     return resolvedAt;
   }
 
+  public UUID resolutionEventId() {
+    return resolutionEventId;
+  }
+
   public long resolutionRevisionNumber() {
     return resolutionRevisionNumber == null ? -1 : resolutionRevisionNumber;
   }
