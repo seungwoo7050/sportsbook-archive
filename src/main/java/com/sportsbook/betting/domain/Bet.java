@@ -5,15 +5,21 @@ import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.value.Money;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -79,6 +85,10 @@ public class Bet {
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 
+  @OneToMany(mappedBy = "bet", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("legIndex ASC")
+  private List<BetLeg> legs = new ArrayList<>();
+
   protected Bet() {}
 
   private Bet(BetDraft draft) {
@@ -101,6 +111,36 @@ public class Bet {
 
   static Bet from(BetDraft draft) {
     return new Bet(draft);
+  }
+
+  public static Bet pending(BetDraft draft, List<BetLeg> legs) {
+    Objects.requireNonNull(legs, "legs");
+    requireStructure(draft.slipType(), legs.size());
+    Bet bet = new Bet(draft);
+    for (int index = 0; index < legs.size(); index++) {
+      BetLeg leg = Objects.requireNonNull(legs.get(index), "leg");
+      leg.assignTo(bet, index);
+      bet.legs.add(leg);
+    }
+    return bet;
+  }
+
+  private static void requireStructure(BetSlipType type, int legCount) {
+    if (type instanceof BetSlipType.Single && legCount != 1) {
+      throw new IllegalArgumentException("SINGLE requires exactly one leg");
+    }
+    if (type instanceof BetSlipType.Multiple && legCount < 2) {
+      throw new IllegalArgumentException("MULTIPLE requires at least two legs");
+    }
+    if (type instanceof BetSlipType.System system && system.totalSelections() != legCount) {
+      throw new IllegalArgumentException("SYSTEM totalSelections must equal leg count");
+    }
+  }
+
+  private void requireSelectionEvent(UUID eventId) {
+    if (legs.stream().noneMatch(leg -> leg.eventId().equals(eventId))) {
+      throw new IllegalArgumentException("Resolution event must belong to a selected leg");
+    }
   }
 
   public UUID betId() {
@@ -149,5 +189,9 @@ public class Bet {
 
   public Instant updatedAt() {
     return updatedAt;
+  }
+
+  public List<BetLeg> legs() {
+    return List.copyOf(legs);
   }
 }
