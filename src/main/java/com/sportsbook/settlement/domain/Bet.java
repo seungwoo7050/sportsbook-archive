@@ -1,6 +1,8 @@
 package com.sportsbook.settlement.domain;
 
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.protocol.value.Currency;
+import com.sportsbook.protocol.value.Money;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
@@ -55,6 +57,20 @@ public class Bet {
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 
+  @Enumerated(EnumType.STRING)
+  @Column(name = "result")
+  private SettlementResult result;
+
+  @Column(name = "payout_amount")
+  private Long payoutAmount;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "payout_currency")
+  private Currency payoutCurrency;
+
+  @Column(name = "settled_at")
+  private Instant settledAt;
+
   @OneToMany(mappedBy = "bet", cascade = CascadeType.ALL, orphanRemoval = true)
   private List<BetSelection> selections = new ArrayList<>();
 
@@ -106,12 +122,36 @@ public class Bet {
     return betId;
   }
 
+  public UUID userId() {
+    return userId;
+  }
+
   public SettlementStatus status() {
     return status;
   }
 
   public com.sportsbook.protocol.domain.BetSlipType slipType() {
     return slipKind.toProtocol(systemMinimumWins, systemTotalSelections);
+  }
+
+  public Money stake() {
+    return stake.toMoney();
+  }
+
+  public Instant requestedAt() {
+    return requestedAt;
+  }
+
+  public SettlementResult result() {
+    return result;
+  }
+
+  public Money payout() {
+    return payoutAmount == null ? null : new Money(payoutAmount, payoutCurrency);
+  }
+
+  public Instant settledAt() {
+    return settledAt;
   }
 
   public List<BetSelection> selections() {
@@ -140,5 +180,30 @@ public class Bet {
 
   public boolean allSelectionsResolved() {
     return !selections.isEmpty() && selections.stream().allMatch(s -> s.outcome() != null);
+  }
+
+  public void recordSettled(SettlementResult outcome, Money payout, Instant now) {
+    recordTerminal(SettlementStatus.SETTLED, outcome, payout, now);
+  }
+
+  public void recordVoided(Money refund, Instant now) {
+    recordTerminal(SettlementStatus.VOIDED, SettlementResult.VOID, refund, now);
+  }
+
+  private void recordTerminal(
+      SettlementStatus target, SettlementResult outcome, Money payout, Instant now) {
+    if (status != SettlementStatus.PENDING) {
+      throw new IllegalStateException("Bet is already terminal: " + status);
+    }
+    Objects.requireNonNull(payout, "payout");
+    if (payout.amount() < 0 || payout.currency() != stake.toMoney().currency()) {
+      throw new IllegalArgumentException("Payout must be nonnegative and use the stake currency");
+    }
+    status = target;
+    result = Objects.requireNonNull(outcome, "outcome");
+    payoutAmount = payout.amount();
+    payoutCurrency = payout.currency();
+    settledAt = Objects.requireNonNull(now, "now");
+    updatedAt = now;
   }
 }
