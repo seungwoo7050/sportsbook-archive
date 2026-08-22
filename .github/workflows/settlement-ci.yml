@@ -1,0 +1,42 @@
+name: settlement verify
+
+on:
+  push:
+    branches: [settlement-service]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout settlement service
+        uses: actions/checkout@v4
+        with:
+          path: settlement-service
+      - name: Checkout fixed shared protocol
+        uses: actions/checkout@v4
+        with:
+          ref: f9de6bc1e533761ab4bb1454d8d4ab8175cdf001
+          path: shared-protocol
+      - name: Use Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install fixed shared protocol
+        working-directory: shared-protocol
+        run: >-
+          ./mvnw -B
+          -Dmaven.repo.local=${{ runner.temp }}/settlement-m2
+          -DskipTests install
+      - name: Verify settlement service
+        working-directory: settlement-service
+        run: >-
+          ./mvnw -B
+          -Dmaven.repo.local=${{ runner.temp }}/settlement-m2
+          clean verify
