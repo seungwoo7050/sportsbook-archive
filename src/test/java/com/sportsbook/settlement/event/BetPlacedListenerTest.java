@@ -18,6 +18,8 @@ import com.sportsbook.settlement.lifecycle.LifecycleFanout;
 import com.sportsbook.settlement.lifecycle.LifecycleObservation;
 import com.sportsbook.settlement.lifecycle.LifecycleStore;
 import com.sportsbook.settlement.readmodel.BetReadModelWriter;
+import com.sportsbook.settlement.result.AcceptedResultRepository;
+import com.sportsbook.settlement.result.ResultFanout;
 import java.io.ByteArrayOutputStream;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +37,8 @@ class BetPlacedListenerTest {
   private final BetReadModelWriter writer = mock(BetReadModelWriter.class);
   private final LifecycleStore lifecycles = mock(LifecycleStore.class);
   private final LifecycleFanout lifecycleFanout = mock(LifecycleFanout.class);
+  private final AcceptedResultRepository acceptedResults = mock(AcceptedResultRepository.class);
+  private final ResultFanout resultFanout = mock(ResultFanout.class);
   private final BetPlacedListener listener =
       new BetPlacedListener(
           writer,
@@ -42,7 +46,9 @@ class BetPlacedListenerTest {
           new KafkaUuidKeyValidator(),
           new BetPlacedMapper(),
           lifecycles,
-          lifecycleFanout);
+          lifecycleFanout,
+          acceptedResults,
+          resultFanout);
   private final Acknowledgment acknowledgment = mock(Acknowledgment.class);
 
   @Test
@@ -88,17 +94,20 @@ class BetPlacedListenerTest {
 
     listener.receive(record(event, event.getUserId().toString()), acknowledgment);
 
-    InOrder caughtUp = inOrder(writer, lifecycleFanout, acknowledgment);
+    InOrder caughtUp =
+        inOrder(writer, lifecycles, lifecycleFanout, acceptedResults, acknowledgment);
     caughtUp.verify(writer).record(any());
+    caughtUp.verify(lifecycles).findTombstone(eventId);
     caughtUp.verify(lifecycleFanout).fanOut(tombstone);
+    caughtUp.verify(acceptedResults).findByEventId(eventId);
     caughtUp.verify(acknowledgment).acknowledge();
   }
 
-  private static ConsumerRecord<byte[], byte[]> record(BetPlacedRequested event, String key) {
+  static ConsumerRecord<byte[], byte[]> record(BetPlacedRequested event, String key) {
     return new ConsumerRecord<>("bet.placed.v1", 0, 0, key.getBytes(UTF_8), encode(event));
   }
 
-  private static BetPlacedRequested event() {
+  static BetPlacedRequested event() {
     RequestedSelection selected =
         RequestedSelection.newBuilder()
             .setEventId(UUID.randomUUID().toString())
