@@ -2,6 +2,8 @@ package com.sportsbook.settlement.client;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.sportsbook.protocol.value.Money;
+import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -47,7 +49,7 @@ public class WalletClient {
 
   public UUID credit(
       String idempotencyKey, UUID userId, Money amount, WalletCreditPurpose purpose) {
-    CreditResponse response =
+    OperationProof response =
         http.post()
             .uri(CREDIT_PATH)
             .header(IDEMPOTENCY_HEADER, idempotencyKey)
@@ -55,14 +57,14 @@ public class WalletClient {
             .body(new CreditRequest(userId, amount, purpose.source(), purpose.reason()))
             .retrieve()
             .onStatus(
-                HttpStatusCode::isError,
+                status -> status.value() != 200,
                 (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
-            .body(CreditResponse.class);
-    return requireOperationGroupId(response);
+            .body(OperationProof.class);
+    return requireOperationProof(response, userId, amount, purpose.proofReason());
   }
 
   public UUID forfeit(String idempotencyKey, UUID userId, Money amount) {
-    CreditResponse response =
+    OperationProof response =
         http.post()
             .uri(FORFEIT_PATH)
             .header(IDEMPOTENCY_HEADER, idempotencyKey)
@@ -70,10 +72,10 @@ public class WalletClient {
             .body(new ForfeitRequest(userId, amount))
             .retrieve()
             .onStatus(
-                HttpStatusCode::isError,
+                status -> status.value() != 200,
                 (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
-            .body(CreditResponse.class);
-    return requireOperationGroupId(response);
+            .body(OperationProof.class);
+    return requireOperationProof(response, userId, amount, "BET_FORFEIT");
   }
 
   public WalletAdjustmentProof adjust(
@@ -117,8 +119,14 @@ public class WalletClient {
     return proof;
   }
 
-  private static UUID requireOperationGroupId(CreditResponse response) {
-    if (response == null || response.operationGroupId() == null) {
+  private static UUID requireOperationProof(
+      OperationProof response, UUID userId, Money amount, String reason) {
+    if (response == null
+        || response.operationGroupId() == null
+        || response.at() == null
+        || !Objects.equals(response.userId(), userId)
+        || !Objects.equals(response.amount(), amount)
+        || !Objects.equals(response.reason(), reason)) {
       throw WalletFailurePolicy.malformedSuccess();
     }
     return response.operationGroupId();
@@ -137,5 +145,6 @@ public class WalletClient {
       Money newPayout) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
-  private record CreditResponse(UUID operationGroupId) {}
+  private record OperationProof(
+      UUID operationGroupId, UUID userId, Money amount, String reason, Instant at) {}
 }
