@@ -11,6 +11,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration(proxyBeanMethods = false)
@@ -18,8 +19,10 @@ import org.springframework.security.web.SecurityFilterChain;
 class SecurityConfig {
 
   @Bean
-  SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, Rfc7807Writer problems)
+  SecurityFilterChain adminSecurityFilterChain(
+      HttpSecurity http, Rfc7807Writer problems, AdminNetworkProperties networkProperties)
       throws Exception {
+    IpAllowlistFilter ipAllowlist = new IpAllowlistFilter(networkProperties, problems);
     return http.csrf(csrf -> csrf.disable())
         .sessionManagement(
             sessions -> sessions.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -73,6 +76,7 @@ class SecurityConfig {
                                 "Unauthorized",
                                 "UNAUTHORIZED",
                                 "Authentication is required")))
+        .addFilterBefore(ipAllowlist, BearerTokenAuthenticationFilter.class)
         .build();
   }
 
