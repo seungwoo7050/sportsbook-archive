@@ -16,13 +16,24 @@ class BetSelectionTest {
     BetSelection selection =
         new BetSelection(eventId, marketId, selectionId, Odds.ofDecimal("2.12500"));
 
-    selection.attach(new Bet(UUID.randomUUID()), 3);
+    Bet owner =
+        Bet.pending(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            SlipKind.SINGLE,
+            null,
+            null,
+            new EmbeddedMoney(100, com.sportsbook.protocol.value.Currency.KRW),
+            java.time.Instant.EPOCH,
+            java.util.List.of(selection),
+            java.time.Instant.EPOCH);
 
     assertThat(selection.selectionRowId().version()).isEqualTo(7);
     assertThat(selection.eventId()).isEqualTo(eventId);
     assertThat(selection.marketId()).isEqualTo(marketId);
     assertThat(selection.selectionId()).isEqualTo(selectionId);
     assertThat(selection.odds()).isEqualTo(Odds.ofDecimal("2.1250"));
-    assertThat(selection.legIndex()).isEqualTo(3);
+    assertThat(selection.legIndex()).isZero();
+    assertThat(owner.selections()).containsExactly(selection);
   }
 }
