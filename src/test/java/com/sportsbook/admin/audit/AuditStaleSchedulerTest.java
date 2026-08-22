@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class AuditStaleSchedulerTest {
 
   @Mock private AuditWriteRepository auditWrites;
+  @Mock private AdminActionPublisher publisher;
 
   private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
 
@@ -27,11 +28,13 @@ class AuditStaleSchedulerTest {
     when(auditWrites.claimStale(Duration.ofMinutes(5), 37))
         .thenReturn(List.of(terminal(81), terminal(82)));
     AuditStaleScheduler scheduler =
-        new AuditStaleScheduler(auditWrites, meters, Duration.ofMinutes(5), 37);
+        new AuditStaleScheduler(auditWrites, publisher, meters, Duration.ofMinutes(5), 37);
 
     scheduler.scan();
 
     verify(auditWrites).claimStale(Duration.ofMinutes(5), 37);
+    verify(publisher).publish(terminal(81));
+    verify(publisher).publish(terminal(82));
     assertThat(meters.counter("admin.audit.stale.claimed").count()).isEqualTo(2);
   }
 
@@ -41,13 +44,14 @@ class AuditStaleSchedulerTest {
         .thenThrow(new IllegalStateException("database unavailable"))
         .thenReturn(List.of(terminal(83)));
     AuditStaleScheduler scheduler =
-        new AuditStaleScheduler(auditWrites, meters, Duration.ofMinutes(5), 100);
+        new AuditStaleScheduler(auditWrites, publisher, meters, Duration.ofMinutes(5), 100);
 
     scheduler.scan();
     scheduler.scan();
 
     assertThat(meters.counter("admin.audit.stale.scan.failure").count()).isEqualTo(1);
     assertThat(meters.counter("admin.audit.stale.claimed").count()).isEqualTo(1);
+    verify(publisher).publish(terminal(83));
   }
 
   private static AuditTerminalRecord terminal(int suffix) {
