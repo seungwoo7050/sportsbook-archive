@@ -47,6 +47,24 @@ class MigrationContractTest {
         .isEqualTo("1625d9d3140aa8f1888bd8b61dd9d2d00ba612d9c2c5ce35b8d15620368e8e67");
   }
 
+  @Test
+  void requiresCanonicalPersistedRiskToken() {
+    assertThat(migrationText("V7__risk_reservation_token.sql"))
+        .contains("risk_reservation_token VARCHAR(64)")
+        .contains("^[0-9a-f]{64}$");
+  }
+
+  private String migrationText(String migration) {
+    try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
+      if (input == null) {
+        throw new IllegalStateException("Missing migration " + migration);
+      }
+      return new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    } catch (IOException exception) {
+      throw new IllegalStateException(exception);
+    }
+  }
+
   private String sha256(String migration) {
     try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {
