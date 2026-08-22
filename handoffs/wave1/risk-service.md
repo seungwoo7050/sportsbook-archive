@@ -319,8 +319,8 @@ Betting is the primary synchronous client and must implement the full reservatio
    request.
 4. Treat HTTP 200 with `approved=false` as a terminal policy rejection, not as success to continue.
 5. Persist the returned reservation token with saga state before relying on it.
-6. Commit with `X-Risk-Reservation-Token` only after the bet has reached its accepted durable
-   boundary.
+6. After persisting the exact Wallet debit proof, commit with `X-Risk-Reservation-Token` before
+   atomically transitioning the bet to `ACCEPTED` with its outbox row.
 7. Release on a compensated or abandoned placement. Release is intentionally idempotent.
 8. Publish `BetPlacedRequested` with Kafka key `userId` and raw Avro bytes.
 9. Keep the `SYSTEM` event's unit stake and system fields consistent with the full amount reserved

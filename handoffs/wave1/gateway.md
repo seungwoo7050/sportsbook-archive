@@ -2,15 +2,16 @@
 
 ## Purpose
 
-This report records the completed `gateway` 1.0 state for Wave 2 and later work. It covers only
-gateway-owned behavior, the contracts other services must satisfy when integrating with it, and
-the limits that later sessions must preserve.
+This consolidated report records Gateway 1.0 after the Wave 2 authentication and void-contract
+corrections, which supersede the earlier Wave 1 pending obligations. It covers only gateway-owned
+behavior, the contracts other services must satisfy, and the limits that later sessions must
+preserve.
 
 ## Current status
 
 - Released local branch: `gateway`
-- Final tip: `08afce620b1feab8c805409cc412423df6645c70`
-- History: 109 commits, one root, 108 single-parent commits, no merges
+- Final tip: `8248a3233f0fce7ca36a503ee71b7a8a0802d733`
+- History: 117 commits, one root, 116 single-parent commits, no merges
 - Release artifact: `com.sportsbook:gateway:1.0.0`
 - Protocol dependency: `com.sportsbook:shared-protocol:1.0.0`
 - Java target: 17
@@ -86,9 +87,9 @@ X-Internal-Service: gateway
 X-Internal-Api-Key: ${GATEWAY_WALLET_API_KEY}
 ```
 
-`GATEWAY_WALLET_API_KEY` is required for a servlet runtime and must contain at least 32 characters.
-It is never forwarded to betting or odds. Gateway 1.0 deliberately has no betting internal API
-key because the betting caller-authentication contract was not fixed during Wave 1.
+`GATEWAY_BETTING_API_KEY` and `GATEWAY_WALLET_API_KEY` are required for a servlet runtime and must
+each contain at least 32 characters. They must be distinct. Each credential is injected only on
+its matching downstream route and neither is forwarded to odds.
 
 Gateway preserves request bodies, `Idempotency-Key`, a valid `traceparent`, and applicable
 downstream status, body, content type, `Location`, and `Retry-After` values. Default downstream
@@ -175,6 +176,10 @@ Projection rules are:
 - `BetVoided`: `revisionId=null`, `revisionNumber=null`
 - `BetResolutionRevised`: actual revision ID and number, `newResult`, `newPayout`, and `revisedAt`
 
+`BetVoided.reason=MARKET_VOID` is a permanent contract failure and follows the exact-partition
+`bet.voided.v1.DLT` path. A market-result void is represented by `BetSettled`; its client
+projection has `status=SETTLED` and `result=VOID`.
+
 Gateway intentionally stores no revision state. Clients must retain the maximum revision number
 seen for each bet and ignore duplicates or a late logical revision 0 after a correction.
 
@@ -230,9 +235,9 @@ message, service, and trace/span identifiers when present. A sanitized `stack_tr
 included for exceptions. Authorization, internal API key, password, token, and matching message or
 stack values are redacted.
 
-## Verification completed
+## Verification baseline and final gate
 
-The final gateway tip passed:
+The Wave 1 baseline `08afce620b1feab8c805409cc412423df6645c70` passed:
 
 - Temurin Java 17 and Maven 3.9.11 `clean verify`
 - 122 tests, with zero failures, errors, or skips
@@ -253,6 +258,10 @@ The final gateway tip passed:
 - Direct gateway bytecode references to `OddsChanged`, `BetSettled`, `BetVoided`, and
   `BetResolutionRevised`
 
+The Wave 2 final tip passed its static-history audit and affected authentication, isolation, and
+void-contract tests. Its sole final Java 17 `clean verify` ran 127 tests with zero failures,
+errors, or skips and passed embedded-Kafka integration, packaging, Spotless, and Checkstyle.
+
 Validation should remain proportional to a future change: run the directly affected tests during
 development, then run one final Java 17 `clean verify` and any relevant external integration smoke
 before release. Rechecking every historical SHA is not a gateway maintenance requirement.
@@ -261,10 +270,10 @@ before release. Rechecking every historical SHA is not a gateway maintenance req
 
 ### Betting service
 
-Betting must implement the exact internal endpoints listed in the HTTP table and must trust only
-gateway-generated canonical actor headers. Its caller-authentication design is still pending. Do
-not add or inject a betting API key in gateway until that contract is fixed, then add it as an
-explicit route-specific boundary.
+Betting implements the exact internal endpoints listed in the HTTP table and trusts only
+gateway-generated canonical actor headers. Gateway calls it with exactly
+`X-Internal-Service: gateway` and the credential shared between `GATEWAY_BETTING_API_KEY` and
+`BETTING_GATEWAY_API_KEY`. That secret is route-specific and must not equal the wallet credential.
 
 ### Wallet service
 
@@ -295,6 +304,8 @@ Orchestration must:
 - give every DLT at least seven days of retention and disable topic auto-creation;
 - inject the JWT public key, wallet API key, downstream URIs, allowed origins, Redis settings, and
   Kafka settings without tracking credentials;
+- inject one distinct matching Betting credential as `GATEWAY_BETTING_API_KEY` and
+  `BETTING_GATEWAY_API_KEY`;
 - use the existing `gateway-odds` and `gateway-bets` consumer groups;
 - route health, info, Prometheus, HTTP, and WebSocket traffic according to the documented exposure;
 - install `shared-protocol:1.0.0` before building gateway in an isolated workspace.
@@ -318,7 +329,6 @@ The following are not gateway 1.0 guarantees:
 - automatic DLT replay;
 - gateway-side durable event or revision storage;
 - JWT issuer, audience, or revocation validation;
-- a betting-service internal API key;
 - downstream dependency health as a readiness condition;
 - direct gateway integration with risk, settlement operations, admin, or wallet mutations.
 

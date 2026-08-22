@@ -2,28 +2,24 @@
 
 ## Purpose
 
-This report records the current `odds-feed-service` state for Wave 2 work. It covers only the
-odds feed service, its published contracts, its downstream obligations, and the release work that
-still must be completed.
+This report records the completed `odds-feed-service` 1.0 state for Wave 2 and later work. It
+covers only the odds feed service, its published contracts, and its downstream obligations.
 
 ## Current status
 
-- Candidate branch: `tmp-odds-feed-service-1-0`
-- Candidate tip: `574e83d2862f086ae07ff56fd95a8336f78a72da`
-- Candidate worktree: `/private/tmp/odds-feed-service-1-0`
-- Candidate history: 229 commits, one root, 228 single-parent commits, no merges
+- Final local branch: `odds-feed-service`
+- Final tip: `574e83d2862f086ae07ff56fd95a8336f78a72da`
+- History: 229 commits, one root, 228 single-parent commits, no merges
 - Release artifact: `com.sportsbook:odds-feed-service:1.0.0`
 - Protocol dependency: `com.sportsbook:shared-protocol:1.0.0`
 - Java target: 17
 
-The local `odds-feed-service` branch still points to
-`88e55281114c5ed13e43a0f2fbf37bca1df99d5a`. This is intentional: the candidate must not replace
-that branch until the full HTTP performance gate and the final root-to-tip replay pass. No tag,
-backup branch, or remote push was created.
+The local `odds-feed-service` branch points to the final tip. No tag, backup branch, or remote push
+was created. There is no remaining Odds Feed Service release gate from Wave 1.
 
 ## History quality
 
-The candidate history has the following verified properties:
+The final history has the following verified properties:
 
 - The root commit contains only the ownership README.
 - Every later commit has exactly one parent.
@@ -158,7 +154,7 @@ The service listens on port 8085. Anonymous access is limited to public event/od
 
 ## Verification completed
 
-The fixed candidate tip passed:
+The final tip passed:
 
 - Temurin Java 17 Docker `clean verify`
 - 156 tests, with zero failures, errors, or skips
@@ -180,67 +176,6 @@ The fixed candidate tip passed:
 A runtime smoke test also started the final JAR on Java 17 and port 8085 with Redis 7. With Kafka
 intentionally absent, anonymous health returned 503 with no component details, Prometheus returned
 200, and `/actuator/info` returned 403. Graceful shutdown completed.
-
-## Release gates still pending
-
-Do not treat the candidate as released and do not move the `odds-feed-service` branch yet.
-
-### HTTP performance gate
-
-The tracked gate uses a fresh Redis/Kafka stack per endpoint, a 60-second warm-up, and five
-60-second measurements for events followed by the same sequence for odds. Every measurement must
-satisfy:
-
-- p99 below 50 ms
-- HTTP error rate below 0.1%
-- successful checks above 99.9%
-- zero dropped iterations
-
-The official configured request rate is currently 1,000 requests/second per endpoint. One events
-measurement passed at p99 43.51 ms, 0% errors, 100% checks, and zero drops. A later measurement was
-invalidated by heavy concurrent Docker work from the Wave 1 risk-service history replay; process
-inspection confirmed that replay was consuming several CPU cores in the shared Docker VM. Further
-runs under the same contention were stopped and are not release evidence.
-
-Rerun the complete gate only when other Docker-intensive branch replays are idle. Use a new result
-directory outside the repository. Do not commit its output.
-
-```sh
-cd /private/tmp/odds-feed-service-1-0
-JAVA_HOME=/opt/homebrew/opt/openjdk@17 \
-PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" \
-RESULT_ROOT=/private/tmp/odds-http-gate-final \
-MAVEN_REPO_LOCAL=/private/tmp/odds-release-m2/repository \
-COMPOSE_PROJECT_NAME=odds-http-gate-final \
-SERVER_PORT=8085 REDIS_PORT=6392 KAFKA_PORT=9096 \
-REQUEST_RATE=1000 PREALLOCATED_VUS=200 MAX_VUS=500 \
-./load-test/run-http-gate.sh
-```
-
-### Root-to-tip replay
-
-The final 229-commit history still needs its complete Java 17 root-to-tip replay. The external
-harness is:
-
-```text
-/private/tmp/odds-feed-history-replay/replay-odds-history.sh
-```
-
-Run it against the fixed candidate tip with `EXPECTED_COUNT=229`. The README-only root and
-repository-default commit are structural checks; commit 3 uses system Maven; later buildable
-commits use the wrapper. Unit-only commits may run at up to four-way parallelism, while
-Testcontainers and Embedded Kafka commits must run sequentially.
-
-### Final branch transition
-
-After both gates pass:
-
-1. Verify that local `odds-feed-service` still points to
-   `88e55281114c5ed13e43a0f2fbf37bca1df99d5a`.
-2. Move it to candidate tip `574e83d2862f086ae07ff56fd95a8336f78a72da` with a compare-and-swap
-   ref update.
-3. Remove only odds-related temporary worktrees and temporary refs.
-4. Do not create a tag, backup ref, or remote push.
 
 ## Wave 2 integration obligations
 
