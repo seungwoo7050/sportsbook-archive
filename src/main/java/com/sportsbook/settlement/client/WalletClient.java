@@ -102,6 +102,21 @@ public class WalletClient {
     return proof;
   }
 
+  public WalletAdjustmentProof findAdjustment(UUID revisionId) {
+    WalletAdjustmentProof proof =
+        http.get()
+            .uri(ADJUSTMENT_PATH + "/{revisionId}", revisionId)
+            .retrieve()
+            .onStatus(
+                HttpStatusCode::isError,
+                (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
+            .body(WalletAdjustmentProof.class);
+    if (proof == null || !revisionId.equals(proof.revisionId()) || proof.status() == null) {
+      throw WalletFailurePolicy.malformedSuccess();
+    }
+    return proof;
+  }
+
   private static UUID requireOperationGroupId(CreditResponse response) {
     if (response == null || response.operationGroupId() == null) {
       throw WalletFailurePolicy.malformedSuccess();
