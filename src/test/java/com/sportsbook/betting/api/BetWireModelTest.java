@@ -1,10 +1,12 @@
 package com.sportsbook.betting.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetDraft;
 import com.sportsbook.betting.domain.BetLeg;
+import com.sportsbook.betting.error.ValidationFailedException;
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
@@ -23,6 +25,46 @@ class BetWireModelTest {
             Arrays.stream(PlaceBetRequest.class.getRecordComponents())
                 .map(java.lang.reflect.RecordComponent::getName))
         .doesNotContain("userId");
+  }
+
+  @Test
+  void mapsOnlyTheTrustedActorIntoThePlacementCommand() {
+    UUID actorId = UUID.randomUUID();
+    PlaceBetRequest request =
+        new PlaceBetRequest(
+            new PlaceBetRequest.SlipTypeRequest("SINGLE", null, null),
+            List.of(
+                new PlaceBetRequest.SelectionRequest(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    new java.math.BigDecimal("2.00"))),
+            Money.krw(1_000));
+
+    var command = request.toCommand(actorId, IdempotencyKey.of("request-2"));
+
+    assertThat(command.userId()).isEqualTo(actorId);
+    assertThat(command.slipType()).isEqualTo(new BetSlipType.Single());
+    assertThat(command.idempotencyKey()).isEqualTo(IdempotencyKey.of("request-2"));
+  }
+
+  @Test
+  void rejectsSystemFieldsOnNonSystemSlips() {
+    PlaceBetRequest request =
+        new PlaceBetRequest(
+            new PlaceBetRequest.SlipTypeRequest("SINGLE", 1, 1),
+            List.of(
+                new PlaceBetRequest.SelectionRequest(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    new java.math.BigDecimal("2.00"))),
+            Money.krw(1_000));
+
+    assertThatThrownBy(
+            () -> request.toCommand(UUID.randomUUID(), IdempotencyKey.of("request-shape")))
+        .isInstanceOf(ValidationFailedException.class)
+        .hasMessageContaining("omit system fields");
   }
 
   @Test
