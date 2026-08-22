@@ -7,6 +7,7 @@ import com.sportsbook.protocol.domain.BetStatus;
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +35,35 @@ class BetTest {
     assertThat(bet.stake()).isEqualTo(Money.krw(1_000));
     assertThat(bet.maxPayout()).isEqualTo(Money.krw(2_000));
     assertThat(bet.requestFingerprint()).isEqualTo(FINGERPRINT);
+  }
+
+  @Test
+  void assignsLegOrderWhenCreatingAggregate() {
+    Bet bet =
+        Bet.pending(
+            draft(UUID.randomUUID(), new BetSlipType.Multiple()),
+            List.of(leg("2.00"), leg("3.00")));
+
+    assertThat(bet.legs()).extracting(BetLeg::legIndex).containsExactly(0, 1);
+  }
+
+  @Test
+  void rejectsSlipShapeMismatch() {
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () ->
+                Bet.pending(
+                    draft(UUID.randomUUID(), new BetSlipType.Single()),
+                    List.of(leg("2.00"), leg("3.00"))))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("exactly one");
+  }
+
+  static BetLeg leg(String odds) {
+    return BetLeg.create(
+        UUID.randomUUID(),
+        UUID.randomUUID(),
+        UUID.randomUUID(),
+        com.sportsbook.protocol.value.Odds.ofDecimal(odds));
   }
 
   static BetDraft draft(UUID betId, BetSlipType type) {
