@@ -16,6 +16,7 @@ public class WalletClient {
 
   static final String CREDIT_PATH = "/internal/v1/wallet/transactions/credit";
   static final String FORFEIT_PATH = "/internal/v1/wallet/transactions/forfeit";
+  static final String ADJUSTMENT_PATH = "/internal/v1/wallet/transactions/adjustment";
   static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
 
   private final RestClient http;
@@ -75,6 +76,32 @@ public class WalletClient {
     return requireOperationGroupId(response);
   }
 
+  public WalletAdjustmentProof adjust(
+      UUID revisionId,
+      UUID betId,
+      long revisionNumber,
+      UUID userId,
+      Money previousPayout,
+      Money newPayout) {
+    WalletAdjustmentProof proof =
+        http.post()
+            .uri(ADJUSTMENT_PATH)
+            .header(IDEMPOTENCY_HEADER, "settlement:revision:" + revisionId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(
+                new AdjustmentRequest(
+                    revisionId, betId, revisionNumber, userId, previousPayout, newPayout))
+            .retrieve()
+            .onStatus(
+                HttpStatusCode::isError,
+                (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
+            .body(WalletAdjustmentProof.class);
+    if (proof == null || proof.revisionId() == null || proof.status() == null) {
+      throw WalletFailurePolicy.malformedSuccess();
+    }
+    return proof;
+  }
+
   private static UUID requireOperationGroupId(CreditResponse response) {
     if (response == null || response.operationGroupId() == null) {
       throw WalletFailurePolicy.malformedSuccess();
@@ -85,6 +112,14 @@ public class WalletClient {
   private record CreditRequest(UUID userId, Money amount, String source, String reason) {}
 
   private record ForfeitRequest(UUID userId, Money amount) {}
+
+  private record AdjustmentRequest(
+      UUID revisionId,
+      UUID betId,
+      long revisionNumber,
+      UUID userId,
+      Money previousPayout,
+      Money newPayout) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   private record CreditResponse(UUID operationGroupId) {}
