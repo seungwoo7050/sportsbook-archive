@@ -12,7 +12,9 @@ import com.sportsbook.settlement.execution.SettlementExecution;
 import com.sportsbook.settlement.execution.SettlementExecutionRunner;
 import com.sportsbook.settlement.execution.SettlementLease;
 import com.sportsbook.settlement.execution.SettlementMoneyPlan;
+import com.sportsbook.settlement.observability.SettlementMetrics;
 import com.sportsbook.settlement.persistence.BetRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -51,11 +53,22 @@ class ResultFanoutTest {
     when(preparer.prepare(partial, accepted)).thenReturn(Optional.empty());
     var expected = new SettlementExecutionRunner.BatchResult(1, 0);
     when(runner.fanOut(List.of(execution))).thenReturn(expected);
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
-    assertThat(new ResultFanout(bets, preparer, runner).fanOut(accepted)).isEqualTo(expected);
+    assertThat(
+            new ResultFanout(bets, preparer, runner, new SettlementMetrics(registry))
+                .fanOut(accepted))
+        .isEqualTo(expected);
 
     verify(preparer).prepare(first, accepted);
     verify(preparer).prepare(partial, accepted);
     verify(runner).fanOut(List.of(execution));
+    assertThat(
+            registry
+                .counter(
+                    SettlementMetrics.OPERATIONS, "flow", "base_result", "outcome", "succeeded")
+                .count())
+        .isOne();
+    assertThat(registry.timer(SettlementMetrics.DURATION, "flow", "base_result").count()).isOne();
   }
 }
