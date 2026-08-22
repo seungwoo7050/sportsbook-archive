@@ -51,6 +51,7 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewayRoutingIntegrationTest {
 
+  static final String BETTING_KEY = "fixture-betting-key-32-characters-long";
   static final String WALLET_KEY = "fixture-wallet-key-32-characters-long";
   static final WireMockServer DOWNSTREAM = startDownstream();
   private static final KeyPair KEYS = keyPair();
@@ -62,6 +63,7 @@ class GatewayRoutingIntegrationTest {
     registry.add("gateway.security.jwt.public-key", GatewayRoutingIntegrationTest::publicKey);
     registry.add("gateway.ratelimit.enabled", () -> "false");
     registry.add("gateway.downstream.betting-uri", DOWNSTREAM::baseUrl);
+    registry.add("gateway.downstream.betting-api-key", () -> BETTING_KEY);
     registry.add("gateway.downstream.wallet.uri", DOWNSTREAM::baseUrl);
     registry.add("gateway.downstream.wallet.api-key", () -> WALLET_KEY);
     registry.add("gateway.downstream.odds-feed-uri", DOWNSTREAM::baseUrl);
@@ -96,9 +98,9 @@ class GatewayRoutingIntegrationTest {
             .withHeader("X-User-Id", equalTo(subject.toString()))
             .withHeader("X-User-Roles", equalTo("USER"))
             .withHeader("Idempotency-Key", equalTo("fixture-idempotency-key"))
+            .withHeader("X-Internal-Service", equalTo("gateway"))
+            .withHeader("X-Internal-Api-Key", equalTo(BETTING_KEY))
             .withoutHeader(HttpHeaders.AUTHORIZATION)
-            .withoutHeader("X-Internal-Service")
-            .withoutHeader("X-Internal-Api-Key")
             .withRequestBody(equalTo(body)));
   }
 
@@ -315,9 +317,9 @@ class GatewayRoutingIntegrationTest {
               .withHeader("X-User-Roles", equalTo("USER"))
               .withHeader("Idempotency-Key", equalTo("fixture-" + index))
               .withHeader("traceparent", equalTo(traceparent(index)))
+              .withHeader("X-Internal-Service", equalTo("gateway"))
+              .withHeader("X-Internal-Api-Key", equalTo(BETTING_KEY))
               .withoutHeader(HttpHeaders.AUTHORIZATION)
-              .withoutHeader("X-Internal-Service")
-              .withoutHeader("X-Internal-Api-Key")
               .withRequestBody(equalTo(requestBody(index))));
     }
   }
