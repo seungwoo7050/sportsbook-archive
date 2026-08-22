@@ -1,0 +1,36 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out betting service
+        uses: actions/checkout@v4
+
+      - name: Check out fixed shared protocol
+        uses: actions/checkout@v4
+        with:
+          ref: f9de6bc1e533761ab4bb1454d8d4ab8175cdf001
+          path: shared-protocol
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Install shared protocol 1.0.0
+        working-directory: shared-protocol
+        run: ./mvnw -B -DskipTests install
+
+      - name: Verify betting service
+        run: ./mvnw -B clean verify
