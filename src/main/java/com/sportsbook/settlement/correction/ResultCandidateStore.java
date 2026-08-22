@@ -2,6 +2,7 @@ package com.sportsbook.settlement.correction;
 
 import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -62,7 +63,26 @@ public class ResultCandidateStore {
         """,
         selections);
     return new RecordOutcome(
-        RecordKind.CREATED, candidate.candidateId(), ResultCandidateState.PENDING);
+        RecordKind.CREATED,
+        candidate.candidateId(),
+        ResultCandidateState.PENDING,
+        candidate.receivedAt());
+  }
+
+  public boolean holdWhileFuture(UUID candidateId) {
+    return jdbc
+        .query(
+            """
+            update result_candidate set decision_reason =
+                case when settled_at > current_timestamp then 'FUTURE_HELD' else null end
+            where candidate_id = ? and state = 'PENDING'
+            returning settled_at > current_timestamp
+            """,
+            (result, rowNumber) -> result.getBoolean(1),
+            candidateId)
+        .stream()
+        .findFirst()
+        .orElse(false);
   }
 
   @Transactional
@@ -259,7 +279,7 @@ public class ResultCandidateStore {
     return jdbc
         .query(
             """
-            select candidate_id, state from result_candidate
+            select candidate_id, state, received_at from result_candidate
             where event_id = ? and fingerprint = ?
             """,
             (result, rowNumber) -> {
@@ -268,7 +288,11 @@ public class ResultCandidateStore {
                   state == ResultCandidateState.PENDING
                       ? RecordKind.EXACT_REPLAY
                       : RecordKind.NO_CHANGE;
-              return new RecordOutcome(kind, result.getObject("candidate_id", UUID.class), state);
+              return new RecordOutcome(
+                  kind,
+                  result.getObject("candidate_id", UUID.class),
+                  state,
+                  result.getTimestamp("received_at").toInstant());
             },
             eventId,
             fingerprint)
@@ -283,7 +307,13 @@ public class ResultCandidateStore {
     NO_CHANGE
   }
 
-  public record RecordOutcome(RecordKind kind, UUID candidateId, ResultCandidateState state) {}
+  public record RecordOutcome(
+      RecordKind kind, UUID candidateId, ResultCandidateState state, Instant receivedAt) {
+
+    public RecordOutcome(RecordKind kind, UUID candidateId, ResultCandidateState state) {
+      this(kind, candidateId, state, null);
+    }
+  }
 
   public record AcceptedCandidate(UUID candidateId, java.time.Instant receivedAt) {}
 }
