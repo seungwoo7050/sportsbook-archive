@@ -18,6 +18,8 @@ class RuntimeConfigurationTest {
     assertThat(value(sources, "spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
     assertThat(value(sources, "spring.flyway.locations")).isEqualTo("classpath:db/migration");
     assertThat(value(sources, "spring.kafka.consumer.enable-auto-commit")).isEqualTo(false);
+    assertThat(value(sources, "spring.kafka.consumer.key-deserializer"))
+        .isEqualTo("org.apache.kafka.common.serialization.ByteArrayDeserializer");
     assertThat(value(sources, "spring.kafka.consumer.value-deserializer"))
         .isEqualTo("org.apache.kafka.common.serialization.ByteArrayDeserializer");
     assertThat(value(sources, "spring.kafka.listener.ack-mode")).isEqualTo("record");
