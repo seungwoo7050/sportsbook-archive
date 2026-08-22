@@ -8,7 +8,6 @@ import com.sportsbook.settlement.outbox.OutboxEventRepository;
 import com.sportsbook.settlement.outbox.SettlementEventFactory;
 import com.sportsbook.settlement.outbox.StrictAvroEncoder;
 import com.sportsbook.settlement.persistence.BetRepository;
-import java.time.Instant;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +31,7 @@ public class SettlementFinalizer {
   }
 
   @Transactional
-  public boolean settle(SettlementAttempt attempt, Instant now) {
+  public boolean settle(SettlementAttempt attempt) {
     if (attempt.action() != SettlementAttempt.Action.SETTLE) {
       throw new IllegalArgumentException("Resolved finalization requires SETTLE action");
     }
@@ -50,7 +49,7 @@ public class SettlementFinalizer {
   }
 
   @Transactional
-  public boolean voidBet(SettlementAttempt attempt, Instant now) {
+  public boolean voidBet(SettlementAttempt attempt) {
     if (attempt.action() != SettlementAttempt.Action.VOID) {
       throw new IllegalArgumentException("Whole slip finalization requires VOID action");
     }

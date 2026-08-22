@@ -1,7 +1,6 @@
 package com.sportsbook.settlement.execution;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -30,11 +29,10 @@ public class SettlementExecutionRunner {
       wallet.releaseLocked(attempt, execution.userId());
       wallet.forfeitLocked(attempt, execution.userId());
       wallet.payHouseProfit(attempt, execution.userId());
-      Instant now = clock.instant();
       boolean finalized =
           attempt.action() == SettlementAttempt.Action.SETTLE
-              ? finalizer.settle(attempt, now)
-              : finalizer.voidBet(attempt, now);
+              ? finalizer.settle(attempt)
+              : finalizer.voidBet(attempt);
       if (!finalized) {
         throw new IllegalStateException("Settlement lease was lost before finalization");
       }
