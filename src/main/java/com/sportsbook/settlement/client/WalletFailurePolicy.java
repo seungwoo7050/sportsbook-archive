@@ -12,6 +12,9 @@ public final class WalletFailurePolicy {
 
   public static void throwFor(ClientHttpResponse response) throws IOException {
     int status = response.getStatusCode().value();
+    if (status < 400) {
+      throw malformedResponse(status);
+    }
     String errorCode = readErrorCode(response, status);
     if (status == 429 || status >= 500) {
       throw new TransientFailure(status, errorCode);
@@ -20,7 +23,11 @@ public final class WalletFailurePolicy {
   }
 
   public static TransientFailure malformedSuccess() {
-    return new TransientFailure(200, "WALLET_MALFORMED_RESPONSE");
+    return malformedResponse(200);
+  }
+
+  public static TransientFailure malformedResponse(int status) {
+    return new TransientFailure(status, "WALLET_MALFORMED_RESPONSE");
   }
 
   private static String readErrorCode(ClientHttpResponse response, int status) throws IOException {
