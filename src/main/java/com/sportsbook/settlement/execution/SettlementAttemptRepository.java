@@ -3,9 +3,14 @@ package com.sportsbook.settlement.execution;
 import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import com.sportsbook.settlement.client.WalletFailurePolicy;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class SettlementAttemptRepository {
@@ -81,4 +86,52 @@ public class SettlementAttemptRepository {
             attempt.lease().token())
         == 1;
   }
+
+  @Transactional
+  public List<SettlementExecution> claimRecoveryBatch(Duration leaseDuration, int limit) {
+    long leaseMillis = leaseDuration == null ? 0 : leaseDuration.toMillis();
+    if (leaseMillis < 1 || limit < 1 || limit > 1000) {
+      throw new IllegalArgumentException("Recovery batch size must be between 1 and 1000");
+    }
+    List<SettlementRecoveryRow> rows =
+        jdbc.query(
+            """
+            select a.*, b.user_id
+            from settlement_attempt a join bet b on b.bet_id = a.bet_id
+            where b.status = 'PENDING'
+                and (a.lease_until is null or a.lease_until <= current_timestamp)
+            order by a.updated_at, a.bet_id limit ? for update of a skip locked
+            """,
+            (result, rowNumber) -> SettlementRecoveryRow.read(result),
+            limit);
+    List<SettlementExecution> executions = new ArrayList<>(rows.size());
+    for (SettlementRecoveryRow row : rows) {
+      UUID token = UUID.randomUUID();
+      RecoveryClock clock =
+          jdbc
+              .query(
+                  """
+                  update settlement_attempt set lease_token = ?,
+                      lease_until = current_timestamp + (? * interval '1 millisecond'),
+                      attempt_count = attempt_count + 1, last_error = null,
+                      updated_at = current_timestamp
+                  where bet_id = ? returning lease_until, updated_at
+                  """,
+                  (result, rowNumber) ->
+                      new RecoveryClock(
+                          result.getTimestamp("lease_until").toInstant(),
+                          result.getTimestamp("updated_at").toInstant()),
+                  token,
+                  leaseMillis,
+                  row.betId())
+              .stream()
+              .findFirst()
+              .orElseThrow(() -> new IllegalStateException("Recovery claim lost locked attempt"));
+      SettlementLease lease = new SettlementLease(token, clock.leaseUntil());
+      executions.add(row.execution(lease, clock.updatedAt()));
+    }
+    return List.copyOf(executions);
+  }
+
+  private record RecoveryClock(Instant leaseUntil, Instant updatedAt) {}
 }
