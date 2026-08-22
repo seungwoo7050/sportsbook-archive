@@ -100,6 +100,21 @@ class BetTest {
   }
 
   @Test
+  void terminalizesCommittedReleaseConflictWithoutRetryLoop() {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
+    bet.recordRiskReservation(NOW.plusSeconds(120), "f".repeat(64), false, NOW);
+    bet.requireRiskRelease("INSUFFICIENT_BALANCE", "wallet declined", NOW);
+    bet.beginCompensation(NOW.plusSeconds(1));
+
+    bet.completeRiskRelease(true, NOW.plusSeconds(2));
+    bet.rejectAfterCompensation(NOW.plusSeconds(3));
+
+    assertThat(bet.riskCommitObserved()).isTrue();
+    assertThat(bet.compensationState()).isEqualTo(CompensationState.COMPLETED);
+    assertThat(bet.status()).isEqualTo(BetStatus.REJECTED);
+  }
+
+  @Test
   void rejectsSlipShapeMismatch() {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () ->
