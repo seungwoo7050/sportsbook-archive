@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.settlement.result.MatchOutcomeMode;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -25,17 +26,32 @@ class ResultCandidateFingerprinterTest {
     right.put(second, SettlementResult.LOST);
     right.put(first, SettlementResult.WON);
 
-    assertThat(fingerprints.fingerprint(eventId, MatchOutcomeMode.COMPLETED, left))
-        .isEqualTo(fingerprints.fingerprint(eventId, MatchOutcomeMode.COMPLETED, right));
+    assertThat(fingerprints.fingerprint(eventId, MatchOutcomeMode.COMPLETED, left, Instant.EPOCH))
+        .isEqualTo(
+            fingerprints.fingerprint(eventId, MatchOutcomeMode.COMPLETED, right, Instant.EPOCH));
   }
 
   @Test
   void voidedModeIgnoresSemanticallyUnusedDetail() {
     UUID eventId = UUID.randomUUID();
 
-    assertThat(fingerprints.fingerprint(eventId, MatchOutcomeMode.VOIDED, Map.of()))
+    assertThat(fingerprints.fingerprint(eventId, MatchOutcomeMode.VOIDED, Map.of(), Instant.EPOCH))
         .isEqualTo(
             fingerprints.fingerprint(
-                eventId, MatchOutcomeMode.VOIDED, Map.of(UUID.randomUUID(), SettlementResult.WON)));
+                eventId,
+                MatchOutcomeMode.VOIDED,
+                Map.of(UUID.randomUUID(), SettlementResult.WON),
+                Instant.EPOCH));
+  }
+
+  @Test
+  void distinguishesDifferentSourceResultTimes() {
+    UUID eventId = UUID.randomUUID();
+
+    assertThat(
+            fingerprints.fingerprint(eventId, MatchOutcomeMode.COMPLETED, Map.of(), Instant.EPOCH))
+        .isNotEqualTo(
+            fingerprints.fingerprint(
+                eventId, MatchOutcomeMode.COMPLETED, Map.of(), Instant.EPOCH.plusMillis(1)));
   }
 }
