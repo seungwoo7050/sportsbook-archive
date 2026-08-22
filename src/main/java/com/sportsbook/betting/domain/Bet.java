@@ -221,6 +221,49 @@ public class Bet {
         PlacementPhase.WALLET_CONFIRMED, CompensationAction.WALLET_REFUND, reason, detail, now);
   }
 
+  public void beginCompensation(Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (compensationAction == null || compensationState != CompensationState.REQUIRED) {
+      throw new IllegalStateException("Compensation intent is required");
+    }
+    this.compensationState = CompensationState.IN_PROGRESS;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void completeRiskRelease(boolean committedConflict, Instant now) {
+    requireCompensationInProgress(CompensationAction.RISK_RELEASE);
+    this.riskCommitObserved = this.riskCommitObserved || committedConflict;
+    this.compensationState = CompensationState.COMPLETED;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void completeWalletRefund(UUID operationId, Instant now) {
+    requireCompensationInProgress(CompensationAction.WALLET_REFUND);
+    Objects.requireNonNull(operationId, "operationId");
+    if (compensationOperationId != null && !compensationOperationId.equals(operationId)) {
+      throw new IllegalStateException("Wallet returned conflicting refund operation ids");
+    }
+    this.compensationOperationId = operationId;
+    this.compensationState = CompensationState.COMPLETED;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void rejectAfterCompensation(Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (compensationState != CompensationState.COMPLETED || rejectionReason == null) {
+      throw new IllegalStateException("Completed compensation is required");
+    }
+    this.status = BetStatus.REJECTED;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  private void requireCompensationInProgress(CompensationAction action) {
+    requireStatus(BetStatus.PENDING);
+    if (compensationAction != action || compensationState != CompensationState.IN_PROGRESS) {
+      throw new IllegalStateException(action + " must be in progress");
+    }
+  }
+
   private void requireCompensation(
       PlacementPhase expected,
       CompensationAction action,
