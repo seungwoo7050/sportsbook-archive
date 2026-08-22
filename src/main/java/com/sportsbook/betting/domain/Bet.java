@@ -82,6 +82,9 @@ public class Bet {
   @Column(name = "risk_commit_observed", nullable = false)
   private boolean riskCommitObserved;
 
+  @Column(name = "wallet_operation_id")
+  private UUID walletOperationId;
+
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 16)
   private BetStatus status;
@@ -138,6 +141,21 @@ public class Bet {
     this.riskReservationExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
     this.riskReservationToken = token;
     this.riskCommitObserved = alreadyCommitted;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void confirmWallet(UUID operationId, Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (placementPhase != PlacementPhase.RISK_RESERVED
+        && placementPhase != PlacementPhase.WALLET_CONFIRMED) {
+      throw new IllegalStateException("Wallet confirmation cannot follow " + placementPhase);
+    }
+    Objects.requireNonNull(operationId, "operationId");
+    if (walletOperationId != null && !walletOperationId.equals(operationId)) {
+      throw new IllegalStateException("Wallet returned conflicting operation ids");
+    }
+    this.walletOperationId = operationId;
+    this.placementPhase = PlacementPhase.WALLET_CONFIRMED;
     this.updatedAt = Objects.requireNonNull(now, "now");
   }
 
@@ -231,6 +249,10 @@ public class Bet {
 
   public boolean riskCommitObserved() {
     return riskCommitObserved;
+  }
+
+  public UUID walletOperationId() {
+    return walletOperationId;
   }
 
   public String idempotencyKey() {
