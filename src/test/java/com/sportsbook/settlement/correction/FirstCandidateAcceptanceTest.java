@@ -33,7 +33,10 @@ class FirstCandidateAcceptanceTest {
     ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
     verify(jdbc, times(3)).update(sql.capture(), parameters.capture());
     assertThat(sql.getAllValues().get(0))
-        .contains("insert into match_result", "on conflict (event_id) do nothing");
+        .contains(
+            "insert into match_result",
+            "settled_at <= current_timestamp",
+            "on conflict (event_id) do nothing");
     assertThat(sql.getAllValues().get(1)).contains("insert into match_selection_result");
     assertThat(sql.getAllValues().get(2))
         .contains("state = 'ACCEPTED'", "decision_reason = 'FIRST_RESULT'");

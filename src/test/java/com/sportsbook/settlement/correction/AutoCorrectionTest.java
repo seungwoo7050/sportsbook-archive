@@ -69,7 +69,10 @@ class AutoCorrectionTest {
     ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
     verify(jdbc, times(5)).update(sql.capture(), parameters.capture());
     assertThat(sql.getAllValues().get(0))
-        .contains("m.accepted_candidate_id = ?", "c.state = 'PENDING'");
+        .contains(
+            "m.accepted_candidate_id = ?",
+            "c.state = 'PENDING'",
+            "c.settled_at <= current_timestamp");
     assertThat(sql.getAllValues().get(3)).contains("state = 'SUPERSEDED'");
     assertThat(sql.getAllValues().get(4)).contains("state = 'ACCEPTED'");
     assertThat(parameters.getAllValues().get(3)[0]).isInstanceOf(Timestamp.class);
