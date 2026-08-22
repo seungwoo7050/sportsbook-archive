@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.client.MockClientHttpResponse;
@@ -33,6 +34,23 @@ class WalletFailurePolicyTest {
     assertThatThrownBy(() -> WalletFailurePolicy.throwFor(response))
         .isInstanceOf(WalletFailurePolicy.PermanentFailure.class)
         .hasMessageContaining("WALLET_IDEMPOTENCY_CONFLICT");
+  }
+
+  @Test
+  void classifiesUnexpectedSuccessAndRedirectStatusesAsMalformed() {
+    List.of(HttpStatus.CREATED, HttpStatus.NO_CONTENT, HttpStatus.FOUND)
+        .forEach(
+            status ->
+                assertThatThrownBy(
+                        () -> WalletFailurePolicy.throwFor(response(status, null, "ignored")))
+                    .isInstanceOf(WalletFailurePolicy.TransientFailure.class)
+                    .satisfies(
+                        failure -> {
+                          var walletFailure = (WalletFailurePolicy.Failure) failure;
+                          assertThat(walletFailure.status()).isEqualTo(status.value());
+                          assertThat(walletFailure.errorCode())
+                              .isEqualTo("WALLET_MALFORMED_RESPONSE");
+                        }));
   }
 
   private static MockClientHttpResponse response(
