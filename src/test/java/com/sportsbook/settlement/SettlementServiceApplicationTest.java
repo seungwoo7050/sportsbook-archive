@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.settlement.config.RawKafkaProducerConfiguration;
 import com.sportsbook.settlement.config.SettlementWorkerConfiguration;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -21,10 +22,12 @@ class SettlementServiceApplicationTest {
 
   @Autowired private KafkaTemplate<Object, Object> defaultTemplate;
   @Autowired private ApplicationContext context;
+  @Autowired private PrometheusMeterRegistry prometheus;
 
   @Test
   void loadsApplicationContextWithIsolatedKafkaTemplates() {
     assertThat(rawOperations).isNotSameAs(defaultTemplate);
     assertThat(context.containsBean(SettlementWorkerConfiguration.RECOVERY)).isFalse();
+    assertThat(prometheus.find("settlement.backlog").gauges()).hasSize(4);
   }
 }
