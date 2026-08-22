@@ -2,9 +2,12 @@ package com.sportsbook.betting.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -88,6 +91,54 @@ class RiskClientTest {
     assertThatThrownBy(this::reserve).isInstanceOf(DependencyUnavailableException.class);
   }
 
+  @Test
+  void presentsPersistedTokenWhenCommitting() {
+    UUID betId = UUID.randomUUID();
+    String token = "b".repeat(64);
+    server
+        .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId + "/commit"))
+        .andExpect(method(HttpMethod.PUT))
+        .andExpect(header("X-Risk-Reservation-Token", token))
+        .andRespond(withNoContent());
+
+    assertThat(client.commit(betId, token)).isEqualTo(RiskClient.CommitResult.COMMITTED);
+    server.verify();
+  }
+
+  @Test
+  void returnsFalseForExpiredReservation() {
+    UUID betId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId + "/commit"))
+        .andRespond(withResourceNotFound());
+
+    assertThat(client.commit(betId, "c".repeat(64))).isEqualTo(RiskClient.CommitResult.NOT_FOUND);
+  }
+
+  @Test
+  void returnsDefinitiveConflictWithoutRetryingCommit() {
+    UUID betId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId + "/commit"))
+        .andRespond(
+            org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(
+                HttpStatus.CONFLICT));
+
+    assertThat(client.commit(betId, "d".repeat(64))).isEqualTo(RiskClient.CommitResult.CONFLICT);
+  }
+
+  @Test
+  void acceptsOnlyNoContentForCommit() {
+    UUID betId = UUID.randomUUID();
+    for (HttpStatus status : List.of(HttpStatus.OK, HttpStatus.FOUND)) {
+      server
+          .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId + "/commit"))
+          .andRespond(withStatus(status));
+      assertThatThrownBy(() -> client.commit(betId, "e".repeat(64)))
+          .isInstanceOf(DependencyUnavailableException.class);
+      server.reset();
+    }
+  }
   private RiskClient.Reservation reserve() {
     return client.reserve(
         UUID.randomUUID(), UUID.randomUUID(), Money.krw(6_000), List.of(UUID.randomUUID()));
