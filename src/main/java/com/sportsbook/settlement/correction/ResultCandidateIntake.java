@@ -26,7 +26,7 @@ public class ResultCandidateIntake {
 
   @Transactional
   public IntakeResult ingest(MatchResultRecord result) {
-    var accepted = store.findAcceptedCandidate(result.eventId());
+    var acceptedAtRecord = store.findAcceptedCandidate(result.eventId());
     String fingerprint =
         fingerprints.fingerprint(result.eventId(), result.mode(), result.outcomes());
     ResultCandidate candidate =
@@ -37,33 +37,36 @@ public class ResultCandidateIntake {
             result.outcomes(),
             result.settledAt(),
             result.receivedAt(),
-            accepted.map(ResultCandidateStore.AcceptedCandidate::candidateId).orElse(null));
+            acceptedAtRecord.map(ResultCandidateStore.AcceptedCandidate::candidateId).orElse(null));
     ResultCandidateStore.RecordOutcome recorded = store.record(candidate);
-    if (recorded.kind() != ResultCandidateStore.RecordKind.CREATED) {
-      if (recorded.state() == ResultCandidateState.ACCEPTED) {
-        return IntakeResult.ACCEPTED_REPLAY;
-      }
-      return recorded.kind() == ResultCandidateStore.RecordKind.EXACT_REPLAY
-          ? IntakeResult.EXACT_REPLAY
-          : IntakeResult.NO_CHANGE;
+    if (recorded.state() == ResultCandidateState.ACCEPTED) {
+      return IntakeResult.ACCEPTED_REPLAY;
     }
+    if (recorded.state() != ResultCandidateState.PENDING) {
+      return IntakeResult.NO_CHANGE;
+    }
+    if (store.holdWhileFuture(recorded.candidateId())) {
+      return IntakeResult.FUTURE_HELD;
+    }
+    var accepted = store.findAcceptedCandidate(result.eventId());
+    var candidateReceivedAt =
+        recorded.receivedAt() == null ? result.receivedAt() : recorded.receivedAt();
     if (accepted.isEmpty()) {
-      if (store.acceptFirst(candidate.candidateId(), result.receivedAt())) {
+      if (store.acceptFirst(recorded.candidateId(), result.receivedAt())) {
         return IntakeResult.FIRST_ACCEPTED;
       }
-      return store.supersedeStale(candidate.candidateId(), result.receivedAt())
+      return store.supersedeStale(recorded.candidateId(), result.receivedAt())
           ? IntakeResult.CORRECTION_SUPERSEDED
           : IntakeResult.CORRECTION_PENDING;
     }
     ResultCandidateStore.AcceptedCandidate current = accepted.orElseThrow();
-    if (result.receivedAt().isAfter(current.receivedAt().plus(runtime.correctionWindow()))) {
+    if (candidateReceivedAt.isAfter(current.receivedAt().plus(runtime.correctionWindow()))) {
       return IntakeResult.LATE_HELD;
     }
-    if (store.replaceAccepted(
-        candidate.candidateId(), current.candidateId(), result.receivedAt())) {
+    if (store.replaceAccepted(recorded.candidateId(), current.candidateId(), result.receivedAt())) {
       return IntakeResult.AUTO_CORRECTION_ACCEPTED;
     }
-    return store.supersedeStale(candidate.candidateId(), result.receivedAt())
+    return store.supersedeStale(recorded.candidateId(), result.receivedAt())
         ? IntakeResult.CORRECTION_SUPERSEDED
         : IntakeResult.CORRECTION_PENDING;
   }
@@ -74,6 +77,7 @@ public class ResultCandidateIntake {
     NO_CHANGE,
     FIRST_ACCEPTED,
     AUTO_CORRECTION_ACCEPTED,
+    FUTURE_HELD,
     LATE_HELD,
     CORRECTION_SUPERSEDED,
     CORRECTION_PENDING
