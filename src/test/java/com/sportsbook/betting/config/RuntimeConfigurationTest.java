@@ -22,6 +22,8 @@ class RuntimeConfigurationTest {
         .isEqualTo("org.apache.kafka.common.serialization.ByteArrayDeserializer");
     assertThat(value(sources, "spring.kafka.consumer.value-deserializer"))
         .isEqualTo("org.apache.kafka.common.serialization.ByteArrayDeserializer");
+    assertThat(value(sources, "spring.kafka.consumer.properties.allow.auto.create.topics"))
+        .isEqualTo(false);
     assertThat(value(sources, "spring.kafka.listener.ack-mode")).isEqualTo("record");
   }
 
