@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -53,6 +54,9 @@ public class WalletClient {
             .contentType(MediaType.APPLICATION_JSON)
             .body(new CreditRequest(userId, amount, purpose.source(), purpose.reason()))
             .retrieve()
+            .onStatus(
+                HttpStatusCode::isError,
+                (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
             .body(CreditResponse.class);
     return Objects.requireNonNull(response, "wallet credit response").operationGroupId();
   }
@@ -65,6 +69,9 @@ public class WalletClient {
             .contentType(MediaType.APPLICATION_JSON)
             .body(new ForfeitRequest(userId, amount))
             .retrieve()
+            .onStatus(
+                HttpStatusCode::isError,
+                (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
             .body(CreditResponse.class);
     return Objects.requireNonNull(response, "wallet forfeit response").operationGroupId();
   }
