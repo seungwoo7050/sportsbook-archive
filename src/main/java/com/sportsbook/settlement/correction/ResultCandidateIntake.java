@@ -40,6 +40,9 @@ public class ResultCandidateIntake {
             accepted.map(ResultCandidateStore.AcceptedCandidate::candidateId).orElse(null));
     ResultCandidateStore.RecordOutcome recorded = store.record(candidate);
     if (recorded.kind() != ResultCandidateStore.RecordKind.CREATED) {
+      if (recorded.state() == ResultCandidateState.ACCEPTED) {
+        return IntakeResult.ACCEPTED_REPLAY;
+      }
       return recorded.kind() == ResultCandidateStore.RecordKind.EXACT_REPLAY
           ? IntakeResult.EXACT_REPLAY
           : IntakeResult.NO_CHANGE;
@@ -67,6 +70,7 @@ public class ResultCandidateIntake {
 
   public enum IntakeResult {
     EXACT_REPLAY,
+    ACCEPTED_REPLAY,
     NO_CHANGE,
     FIRST_ACCEPTED,
     AUTO_CORRECTION_ACCEPTED,
