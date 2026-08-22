@@ -62,6 +62,32 @@ class MarketAdminControllerTest {
     assertThat(audited.reason()).isEqualTo("#body.reason()");
   }
 
+  @Test
+  void delegatesGuardsAndAuditsClosure() throws NoSuchMethodException {
+    MarketClient markets = mock(MarketClient.class);
+    MarketStatusPayload body = new MarketStatusPayload("event completed");
+    AdminContext context = new AdminContext("operator-1", AdminRole.ADMIN, ACTION, "trace-1");
+
+    new MarketAdminController(markets)
+        .close(EVENT, MARKET, body, context, requestWithKey());
+
+    verify(markets)
+        .changeStatus(
+            EVENT,
+            MARKET,
+            MarketClient.Action.CLOSE,
+            body,
+            IdempotencyKey.of("market action 01"),
+            ACTION);
+    Method method = actionMethod("close");
+    assertThat(method.getAnnotation(PreAuthorize.class).value())
+        .isEqualTo("hasAnyRole('ADMIN','TRADER')");
+    assertThat(method.getAnnotation(ResponseStatus.class).value())
+        .isEqualTo(HttpStatus.ACCEPTED);
+    assertThat(method.getAnnotation(Audited.class).action())
+        .isEqualTo(AdminAction.MARKET_CLOSE);
+  }
+
   private static Method actionMethod(String name) throws NoSuchMethodException {
     return MarketAdminController.class.getMethod(
         name,
