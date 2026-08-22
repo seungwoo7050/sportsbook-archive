@@ -88,6 +88,11 @@ class CandidateIntakeTransactionTest {
     }
 
     @Override
+    public boolean holdWhileFuture(UUID candidateId) {
+      return false;
+    }
+
+    @Override
     public boolean acceptFirst(UUID candidateId, Instant decidedAt) {
       if (first) {
         first = false;
