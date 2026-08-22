@@ -35,6 +35,14 @@ public class SettlementAttemptRepository {
     this.jdbc = jdbc;
   }
 
+  public boolean exists(UUID betId) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            "select exists (select 1 from settlement_attempt where bet_id = ?)",
+            Boolean.class,
+            betId));
+  }
+
   public Optional<SettlementAttempt> claimPending(
       SettlementAttemptDraft draft, Duration leaseDuration) {
     long leaseMillis = leaseDuration == null ? 0 : leaseDuration.toMillis();
