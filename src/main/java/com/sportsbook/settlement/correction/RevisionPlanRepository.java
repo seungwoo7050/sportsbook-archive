@@ -43,8 +43,10 @@ public class RevisionPlanRepository {
                 source_result_settled_at, state, lease_token, lease_until, attempt_count,
                 next_retry_at, created_at, updated_at)
             select ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?,
-                current_timestamp + (? * interval '1 millisecond'), 1, null, ?, ?
+                current_timestamp + (? * interval '1 millisecond'), 1, null,
+                current_timestamp, current_timestamp
             from bet where bet_id = ? and status = 'SETTLED' and revision_number = ?
+                and ? <= current_timestamp
             on conflict do nothing
             returning lease_until
             """,
@@ -67,10 +69,9 @@ public class RevisionPlanRepository {
             required(target.sourceResultSettledAt()),
             leaseToken,
             leaseMillis,
-            required(plan.createdAt()),
-            required(plan.createdAt()),
             target.betId(),
-            target.revisionNumber() - 1);
+            target.revisionNumber() - 1,
+            required(target.sourceResultSettledAt()));
     if (!claimed.isEmpty()) {
       jdbc.batchUpdate(
           """
