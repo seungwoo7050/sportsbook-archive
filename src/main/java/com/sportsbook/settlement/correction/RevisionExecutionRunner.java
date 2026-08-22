@@ -26,6 +26,11 @@ public class RevisionExecutionRunner {
   }
 
   public Result execute(RevisionPlan plan, RevisionLease lease, boolean recoverFirst) {
+    return execute(plan, lease, recoverFirst, true);
+  }
+
+  public Result execute(
+      RevisionPlan plan, RevisionLease lease, boolean recoverFirst, boolean submitWhenMissing) {
     if (!plan.requiresWalletAdjustment()) {
       return finalizer.apply(plan, lease, null, clock.instant())
           ? Result.APPLIED
@@ -33,7 +38,7 @@ public class RevisionExecutionRunner {
     }
     try {
       WalletAdjustmentProof proof =
-          recoverFirst ? wallet.recoverAmbiguous(plan) : wallet.submit(plan);
+          recoverFirst ? wallet.recoverAmbiguous(plan, submitWhenMissing) : wallet.submit(plan);
       Instant completedAt = clock.instant();
       return switch (proof.status()) {
         case APPLIED ->

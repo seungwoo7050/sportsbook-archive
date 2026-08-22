@@ -28,11 +28,13 @@ public class RevisionWalletGateway {
     return proofs.requireExact(plan, proof);
   }
 
-  public WalletAdjustmentProof recoverAmbiguous(RevisionPlan plan) {
+  public WalletAdjustmentProof recoverAmbiguous(RevisionPlan plan, boolean submitWhenMissing) {
     try {
       return proofs.requireExact(plan, wallet.findAdjustment(plan.revisionId()));
     } catch (WalletFailurePolicy.PermanentFailure failure) {
-      if (failure.status() == 404 && "WALLET_ADJUSTMENT_NOT_FOUND".equals(failure.errorCode())) {
+      if (submitWhenMissing
+          && failure.status() == 404
+          && "WALLET_ADJUSTMENT_NOT_FOUND".equals(failure.errorCode())) {
         return submit(plan);
       }
       throw failure;
