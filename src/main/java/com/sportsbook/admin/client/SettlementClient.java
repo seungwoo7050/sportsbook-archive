@@ -59,4 +59,28 @@ public class SettlementClient {
             "Settlement revision GET must return HTTP 200 with a body");
     return SettlementRevisionProof.verify(revisionId, body);
   }
+
+  public SettlementCandidateReceipt approveCandidate(UUID candidateId, UUID idempotencyKey) {
+    var response =
+        failures.execute(
+            () ->
+                http.post()
+                    .uri(
+                        builder ->
+                            builder
+                                .pathSegment("internal", "admin", "result-candidates")
+                                .pathSegment(candidateId.toString(), "approve")
+                                .build())
+                    .header("Idempotency-Key", idempotencyKey.toString())
+                    .retrieve()
+                    .toEntity(SettlementCandidateReceipt.class));
+    SettlementCandidateReceipt receipt =
+        DownstreamContract.requireBody(
+            response,
+            HttpStatus.OK,
+            ignored -> true,
+            "Settlement candidate approval must return HTTP 200 with a receipt");
+    return SettlementCandidateReceipt.verify(
+        idempotencyKey, SettlementCandidateReceipt.Outcome.CANDIDATE_APPROVED, receipt);
+  }
 }
