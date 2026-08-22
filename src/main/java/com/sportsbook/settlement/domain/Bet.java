@@ -187,6 +187,24 @@ public class Bet {
     return changed;
   }
 
+  public boolean applyAcceptedResult(
+      UUID eventId, UUID candidateId, Map<UUID, SettlementResult> resolvedOutcomes, Instant now) {
+    if (status != SettlementStatus.PENDING) {
+      throw new IllegalStateException("Cannot project results after terminal settlement");
+    }
+    boolean changed = false;
+    for (BetSelection selection : selections) {
+      if (selection.eventId().equals(eventId)) {
+        changed |=
+            selection.applyCandidate(candidateId, resolvedOutcomes.get(selection.selectionId()));
+      }
+    }
+    if (changed) {
+      updatedAt = Objects.requireNonNull(now, "now");
+    }
+    return changed;
+  }
+
   public boolean allSelectionsResolved() {
     return !selections.isEmpty() && selections.stream().allMatch(s -> s.outcome() != null);
   }
