@@ -2,7 +2,6 @@ package com.sportsbook.settlement.client;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.sportsbook.protocol.value.Money;
-import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -58,7 +57,7 @@ public class WalletClient {
                 HttpStatusCode::isError,
                 (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
             .body(CreditResponse.class);
-    return Objects.requireNonNull(response, "wallet credit response").operationGroupId();
+    return requireOperationGroupId(response);
   }
 
   public UUID forfeit(String idempotencyKey, UUID userId, Money amount) {
@@ -73,7 +72,14 @@ public class WalletClient {
                 HttpStatusCode::isError,
                 (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
             .body(CreditResponse.class);
-    return Objects.requireNonNull(response, "wallet forfeit response").operationGroupId();
+    return requireOperationGroupId(response);
+  }
+
+  private static UUID requireOperationGroupId(CreditResponse response) {
+    if (response == null || response.operationGroupId() == null) {
+      throw WalletFailurePolicy.malformedSuccess();
+    }
+    return response.operationGroupId();
   }
 
   private record CreditRequest(UUID userId, Money amount, String source, String reason) {}

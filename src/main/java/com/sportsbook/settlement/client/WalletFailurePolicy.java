@@ -19,6 +19,10 @@ public final class WalletFailurePolicy {
     throw new PermanentFailure(status, errorCode);
   }
 
+  public static TransientFailure malformedSuccess() {
+    return new TransientFailure(200, "WALLET_MALFORMED_RESPONSE");
+  }
+
   private static String readErrorCode(ClientHttpResponse response, int status) throws IOException {
     try {
       WalletProblemDetail problem = JSON.readValue(response.getBody(), WalletProblemDetail.class);
