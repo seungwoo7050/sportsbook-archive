@@ -12,6 +12,7 @@ import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.Money;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,18 +71,23 @@ public class BetSettlementService {
   public Bet.RevisionApplyResult apply(BetResolutionRevised event, String payloadHash) {
     try {
       Bet bet = owned(event.getBetId(), event.getUserId());
-      return bet.applyRevision(
-          canonical(event.getEventId()),
-          canonical(event.getRevisionId()),
-          event.getRevisionNumber(),
-          SettlementResult.valueOf(event.getPreviousResult().name()),
-          SettlementResult.valueOf(event.getNewResult().name()),
-          money(event.getPreviousPayout()),
-          money(event.getNewPayout()),
-          event.getSourceResultSettledAt(),
-          event.getRevisedAt(),
-          payloadHash);
-    } catch (IllegalArgumentException | IllegalStateException failure) {
+      Bet.RevisionApplyResult result =
+          bet.applyRevision(
+              canonical(event.getEventId()),
+              canonical(event.getRevisionId()),
+              event.getRevisionNumber(),
+              SettlementResult.valueOf(event.getPreviousResult().name()),
+              SettlementResult.valueOf(event.getNewResult().name()),
+              money(event.getPreviousPayout()),
+              money(event.getNewPayout()),
+              event.getSourceResultSettledAt(),
+              event.getRevisedAt(),
+              payloadHash);
+      bets.flush();
+      return result;
+    } catch (IllegalArgumentException
+        | IllegalStateException
+        | DataIntegrityViolationException failure) {
       throw permanent("Invalid resolution revision", failure);
     }
   }
