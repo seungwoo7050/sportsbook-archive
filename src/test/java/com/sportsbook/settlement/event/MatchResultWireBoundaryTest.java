@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.sportsbook.settlement.correction.CorrectionFanout;
 import com.sportsbook.settlement.correction.ResultCandidateIntake;
 import com.sportsbook.settlement.result.AcceptedResultRepository;
 import com.sportsbook.settlement.result.ResultFanout;
@@ -22,9 +23,11 @@ class MatchResultWireBoundaryTest {
   private final ResultCandidateIntake intake = mock(ResultCandidateIntake.class);
   private final AcceptedResultRepository accepted = mock(AcceptedResultRepository.class);
   private final ResultFanout fanout = mock(ResultFanout.class);
+  private final CorrectionFanout corrections = mock(CorrectionFanout.class);
   private final Acknowledgment acknowledgment = mock(Acknowledgment.class);
   private final MatchResultListener listener =
-      new MatchResultListener(intake, accepted, fanout, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+      new MatchResultListener(
+          intake, accepted, fanout, corrections, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
 
   @Test
   void rejectsAMismatchedRawEventKeyBeforeIntake() {

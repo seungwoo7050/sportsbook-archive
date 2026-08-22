@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.event.MatchFinalStatus;
 import com.sportsbook.protocol.event.MatchResult;
+import com.sportsbook.settlement.correction.CorrectionFanout;
 import com.sportsbook.settlement.correction.ResultCandidateIntake;
 import com.sportsbook.settlement.outbox.StrictAvroEncoder;
 import com.sportsbook.settlement.result.AcceptedResult;
@@ -32,6 +33,7 @@ class MatchResultListenerTest {
     ResultCandidateIntake intake = mock(ResultCandidateIntake.class);
     AcceptedResultRepository acceptedResults = mock(AcceptedResultRepository.class);
     ResultFanout fanout = mock(ResultFanout.class);
+    CorrectionFanout corrections = mock(CorrectionFanout.class);
     Acknowledgment acknowledgment = mock(Acknowledgment.class);
     AcceptedResult accepted =
         new AcceptedResult(
@@ -40,7 +42,11 @@ class MatchResultListenerTest {
     when(acceptedResults.findByEventId(eventId)).thenReturn(Optional.of(accepted));
     MatchResultListener listener =
         new MatchResultListener(
-            intake, acceptedResults, fanout, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+            intake,
+            acceptedResults,
+            fanout,
+            corrections,
+            Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
 
     listener.receive(record(eventId), acknowledgment);
 
