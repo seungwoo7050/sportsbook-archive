@@ -1,7 +1,7 @@
 package com.sportsbook.betting.domain;
 
-import com.sportsbook.protocol.domain.BetStatus;
 import com.sportsbook.protocol.domain.BetSlipType;
+import com.sportsbook.protocol.domain.BetStatus;
 import com.sportsbook.protocol.value.Money;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
@@ -58,7 +58,8 @@ public class Bet {
   @Embedded
   @AttributeOverrides({
     @AttributeOverride(
-        name = "amount", column = @Column(name = "max_payout_amount", nullable = false)),
+        name = "amount",
+        column = @Column(name = "max_payout_amount", nullable = false)),
     @AttributeOverride(
         name = "currency",
         column = @Column(name = "max_payout_currency", nullable = false, length = 3))
@@ -67,6 +68,19 @@ public class Bet {
 
   @Column(name = "request_fingerprint", updatable = false, length = 64)
   private String requestFingerprint;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "placement_phase", nullable = false, length = 32)
+  private PlacementPhase placementPhase;
+
+  @Column(name = "risk_reservation_expires_at")
+  private Instant riskReservationExpiresAt;
+
+  @Column(name = "risk_reservation_token", length = 64)
+  private String riskReservationToken;
+
+  @Column(name = "risk_commit_observed", nullable = false)
+  private boolean riskCommitObserved;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 16)
@@ -105,8 +119,32 @@ public class Bet {
     this.requestFingerprint = draft.requestFingerprint();
     this.idempotencyKey = draft.idempotencyKey().value();
     this.status = BetStatus.PENDING;
+    this.placementPhase = PlacementPhase.CREATED;
     this.createdAt = draft.createdAt();
     this.updatedAt = draft.createdAt();
+  }
+
+  public void recordRiskReservation(
+      Instant expiresAt, String token, boolean alreadyCommitted, Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (placementPhase != PlacementPhase.CREATED
+        && placementPhase != PlacementPhase.RISK_RESERVED) {
+      throw new IllegalStateException("Risk reservation cannot follow " + placementPhase);
+    }
+    if (token == null || !token.matches("[0-9a-f]{64}")) {
+      throw new IllegalArgumentException("risk reservation token must be lowercase SHA-256");
+    }
+    this.placementPhase = PlacementPhase.RISK_RESERVED;
+    this.riskReservationExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
+    this.riskReservationToken = token;
+    this.riskCommitObserved = alreadyCommitted;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  private void requireStatus(BetStatus expected) {
+    if (status != expected) {
+      throw new IllegalStateException("Expected " + expected + " but was " + status);
+    }
   }
 
   static Bet from(BetDraft draft) {
@@ -177,6 +215,22 @@ public class Bet {
 
   public String requestFingerprint() {
     return requestFingerprint;
+  }
+
+  public PlacementPhase placementPhase() {
+    return placementPhase;
+  }
+
+  public Instant riskReservationExpiresAt() {
+    return riskReservationExpiresAt;
+  }
+
+  public String riskReservationToken() {
+    return riskReservationToken;
+  }
+
+  public boolean riskCommitObserved() {
+    return riskCommitObserved;
   }
 
   public String idempotencyKey() {
