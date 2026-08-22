@@ -33,7 +33,7 @@ public class RevisionRecoveryScanner {
   @Scheduled(
       fixedDelayString = "${settlement.runtime.recovery-interval:PT1S}",
       initialDelayString = "${settlement.runtime.recovery-interval:PT1S}",
-      scheduler = SettlementWorkerConfiguration.RECOVERY)
+      scheduler = SettlementWorkerConfiguration.REVISION_RECOVERY)
   public List<RevisionExecutionRunner.Result> recover() {
     var sample = metrics.start();
     try {

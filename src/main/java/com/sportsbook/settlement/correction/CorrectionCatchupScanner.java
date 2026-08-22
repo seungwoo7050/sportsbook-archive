@@ -25,7 +25,7 @@ public class CorrectionCatchupScanner {
   @Scheduled(
       fixedDelayString = "${settlement.runtime.recovery-interval:PT1S}",
       initialDelayString = "${settlement.runtime.recovery-interval:PT1S}",
-      scheduler = SettlementWorkerConfiguration.RECOVERY)
+      scheduler = SettlementWorkerConfiguration.CORRECTION)
   public List<RevisionExecutionRunner.Result> catchUp() {
     var eventId = targets.findNextActionableEvent();
     if (eventId.isEmpty()) {
