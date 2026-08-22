@@ -6,7 +6,7 @@ spring:
     redis:
       timeout: 2s
 
-BETTING_GATEWAY_API_KEY: ${BETTING_GATEWAY_API_KEY:gggggggggggggggggggggggggggggggg}
+BETTING_GATEWAY_API_KEY: gggggggggggggggggggggggggggggggg
 
 betting:
   clients:
