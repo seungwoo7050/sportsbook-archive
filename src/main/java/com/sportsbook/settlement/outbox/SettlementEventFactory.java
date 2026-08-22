@@ -1,7 +1,9 @@
 package com.sportsbook.settlement.outbox;
 
 import com.sportsbook.protocol.event.BetSettled;
+import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.SettlementResultAvro;
+import com.sportsbook.protocol.event.VoidReason;
 import com.sportsbook.settlement.config.SettlementTopics;
 import com.sportsbook.settlement.domain.Bet;
 import com.sportsbook.settlement.domain.BetSelection;
@@ -40,6 +42,27 @@ public final class SettlementEventFactory {
         topics.betSettled(),
         drivingEventId.toString(),
         BetSettled.class.getSimpleName(),
+        encoder.encode(event),
+        bet.settledAt());
+  }
+
+  public OutboxEvent voided(Bet bet, UUID drivingEventId, VoidReason reason) {
+    if (bet.status() != SettlementStatus.VOIDED || bet.payout() == null) {
+      throw new IllegalStateException("Bet must be VOIDED before creating BetVoided");
+    }
+    BetVoided event =
+        BetVoided.newBuilder()
+            .setBetId(bet.betId().toString())
+            .setUserId(bet.userId().toString())
+            .setEventId(drivingEventId.toString())
+            .setReason(reason)
+            .setRefund(money(bet.payout()))
+            .setVoidedAt(bet.settledAt())
+            .build();
+    return OutboxEvent.pending(
+        topics.betVoided(),
+        drivingEventId.toString(),
+        BetVoided.class.getSimpleName(),
         encoder.encode(event),
         bet.settledAt());
   }
