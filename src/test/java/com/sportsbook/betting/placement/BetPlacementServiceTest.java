@@ -3,12 +3,14 @@ package com.sportsbook.betting.placement;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.betting.client.RiskClient;
+import com.sportsbook.betting.client.WalletClient;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetDraft;
 import com.sportsbook.betting.domain.BetLeg;
@@ -34,6 +36,7 @@ class BetPlacementServiceTest {
   void replaysOwnedVerdictBeforeRepeatingValidationOrSideEffects() {
     BetAssembler assembler = mock(BetAssembler.class);
     RiskClient risk = mock(RiskClient.class);
+    WalletClient wallet = mock(WalletClient.class);
     BetStore store = mock(BetStore.class);
     PlaceBetCommand command = command();
     PlacementRequest request =
@@ -45,21 +48,24 @@ class BetPlacementServiceTest {
             "saved verdict",
             Instant.EPOCH);
     when(store.findPlacementRequest("request-1")).thenReturn(Optional.of(request));
-    BetPlacementService service = service(assembler, risk, store);
 
-    catchThrowableOfType(() -> service.place(command), PersistedRejectionException.class);
+    catchThrowableOfType(
+        () -> service(assembler, risk, wallet, store).place(command),
+        PersistedRejectionException.class);
 
-    verifyNoInteractions(assembler, risk);
+    verifyNoInteractions(assembler, risk, wallet);
   }
 
   @Test
-  void storesReservationTokenBeforeReturningFromReserveStep() {
+  void persistsReservationProofBeforeWalletDebit() {
     BetAssembler assembler = mock(BetAssembler.class);
     RiskClient risk = mock(RiskClient.class);
+    WalletClient wallet = mock(WalletClient.class);
     BetStore store = mock(BetStore.class);
     PlaceBetCommand command = command();
     Bet bet = pending(command);
     Instant expiresAt = Instant.EPOCH.plusSeconds(60);
+    UUID operationId = UUID.randomUUID();
     when(store.findPlacementRequest("request-1")).thenReturn(Optional.empty());
     when(store.findByIdempotencyKey("request-1")).thenReturn(Optional.empty());
     when(assembler.assemble(eq(command), any(String.class))).thenReturn(bet);
@@ -68,20 +74,38 @@ class BetPlacementServiceTest {
         .thenReturn(
             new RiskClient.Reservation(
                 RiskClient.ReservationState.RESERVED, expiresAt, "b".repeat(64)));
+    doAnswer(
+            ignored -> {
+              bet.recordRiskReservation(expiresAt, "b".repeat(64), false, Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .recordRiskReservation(bet.betId(), expiresAt, "b".repeat(64), false, Instant.EPOCH);
+    when(wallet.debit(bet.betId(), bet.userId(), Money.krw(1_000))).thenReturn(operationId);
+    doAnswer(
+            ignored -> {
+              bet.confirmWallet(operationId, Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .confirmWallet(bet.betId(), operationId, Instant.EPOCH);
 
-    service(assembler, risk, store).place(command);
+    service(assembler, risk, wallet, store).place(command);
 
-    InOrder order = inOrder(risk, store);
+    InOrder order = inOrder(risk, store, wallet);
     order.verify(risk).reserve(eq(bet.betId()), eq(bet.userId()), eq(Money.krw(1_000)), any());
     order
         .verify(store)
         .recordRiskReservation(bet.betId(), expiresAt, "b".repeat(64), false, Instant.EPOCH);
+    order.verify(wallet).debit(bet.betId(), bet.userId(), Money.krw(1_000));
+    order.verify(store).confirmWallet(bet.betId(), operationId, Instant.EPOCH);
   }
 
   @Test
   void persistsRiskValidationAfterPendingCreation() {
     BetAssembler assembler = mock(BetAssembler.class);
     RiskClient risk = mock(RiskClient.class);
+    WalletClient wallet = mock(WalletClient.class);
     BetStore store = mock(BetStore.class);
     PlaceBetCommand command = command();
     Bet bet = pending(command);
@@ -92,18 +116,20 @@ class BetPlacementServiceTest {
     when(store.rejectAtCreation(any(), any(), any(), any())).thenReturn(bet);
 
     catchThrowableOfType(
-        () -> service(assembler, risk, store).place(command),
+        () -> service(assembler, risk, wallet, store).place(command),
         com.sportsbook.betting.error.ValidationFailedException.class);
 
     org.mockito.Mockito.verify(store)
         .rejectAtCreation(bet.betId(), ErrorCode.VALIDATION_FAILED, "invalid", Instant.EPOCH);
+    verifyNoInteractions(wallet);
   }
 
   private static BetPlacementService service(
-      BetAssembler assembler, RiskClient risk, BetStore store) {
+      BetAssembler assembler, RiskClient risk, WalletClient wallet, BetStore store) {
     return new BetPlacementService(
         assembler,
         risk,
+        wallet,
         new SystemBetCalculator(),
         store,
         Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
@@ -119,7 +145,8 @@ class BetPlacementServiceTest {
             new com.sportsbook.betting.error.ValidationFailedException(
                 "Duplicate selection is not allowed"));
 
-    BetPlacementService service = service(assembler, mock(RiskClient.class), store);
+    BetPlacementService service =
+        service(assembler, mock(RiskClient.class), mock(WalletClient.class), store);
     catchThrowableOfType(
         () -> service.place(command),
         com.sportsbook.betting.error.ValidationFailedException.class);
