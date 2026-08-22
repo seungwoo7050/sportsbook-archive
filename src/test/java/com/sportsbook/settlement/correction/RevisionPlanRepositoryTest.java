@@ -44,11 +44,16 @@ class RevisionPlanRepositoryTest {
         .query(
             insert.capture(), any(org.springframework.jdbc.core.RowMapper.class), values.capture());
     ordered.verify(jdbc).batchUpdate(snapshot.capture(), rows.capture());
-    assertThat(insert.getValue()).contains("from bet", "on conflict do nothing");
+    assertThat(insert.getValue())
+        .contains(
+            "current_timestamp, current_timestamp",
+            "and ? <= current_timestamp",
+            "on conflict do nothing");
     assertThat(values.getValue()[11]).isEqualTo("SINGLE");
     assertThat(values.getValue()[14]).isEqualTo(100L);
     assertThat(values.getValue()[15]).isInstanceOf(Timestamp.class);
     assertThat(values.getValue()[17]).isEqualTo(30_000L);
+    assertThat(values.getValue()[20]).isInstanceOf(Timestamp.class);
     assertThat(snapshot.getValue()).contains("leg_index", "odds");
     assertThat(rows.getValue().get(0)).containsSequence(0, Odds.ofDecimal("2.0000").decimal());
     assertThat(persisted.created()).isTrue();
