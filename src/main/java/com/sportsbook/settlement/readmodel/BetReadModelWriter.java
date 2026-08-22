@@ -1,20 +1,14 @@
 package com.sportsbook.settlement.readmodel;
 
 import com.sportsbook.protocol.domain.BetSlipType;
-import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.settlement.domain.Bet;
 import com.sportsbook.settlement.domain.BetSelection;
 import com.sportsbook.settlement.domain.EmbeddedMoney;
 import com.sportsbook.settlement.domain.SlipKind;
 import com.sportsbook.settlement.persistence.BetRepository;
-import com.sportsbook.settlement.result.MatchResultRecord;
-import com.sportsbook.settlement.result.MatchResultRepository;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,19 +24,16 @@ public class BetReadModelWriter {
   private final BetRepository repository;
   private final BetPlacementValidator validator;
   private final BetPlacementFingerprinter fingerprinter;
-  private final MatchResultRepository results;
   private final Clock clock;
 
   public BetReadModelWriter(
       BetRepository repository,
       BetPlacementValidator validator,
       BetPlacementFingerprinter fingerprinter,
-      MatchResultRepository results,
       Clock clock) {
     this.repository = repository;
     this.validator = validator;
     this.fingerprinter = fingerprinter;
-    this.results = results;
     this.clock = clock;
   }
 
@@ -92,23 +83,6 @@ public class BetReadModelWriter {
             selections,
             now);
     repository.save(bet);
-    placement.selections().stream()
-        .map(BetPlacement.Selection::eventId)
-        .distinct()
-        .forEach(eventId -> results.findById(eventId).ifPresent(result -> apply(bet, result, now)));
     return RecordResult.CREATED;
-  }
-
-  private static void apply(Bet bet, MatchResultRecord result, Instant now) {
-    Map<UUID, SettlementResult> resolved = new LinkedHashMap<>();
-    bet.selections().stream()
-        .filter(selection -> selection.eventId().equals(result.eventId()))
-        .forEach(
-            selection ->
-                result
-                    .mode()
-                    .resolve(result.outcomes().get(selection.selectionId()))
-                    .ifPresent(outcome -> resolved.put(selection.selectionId(), outcome)));
-    bet.applySelectionSnapshot(result.eventId(), resolved, false, now);
   }
 }
