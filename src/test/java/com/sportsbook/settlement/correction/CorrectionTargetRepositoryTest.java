@@ -18,6 +18,25 @@ class CorrectionTargetRepositoryTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void discoversOneAcceptedEventWithUnplannedStaleBets() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    UUID eventId = UUID.randomUUID();
+    when(jdbc.query(any(String.class), any(RowMapper.class))).thenReturn(List.of(eventId));
+
+    assertThat(new CorrectionTargetRepository(jdbc).findNextActionableEvent()).contains(eventId);
+
+    ArgumentCaptor<String> statement = ArgumentCaptor.forClass(String.class);
+    verify(jdbc).query(statement.capture(), any(RowMapper.class));
+    assertThat(statement.getValue())
+        .contains(
+            "m.accepted_candidate_id is not null",
+            "s.source_candidate_id <> m.accepted_candidate_id",
+            "r.revision_number = b.revision_number + 1",
+            "limit 1");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void boundsAndExcludesBetsWithAnOwnedNextRevision() {
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
     UUID eventId = UUID.randomUUID();
