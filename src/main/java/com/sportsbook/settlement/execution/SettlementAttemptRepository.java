@@ -52,4 +52,13 @@ public class SettlementAttemptRepository {
             attempt.betId());
     return inserted == 1;
   }
+
+  public boolean consumeLease(SettlementAttempt attempt) {
+    return jdbc.update(
+            "delete from settlement_attempt where bet_id = ? and action = ? and lease_token = ?",
+            attempt.betId(),
+            attempt.action().name(),
+            attempt.lease().token())
+        == 1;
+  }
 }
