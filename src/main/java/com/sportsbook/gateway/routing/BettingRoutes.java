@@ -22,6 +22,7 @@ public class BettingRoutes {
   private final BettingDownstreamProperties downstream;
   private final DownstreamRequestSanitizer sanitizer;
   private final IdentityForwarding identity;
+  private final BettingRequestAuthentication authentication;
   private final TraceForwarding trace;
   private final DownstreamFailureBoundary failures;
 
@@ -34,6 +35,7 @@ public class BettingRoutes {
     this.downstream = downstream;
     this.sanitizer = sanitizer;
     this.identity = identity;
+    this.authentication = new BettingRequestAuthentication(downstream);
     this.trace = trace;
     this.failures = failures;
   }
@@ -46,6 +48,7 @@ public class BettingRoutes {
             http(downstream.bettingUri().toString()))
         .before(sanitizer::apply)
         .before(identity::apply)
+        .before(authentication::apply)
         .before(trace::apply)
         .before(this::rewrite)
         .filter(failures)
