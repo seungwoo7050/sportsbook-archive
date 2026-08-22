@@ -8,6 +8,8 @@ import static org.mockito.Mockito.when;
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.settlement.config.SettlementRuntimeProperties;
 import com.sportsbook.settlement.config.SettlementWorkerConfiguration;
+import com.sportsbook.settlement.observability.SettlementMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -21,7 +23,9 @@ class LifecycleTombstoneScannerTest {
     LifecycleStore store = mock(LifecycleStore.class);
     LifecycleFanout fanout = mock(LifecycleFanout.class);
     SettlementRuntimeProperties runtime = new SettlementRuntimeProperties(null, null, null, 25);
-    LifecycleTombstoneScanner scanner = new LifecycleTombstoneScanner(store, fanout, runtime);
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    LifecycleTombstoneScanner scanner =
+        new LifecycleTombstoneScanner(store, fanout, runtime, new SettlementMetrics(registry));
     LifecycleObservation first = tombstone(EventLifecycleStatus.CANCELLED, 1);
     LifecycleObservation second = tombstone(EventLifecycleStatus.POSTPONED, 2);
     when(store.findActionableTombstones(25)).thenReturn(List.of(first, second));
@@ -30,6 +34,12 @@ class LifecycleTombstoneScannerTest {
 
     verify(fanout).fanOut(first);
     verify(fanout).fanOut(second);
+    assertThat(
+            registry
+                .counter(SettlementMetrics.OPERATIONS, "flow", "lifecycle", "outcome", "processed")
+                .count())
+        .isEqualTo(2);
+    assertThat(registry.timer(SettlementMetrics.DURATION, "flow", "lifecycle").count()).isOne();
   }
 
   @Test
