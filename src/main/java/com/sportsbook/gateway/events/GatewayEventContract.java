@@ -5,6 +5,7 @@ import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.OddsChanged;
+import com.sportsbook.protocol.event.VoidReason;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -34,6 +35,9 @@ public final class GatewayEventContract {
   public static BetVoided betVoided(ConsumerRecord<byte[], byte[]> record) {
     BetVoided event = StrictAvroDecoder.decode(record.value(), BetVoided.class);
     requireBetIdentity(event.getBetId(), event.getUserId(), event.getEventId());
+    if (event.getReason() == VoidReason.MARKET_VOID) {
+      throw new GatewayEventContractException("MARKET_VOID must use a settled VOID result");
+    }
     requirePartitionKey(record.key(), event.getEventId(), record.topic());
     return event;
   }
