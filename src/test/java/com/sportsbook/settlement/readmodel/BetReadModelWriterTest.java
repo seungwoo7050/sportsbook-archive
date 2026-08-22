@@ -15,14 +15,10 @@ import com.sportsbook.settlement.domain.BetSelection;
 import com.sportsbook.settlement.domain.EmbeddedMoney;
 import com.sportsbook.settlement.domain.SlipKind;
 import com.sportsbook.settlement.persistence.BetRepository;
-import com.sportsbook.settlement.result.MatchOutcomeMode;
-import com.sportsbook.settlement.result.MatchResultRecord;
-import com.sportsbook.settlement.result.MatchResultRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -31,13 +27,11 @@ import org.mockito.ArgumentCaptor;
 class BetReadModelWriterTest {
 
   private final BetRepository repository = mock(BetRepository.class);
-  private final MatchResultRepository results = mock(MatchResultRepository.class);
   private final BetReadModelWriter writer =
       new BetReadModelWriter(
           repository,
           new BetPlacementValidator(),
           new BetPlacementFingerprinter(),
-          results,
           Clock.fixed(Instant.parse("2026-01-02T00:00:00Z"), ZoneOffset.UTC));
 
   @Test
@@ -71,29 +65,6 @@ class BetReadModelWriterTest {
         .isInstanceOf(PlacementContractException.class)
         .hasMessageContaining("Conflicting");
     verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
-  }
-
-  @Test
-  void appliesAResultThatArrivedBeforePlacement() {
-    BetPlacement placement = placement(100);
-    BetPlacement.Selection selection = placement.selections().get(0);
-    when(repository.findWithSelectionsById(placement.betId())).thenReturn(Optional.empty());
-    when(results.findById(selection.eventId()))
-        .thenReturn(
-            Optional.of(
-                new MatchResultRecord(
-                    selection.eventId(),
-                    MatchOutcomeMode.VOIDED,
-                    Map.of(),
-                    Instant.EPOCH,
-                    Instant.EPOCH)));
-
-    writer.record(placement);
-
-    ArgumentCaptor<Bet> saved = ArgumentCaptor.forClass(Bet.class);
-    verify(repository).save(saved.capture());
-    assertThat(saved.getValue().selections().get(0).outcome())
-        .isEqualTo(com.sportsbook.protocol.domain.SettlementResult.VOID);
   }
 
   private static BetPlacement placement(long amount) {
