@@ -1,5 +1,6 @@
 package com.sportsbook.betting.settlement;
 
+import com.sportsbook.betting.config.PermanentKafkaException;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.SystemBetCalculator;
 import com.sportsbook.betting.domain.VoidReason;
@@ -27,50 +28,62 @@ public class BetSettlementService {
 
   @Transactional
   public void apply(BetSettled event, String payloadHash) {
-    Bet bet = owned(event.getBetId(), event.getUserId());
-    UUID eventId = canonical(event.getEventId());
-    if (duplicateOrSuperseded(bet, eventId, payloadHash)) {
-      return;
+    try {
+      Bet bet = owned(event.getBetId(), event.getUserId());
+      UUID eventId = canonical(event.getEventId());
+      if (duplicateOrSuperseded(bet, eventId, payloadHash)) {
+        return;
+      }
+      bet.settleBase(
+          eventId,
+          SettlementResult.valueOf(event.getResult().name()),
+          money(event.getStake()),
+          money(event.getPayout()),
+          event.getSettledAt(),
+          payloadHash);
+    } catch (IllegalArgumentException | IllegalStateException failure) {
+      throw permanent("Invalid settled projection", failure);
     }
-    bet.settleBase(
-        eventId,
-        SettlementResult.valueOf(event.getResult().name()),
-        money(event.getStake()),
-        money(event.getPayout()),
-        event.getSettledAt(),
-        payloadHash);
   }
 
   @Transactional
   public void apply(BetVoided event, String payloadHash) {
-    Bet bet = owned(event.getBetId(), event.getUserId());
-    UUID eventId = canonical(event.getEventId());
-    if (duplicateOrSuperseded(bet, eventId, payloadHash)) {
-      return;
+    try {
+      Bet bet = owned(event.getBetId(), event.getUserId());
+      UUID eventId = canonical(event.getEventId());
+      if (duplicateOrSuperseded(bet, eventId, payloadHash)) {
+        return;
+      }
+      Money refund = money(event.getRefund());
+      Money exposure = calculator.totalStake(bet.slipType(), bet.stake(), bet.legs().size());
+      if (!refund.equals(exposure)) {
+        throw new IllegalArgumentException("Void refund does not match committed exposure");
+      }
+      bet.voidBase(
+          eventId, VoidReason.valueOf(event.getReason().name()), event.getVoidedAt(), payloadHash);
+    } catch (IllegalArgumentException | IllegalStateException failure) {
+      throw permanent("Invalid void projection", failure);
     }
-    Money refund = money(event.getRefund());
-    Money exposure = calculator.totalStake(bet.slipType(), bet.stake(), bet.legs().size());
-    if (!refund.equals(exposure)) {
-      throw new IllegalArgumentException("Void refund does not match committed exposure");
-    }
-    bet.voidBase(
-        eventId, VoidReason.valueOf(event.getReason().name()), event.getVoidedAt(), payloadHash);
   }
 
   @Transactional
   public Bet.RevisionApplyResult apply(BetResolutionRevised event, String payloadHash) {
-    Bet bet = owned(event.getBetId(), event.getUserId());
-    return bet.applyRevision(
-        canonical(event.getEventId()),
-        canonical(event.getRevisionId()),
-        event.getRevisionNumber(),
-        SettlementResult.valueOf(event.getPreviousResult().name()),
-        SettlementResult.valueOf(event.getNewResult().name()),
-        money(event.getPreviousPayout()),
-        money(event.getNewPayout()),
-        event.getSourceResultSettledAt(),
-        event.getRevisedAt(),
-        payloadHash);
+    try {
+      Bet bet = owned(event.getBetId(), event.getUserId());
+      return bet.applyRevision(
+          canonical(event.getEventId()),
+          canonical(event.getRevisionId()),
+          event.getRevisionNumber(),
+          SettlementResult.valueOf(event.getPreviousResult().name()),
+          SettlementResult.valueOf(event.getNewResult().name()),
+          money(event.getPreviousPayout()),
+          money(event.getNewPayout()),
+          event.getSourceResultSettledAt(),
+          event.getRevisedAt(),
+          payloadHash);
+    } catch (IllegalArgumentException | IllegalStateException failure) {
+      throw permanent("Invalid resolution revision", failure);
+    }
   }
 
   private Bet owned(String rawBetId, String rawUserId) {
@@ -78,9 +91,9 @@ public class BetSettlementService {
     UUID userId = canonical(rawUserId);
     Bet bet =
         bets.findLockedByBetId(betId)
-            .orElseThrow(() -> new IllegalStateException("Resolution references unknown bet"));
+            .orElseThrow(() -> new PermanentKafkaException("Resolution references unknown bet"));
     if (!bet.userId().equals(userId)) {
-      throw new IllegalStateException("Resolution actor does not own bet");
+      throw new PermanentKafkaException("Resolution actor does not own bet");
     }
     return bet;
   }
@@ -93,7 +106,7 @@ public class BetSettlementService {
       if (bet.hasResolution(eventId, hash)) {
         return true;
       }
-      throw new IllegalStateException("Conflicting base resolution replay");
+      throw new PermanentKafkaException("Conflicting base resolution replay");
     }
     return false;
   }
@@ -108,5 +121,12 @@ public class BetSettlementService {
 
   private static Money money(com.sportsbook.protocol.event.Money value) {
     return new Money(value.getAmount(), Currency.valueOf(value.getCurrency()));
+  }
+
+  private static PermanentKafkaException permanent(String message, RuntimeException failure) {
+    if (failure instanceof PermanentKafkaException permanent) {
+      return permanent;
+    }
+    return new PermanentKafkaException(message, failure);
   }
 }
