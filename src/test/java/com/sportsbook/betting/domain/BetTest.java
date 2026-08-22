@@ -73,6 +73,20 @@ class BetTest {
   }
 
   @Test
+  void acceptsOnlyAfterRiskCommitProof() {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
+    bet.recordRiskReservation(NOW.plusSeconds(120), "d".repeat(64), false, NOW);
+    bet.confirmWallet(UUID.randomUUID(), NOW);
+
+    bet.commitRisk(NOW.plusSeconds(1));
+    bet.accept(NOW.plusSeconds(2));
+
+    assertThat(bet.placementPhase()).isEqualTo(PlacementPhase.RISK_COMMITTED);
+    assertThat(bet.riskCommitObserved()).isTrue();
+    assertThat(bet.status()).isEqualTo(BetStatus.ACCEPTED);
+  }
+
+  @Test
   void rejectsSlipShapeMismatch() {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () ->
