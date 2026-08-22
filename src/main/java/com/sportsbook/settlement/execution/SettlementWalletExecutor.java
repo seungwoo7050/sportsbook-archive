@@ -34,4 +34,16 @@ public class SettlementWalletExecutor {
         wallet.forfeit(
             "settle:forfeit:" + attempt.betId(), userId, attempt.money().lockedForfeit()));
   }
+
+  public Optional<UUID> payHouseProfit(SettlementAttempt attempt, UUID userId) {
+    if (attempt.money().houseProfit().isZero()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        wallet.credit(
+            "settle:payout:" + attempt.betId(),
+            userId,
+            attempt.money().houseProfit(),
+            WalletCreditPurpose.PROFIT_PAYOUT));
+  }
 }
