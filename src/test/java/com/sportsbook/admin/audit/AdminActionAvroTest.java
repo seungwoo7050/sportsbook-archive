@@ -4,22 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sportsbook.admin.event.AdminActionRecorded;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
 import org.apache.avro.SchemaNormalization;
 import org.apache.avro.io.DecoderFactory;
-import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
-import org.apache.avro.specific.SpecificDatumWriter;
 import org.junit.jupiter.api.Test;
 
 class AdminActionAvroTest {
 
   @Test
   void pinsTheTerminalSchemaFingerprint() {
-    assertThat(
-            SchemaNormalization.parsingFingerprint64(AdminActionRecorded.getClassSchema()))
+    assertThat(SchemaNormalization.parsingFingerprint64(AdminActionRecorded.getClassSchema()))
         .isEqualTo(467411456356349815L);
   }
 
@@ -60,15 +56,10 @@ class AdminActionAvroTest {
   }
 
   private static AdminActionRecorded roundTrip(AdminActionRecorded source) throws IOException {
-    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-    var writer = new SpecificDatumWriter<AdminActionRecorded>(source.getSchema());
-    var encoder = EncoderFactory.get().binaryEncoder(bytes, null);
-    writer.write(source, encoder);
-    encoder.flush();
-
     var reader = new SpecificDatumReader<AdminActionRecorded>(source.getSchema());
     var decoder =
-        DecoderFactory.get().binaryDecoder(new ByteArrayInputStream(bytes.toByteArray()), null);
+        DecoderFactory.get()
+            .binaryDecoder(new ByteArrayInputStream(AvroSerializer.toBytes(source)), null);
     return reader.read(null, decoder);
   }
 }
