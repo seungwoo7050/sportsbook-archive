@@ -70,6 +70,21 @@ class SettlementWorkerConfigurationTest {
     }
   }
 
+  @Test
+  void cancelsDelayedAndPeriodicWorkDuringShutdown() {
+    var scheduler = new SettlementWorkerConfiguration().recoveryScheduler();
+    scheduler.initialize();
+
+    try {
+      var executor = scheduler.getScheduledThreadPoolExecutor();
+      assertThat(executor.getExecuteExistingDelayedTasksAfterShutdownPolicy()).isFalse();
+      assertThat(executor.getContinueExistingPeriodicTasksAfterShutdownPolicy()).isFalse();
+      assertThat(executor.getRemoveOnCancelPolicy()).isTrue();
+    } finally {
+      scheduler.shutdown();
+    }
+  }
+
   private static void await(CountDownLatch latch) {
     try {
       latch.await();
