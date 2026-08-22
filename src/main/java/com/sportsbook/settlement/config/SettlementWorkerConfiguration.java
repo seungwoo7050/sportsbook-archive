@@ -18,6 +18,8 @@ public class SettlementWorkerConfiguration {
   public static final String OUTBOX = "settlementOutboxScheduler";
   public static final String LIFECYCLE = "settlementLifecycleScheduler";
   public static final String RECOVERY = "settlementRecoveryScheduler";
+  public static final String REVISION_RECOVERY = "settlementRevisionRecoveryScheduler";
+  public static final String CORRECTION = "settlementCorrectionScheduler";
 
   @Bean(OUTBOX)
   ThreadPoolTaskScheduler outboxScheduler() {
@@ -32,6 +34,16 @@ public class SettlementWorkerConfiguration {
   @Bean(RECOVERY)
   ThreadPoolTaskScheduler recoveryScheduler() {
     return worker("settlement-recovery-");
+  }
+
+  @Bean(REVISION_RECOVERY)
+  ThreadPoolTaskScheduler revisionRecoveryScheduler() {
+    return worker("settlement-revision-recovery-");
+  }
+
+  @Bean(CORRECTION)
+  ThreadPoolTaskScheduler correctionScheduler() {
+    return worker("settlement-correction-");
   }
 
   private static ThreadPoolTaskScheduler worker(String threadPrefix) {
