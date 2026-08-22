@@ -37,18 +37,19 @@ class RevisionFinalizerTest {
     RevisionLease lease = new RevisionLease(UUID.randomUUID(), Instant.MAX);
     Instant now = Instant.EPOCH.plusSeconds(2);
     when(bets.findForUpdateById(bet.betId())).thenReturn(Optional.of(bet));
-    when(revisions.markApplied(plan.revisionId(), lease, null, now)).thenReturn(true);
+    when(revisions.markApplied(plan.revisionId(), lease, null)).thenReturn(Optional.of(now));
     RevisionFinalizer finalizer =
         new RevisionFinalizer(
             bets, revisions, outbox, new SettlementTopics(null, null, null, null, null, null));
 
-    assertThat(finalizer.apply(plan, lease, null, now)).isTrue();
+    assertThat(finalizer.apply(plan, lease, null)).isTrue();
 
     assertThat(bet.revisionNumber()).isOne();
     assertThat(bet.result()).isEqualTo(SettlementResult.PUSH);
+    assertThat(bet.settledAt()).isEqualTo(now);
     assertThat(bet.selections().get(0).sourceCandidateId())
         .isEqualTo(plan.target().sourceCandidateId());
-    verify(revisions).markApplied(plan.revisionId(), lease, null, now);
+    verify(revisions).markApplied(plan.revisionId(), lease, null);
     verify(outbox).save(any(OutboxEvent.class));
   }
 
