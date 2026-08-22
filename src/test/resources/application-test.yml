@@ -20,4 +20,4 @@ betting:
     poll-interval-ms: 86400000
   reconciliation:
     poll-interval-ms: 86400000
-    pending-timeout: 0s
+    pending-timeout: 1ms
