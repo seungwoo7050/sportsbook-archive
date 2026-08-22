@@ -2,6 +2,7 @@ package com.sportsbook.settlement.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,25 @@ class SettlementWorkerConfigurationTest {
                 assertThat(context)
                     .doesNotHaveBean(SettlementWorkerConfiguration.OUTBOX)
                     .doesNotHaveBean(SettlementWorkerConfiguration.LIFECYCLE)
-                    .doesNotHaveBean(SettlementWorkerConfiguration.RECOVERY));
+                    .doesNotHaveBean(SettlementWorkerConfiguration.RECOVERY)
+                    .doesNotHaveBean(SettlementWorkerConfiguration.REVISION_RECOVERY)
+                    .doesNotHaveBean(SettlementWorkerConfiguration.CORRECTION));
+  }
+
+  @Test
+  void createsIndependentSchedulersForEachWorkerClass() {
+    new ApplicationContextRunner()
+        .withUserConfiguration(SettlementWorkerConfiguration.class)
+        .run(
+            context ->
+                assertThat(
+                        List.of(
+                            context.getBean(SettlementWorkerConfiguration.OUTBOX),
+                            context.getBean(SettlementWorkerConfiguration.LIFECYCLE),
+                            context.getBean(SettlementWorkerConfiguration.RECOVERY),
+                            context.getBean(SettlementWorkerConfiguration.REVISION_RECOVERY),
+                            context.getBean(SettlementWorkerConfiguration.CORRECTION)))
+                    .doesNotHaveDuplicates());
   }
 
   @Test
