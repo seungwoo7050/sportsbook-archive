@@ -13,12 +13,16 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.settlement.client.WalletFailurePolicy;
 import com.sportsbook.settlement.resolver.ResolvedSelection;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.client.ClientHttpResponse;
 
 class RevisionExecutionRunnerTest {
 
@@ -68,6 +72,37 @@ class RevisionExecutionRunnerTest {
 
     assertThat(runner.execute(plan, lease, false))
         .isEqualTo(RevisionExecutionRunner.Result.EXHAUSTED);
+  }
+
+  @Test
+  void pausesAClaimWhenItsBlockedProofIsMissing() throws Exception {
+    RevisionPlan plan = plan(100);
+    RevisionLease lease = new RevisionLease(UUID.randomUUID(), Instant.MAX);
+    WalletFailurePolicy.PermanentFailure missing = missingAdjustment();
+    when(wallet.recoverAmbiguous(plan, false)).thenThrow(missing);
+    when(revisions.rejectPermanent(plan.revisionId(), lease, missing, now))
+        .thenReturn(java.util.Optional.of(RevisionState.BLOCKED));
+
+    assertThat(runner.execute(plan, lease, true, false))
+        .isEqualTo(RevisionExecutionRunner.Result.BLOCKED);
+    verify(wallet).recoverAmbiguous(plan, false);
+    verify(revisions).rejectPermanent(plan.revisionId(), lease, missing, now);
+  }
+
+  private static WalletFailurePolicy.PermanentFailure missingAdjustment() throws Exception {
+    ClientHttpResponse response = mock(ClientHttpResponse.class);
+    when(response.getStatusCode()).thenReturn(HttpStatus.NOT_FOUND);
+    when(response.getBody())
+        .thenReturn(
+            new ByteArrayInputStream(
+                "{\"errorCode\":\"WALLET_ADJUSTMENT_NOT_FOUND\"}"
+                    .getBytes(StandardCharsets.UTF_8)));
+    try {
+      WalletFailurePolicy.throwFor(response);
+      throw new AssertionError("Expected missing Wallet adjustment");
+    } catch (WalletFailurePolicy.PermanentFailure failure) {
+      return failure;
+    }
   }
 
   private static RevisionPlan plan(long newPayout) {

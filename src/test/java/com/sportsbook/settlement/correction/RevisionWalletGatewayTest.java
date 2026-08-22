@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.domain.BetSlipType;
@@ -76,7 +78,7 @@ class RevisionWalletGatewayTest {
             Money.krw(100)))
         .thenReturn(applied(plan, plan.target().userId()));
 
-    new RevisionWalletGateway(wallet).recoverAmbiguous(plan);
+    new RevisionWalletGateway(wallet).recoverAmbiguous(plan, true);
 
     var ordered = inOrder(wallet);
     ordered.verify(wallet).findAdjustment(plan.revisionId());
@@ -89,6 +91,19 @@ class RevisionWalletGatewayTest {
             plan.target().userId(),
             Money.krw(200),
             Money.krw(100));
+  }
+
+  @Test
+  void doesNotRepostWhenADurableBlockedProofDisappears() throws Exception {
+    WalletClient wallet = mock(WalletClient.class);
+    RevisionPlan plan = plan();
+    WalletFailurePolicy.PermanentFailure missing = notFound();
+    when(wallet.findAdjustment(plan.revisionId())).thenThrow(missing);
+
+    assertThatThrownBy(() -> new RevisionWalletGateway(wallet).recoverAmbiguous(plan, false))
+        .isSameAs(missing);
+    verify(wallet).findAdjustment(plan.revisionId());
+    verifyNoMoreInteractions(wallet);
   }
 
   private static WalletFailurePolicy.PermanentFailure notFound() throws Exception {
