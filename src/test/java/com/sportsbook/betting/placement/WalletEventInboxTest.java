@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.sportsbook.betting.config.PermanentKafkaException;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.persistence.BetRepository;
 import com.sportsbook.betting.persistence.WalletEventReceiptRepository;
@@ -58,7 +59,7 @@ class WalletEventInboxTest {
             () ->
                 inbox(receipts, bets)
                     .record(eventId, "wallet.debited.v1", betId, userId, "b".repeat(64)))
-        .isInstanceOf(IllegalStateException.class)
+        .isInstanceOf(PermanentKafkaException.class)
         .hasMessageContaining("Conflicting");
     verifyNoInteractions(bets);
   }
