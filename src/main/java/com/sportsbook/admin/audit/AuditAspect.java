@@ -9,13 +9,16 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.context.expression.MethodBasedEvaluationContext;
 import org.springframework.core.DefaultParameterNameDiscoverer;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.annotation.Order;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.stereotype.Component;
 
 @Aspect
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public final class AuditAspect {
 
   private final AuditService audits;
@@ -36,8 +39,10 @@ public final class AuditAspect {
       throw new IllegalStateException("Audit metadata is required");
     }
     AdminContext context = context(invocation.getArgs());
-    String target = evaluate(audited.target(), method, invocation.getTarget(), invocation.getArgs());
-    String reason = evaluate(audited.reason(), method, invocation.getTarget(), invocation.getArgs());
+    String target =
+        evaluate(audited.target(), method, invocation.getTarget(), invocation.getArgs());
+    String reason =
+        evaluate(audited.reason(), method, invocation.getTarget(), invocation.getArgs());
     audits.begin(context, audited.action().name(), target, reason);
 
     Object result = null;
@@ -74,8 +79,7 @@ public final class AuditAspect {
         .orElseThrow(() -> new IllegalStateException("Audited method requires AdminContext"));
   }
 
-  private String evaluate(
-      String expression, Method method, Object target, Object[] arguments) {
+  private String evaluate(String expression, Method method, Object target, Object[] arguments) {
     if (expression.isBlank()) {
       return null;
     }
