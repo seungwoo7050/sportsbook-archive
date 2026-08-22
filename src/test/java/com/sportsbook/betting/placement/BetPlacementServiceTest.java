@@ -1,5 +1,6 @@
 package com.sportsbook.betting.placement;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,6 +20,7 @@ import com.sportsbook.betting.error.PersistedRejectionException;
 import com.sportsbook.betting.outbox.BetEventFactory;
 import com.sportsbook.betting.outbox.OutboxEvent;
 import com.sportsbook.protocol.domain.BetSlipType;
+import com.sportsbook.protocol.domain.BetStatus;
 import com.sportsbook.protocol.error.ErrorCode;
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
@@ -152,12 +154,77 @@ class BetPlacementServiceTest {
     when(store.rejectAtCreation(any(), any(), any(), any())).thenReturn(bet);
 
     catchThrowableOfType(
-        () -> service(assembler, risk, wallet, store).place(command),
+        () ->
+            service(assembler, risk, wallet, mock(), mock(), store)
+                .place(command),
         com.sportsbook.betting.error.ValidationFailedException.class);
 
     org.mockito.Mockito.verify(store)
         .rejectAtCreation(bet.betId(), ErrorCode.VALIDATION_FAILED, "invalid", Instant.EPOCH);
     verifyNoInteractions(wallet);
+  }
+
+  @Test
+  void refundsWithoutRereservingWhenRiskCommitIsMissing() {
+    BetAssembler assembler = mock(BetAssembler.class);
+    RiskClient risk = mock(RiskClient.class);
+    WalletClient wallet = mock(WalletClient.class);
+    BetEventFactory events = mock(BetEventFactory.class);
+    IdempotencyCache idempotency = mock(IdempotencyCache.class);
+    BetStore store = mock(BetStore.class);
+    Bet bet = pending(command());
+    bet.recordRiskReservation(Instant.EPOCH.plusSeconds(60), "c".repeat(64), false, Instant.EPOCH);
+    bet.confirmWallet(UUID.randomUUID(), Instant.EPOCH);
+    when(store.findById(bet.betId())).thenReturn(bet);
+    when(risk.commit(bet.betId(), "c".repeat(64))).thenReturn(RiskClient.CommitResult.NOT_FOUND);
+    doAnswer(
+            ignored -> {
+              bet.requireWalletRefund("LIMIT_EXCEEDED", "missing reservation", Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .requireWalletRefund(
+            bet.betId(),
+            ErrorCode.LIMIT_EXCEEDED,
+            "Risk reservation commit failed: NOT_FOUND",
+            Instant.EPOCH);
+    checkpointCompensation(store, bet);
+    UUID refundId = UUID.randomUUID();
+    when(wallet.refund(bet.betId(), bet.userId(), Money.krw(1_000))).thenReturn(refundId);
+    doAnswer(
+            ignored -> {
+              bet.completeWalletRefund(refundId, Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .completeWalletRefund(bet.betId(), refundId, Instant.EPOCH);
+    rejectAfterCompensation(store, bet);
+    Bet result =
+        service(assembler, risk, wallet, events, idempotency, store).reconcile(bet.betId());
+
+    assertThat(result.status()).isEqualTo(BetStatus.REJECTED);
+    org.mockito.Mockito.verify(risk, org.mockito.Mockito.never())
+        .reserve(any(), any(), any(), any());
+  }
+
+  private static void checkpointCompensation(BetStore store, Bet bet) {
+    doAnswer(
+            ignored -> {
+              bet.beginCompensation(Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .beginCompensation(bet.betId(), Instant.EPOCH);
+  }
+
+  private static void rejectAfterCompensation(BetStore store, Bet bet) {
+    doAnswer(
+            ignored -> {
+              bet.rejectAfterCompensation(Instant.EPOCH);
+              return bet;
+            })
+        .when(store)
+        .rejectAfterCompensation(bet.betId(), Instant.EPOCH);
   }
 
   private static BetPlacementService service(
@@ -189,7 +256,13 @@ class BetPlacementServiceTest {
                 "Duplicate selection is not allowed"));
 
     BetPlacementService service =
-        service(assembler, mock(RiskClient.class), mock(WalletClient.class), store);
+        service(
+            assembler,
+            mock(RiskClient.class),
+            mock(WalletClient.class),
+            mock(BetEventFactory.class),
+            mock(IdempotencyCache.class),
+            store);
     catchThrowableOfType(
         () -> service.place(command),
         com.sportsbook.betting.error.ValidationFailedException.class);
