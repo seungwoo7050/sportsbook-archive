@@ -1,6 +1,8 @@
 package com.sportsbook.betting.placement;
 
 import com.sportsbook.betting.domain.Bet;
+import com.sportsbook.betting.outbox.OutboxEvent;
+import com.sportsbook.betting.outbox.OutboxEventRepository;
 import com.sportsbook.betting.persistence.BetRepository;
 import com.sportsbook.betting.persistence.PlacementRequestRepository;
 import com.sportsbook.protocol.domain.BetStatus;
@@ -15,10 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class BetStore {
 
   private final BetRepository bets;
+  private final OutboxEventRepository outbox;
   private final PlacementRequestRepository requests;
 
-  public BetStore(BetRepository bets, PlacementRequestRepository requests) {
+  public BetStore(
+      BetRepository bets, OutboxEventRepository outbox, PlacementRequestRepository requests) {
     this.bets = bets;
+    this.outbox = outbox;
     this.requests = requests;
   }
 
@@ -91,14 +96,48 @@ public class BetStore {
     pending(betId).completeWalletRefund(operationId, now);
   }
 
+  @Transactional
+  public Bet rejectAtCreation(UUID betId, ErrorCode reason, String detail, Instant now) {
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.PENDING) {
+      bet.rejectAtCreation(reason.name(), detail, now);
+    }
+    return bet;
+  }
+
+  @Transactional
+  public Bet rejectAfterCompensation(UUID betId, Instant now) {
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.PENDING) {
+      bet.rejectAfterCompensation(now);
+    }
+    return bet;
+  }
+
+  @Transactional
+  public Bet acceptAndEnqueue(UUID betId, OutboxEvent event, Instant now) {
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.ACCEPTED) {
+      return bet;
+    }
+    if (bet.status() != BetStatus.PENDING) {
+      throw new IllegalStateException("Cannot accept terminal bet " + betId);
+    }
+    bet.accept(now);
+    outbox.save(event);
+    return bet;
+  }
+
   private Bet pending(UUID betId) {
-    Bet bet =
-        bets.findLockedByBetId(betId)
-            .orElseThrow(
-                () -> new IllegalStateException("Bet vanished during placement: " + betId));
+    Bet bet = locked(betId);
     if (bet.status() != BetStatus.PENDING) {
       throw new IllegalStateException("Placement cannot update terminal bet " + betId);
     }
     return bet;
+  }
+
+  private Bet locked(UUID betId) {
+    return bets.findLockedByBetId(betId)
+        .orElseThrow(() -> new IllegalStateException("Bet vanished during placement: " + betId));
   }
 }
