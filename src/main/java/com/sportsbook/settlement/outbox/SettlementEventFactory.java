@@ -1,13 +1,16 @@
 package com.sportsbook.settlement.outbox;
 
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.SettlementResultAvro;
 import com.sportsbook.protocol.event.VoidReason;
 import com.sportsbook.settlement.config.SettlementTopics;
+import com.sportsbook.settlement.correction.RevisionPlan;
 import com.sportsbook.settlement.domain.Bet;
 import com.sportsbook.settlement.domain.BetSelection;
 import com.sportsbook.settlement.domain.SettlementStatus;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -65,6 +68,30 @@ public final class SettlementEventFactory {
         BetVoided.class.getSimpleName(),
         encoder.encode(event),
         bet.settledAt());
+  }
+
+  public OutboxEvent revised(RevisionPlan plan, Instant revisedAt) {
+    var target = plan.target();
+    BetResolutionRevised event =
+        BetResolutionRevised.newBuilder()
+            .setRevisionId(plan.revisionId().toString())
+            .setRevisionNumber(target.revisionNumber())
+            .setBetId(target.betId().toString())
+            .setUserId(target.userId().toString())
+            .setEventId(target.eventId().toString())
+            .setPreviousResult(SettlementResultAvro.valueOf(target.previousResult().name()))
+            .setNewResult(SettlementResultAvro.valueOf(plan.newResult().name()))
+            .setPreviousPayout(money(target.previousPayout()))
+            .setNewPayout(money(plan.newPayout()))
+            .setSourceResultSettledAt(target.sourceResultSettledAt())
+            .setRevisedAt(revisedAt)
+            .build();
+    return OutboxEvent.pending(
+        topics.betResolutionRevised(),
+        target.betId().toString(),
+        BetResolutionRevised.class.getSimpleName(),
+        encoder.encode(event),
+        revisedAt);
   }
 
   private static com.sportsbook.protocol.event.Money money(
