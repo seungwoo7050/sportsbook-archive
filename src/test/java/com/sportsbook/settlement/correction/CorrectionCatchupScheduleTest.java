@@ -6,14 +6,14 @@ import com.sportsbook.settlement.config.SettlementWorkerConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.annotation.Scheduled;
 
-class RevisionRecoveryScheduleTest {
+class CorrectionCatchupScheduleTest {
 
   @Test
-  void runsOnTheIsolatedRecoveryScheduler() throws NoSuchMethodException {
+  void usesDedicatedCorrectionScheduler() throws Exception {
     Scheduled scheduled =
-        RevisionRecoveryScanner.class.getMethod("recover").getAnnotation(Scheduled.class);
+        CorrectionCatchupScanner.class.getMethod("catchUp").getAnnotation(Scheduled.class);
 
-    assertThat(scheduled.scheduler()).isEqualTo(SettlementWorkerConfiguration.REVISION_RECOVERY);
+    assertThat(scheduled.scheduler()).isEqualTo(SettlementWorkerConfiguration.CORRECTION);
     assertThat(scheduled.fixedDelayString())
         .isEqualTo("${settlement.runtime.recovery-interval:PT1S}");
   }
