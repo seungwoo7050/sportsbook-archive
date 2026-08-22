@@ -87,6 +87,15 @@ public class ResultCandidateStore {
 
   @Transactional
   public boolean acceptFirst(UUID candidateId, java.time.Instant decidedAt) {
+    return acceptFirst(candidateId, decidedAt, "FIRST_RESULT");
+  }
+
+  @Transactional
+  public boolean approveFirst(UUID candidateId, java.time.Instant decidedAt) {
+    return acceptFirst(candidateId, decidedAt, "OPERATOR_APPROVED");
+  }
+
+  private boolean acceptFirst(UUID candidateId, java.time.Instant decidedAt, String reason) {
     int current =
         jdbc.update(
             """
@@ -114,15 +123,38 @@ public class ResultCandidateStore {
         jdbc.update(
             """
             update result_candidate set state = 'ACCEPTED', decided_at = ?,
-                decision_reason = 'FIRST_RESULT'
+                decision_reason = ?
             where candidate_id = ? and state = 'PENDING'
             """,
             required(decidedAt),
+            reason,
             candidateId);
     if (accepted != 1) {
       throw new IllegalStateException("First result decision lost its candidate");
     }
     return true;
+  }
+
+  public Optional<AdminCandidate> lockForAdmin(UUID candidateId) {
+    return jdbc
+        .query(
+            """
+            select c.event_id, c.state, c.settled_at, c.replaces_candidate_id,
+                m.accepted_candidate_id
+            from result_candidate c
+            left join match_result m on m.event_id = c.event_id
+            where c.candidate_id = ? for update of c
+            """,
+            (result, rowNumber) ->
+                new AdminCandidate(
+                    result.getObject("event_id", UUID.class),
+                    ResultCandidateState.valueOf(result.getString("state")),
+                    result.getTimestamp("settled_at").toInstant(),
+                    result.getObject("replaces_candidate_id", UUID.class),
+                    result.getObject("accepted_candidate_id", UUID.class)),
+            candidateId)
+        .stream()
+        .findFirst();
   }
 
   public Optional<UUID> findAcceptedCandidateId(UUID eventId) {
@@ -318,4 +350,11 @@ public class ResultCandidateStore {
   }
 
   public record AcceptedCandidate(UUID candidateId, java.time.Instant receivedAt) {}
+
+  public record AdminCandidate(
+      UUID eventId,
+      ResultCandidateState state,
+      Instant settledAt,
+      UUID replacesCandidateId,
+      UUID acceptedCandidateId) {}
 }
