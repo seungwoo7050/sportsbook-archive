@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetDraft;
 import com.sportsbook.betting.domain.BetLeg;
+import com.sportsbook.betting.domain.VoidReason;
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.IdempotencyKey;
@@ -50,6 +51,41 @@ class BetResponseResolutionTest {
 
     assertThat(BetResponse.from(bet).resolution().resolutionRevisionNumber()).isZero();
   }
+
+  @Test
+  void exposesTheCurrentCorrectionWhenRevisionArrivesBeforeBase() {
+    UUID eventId = UUID.randomUUID();
+    UUID revisionId = UUID.randomUUID();
+    Bet bet = accepted(eventId);
+    bet.applyRevision(
+        eventId,
+        revisionId,
+        1,
+        SettlementResult.LOST,
+        SettlementResult.WON,
+        Money.krw(0),
+        Money.krw(2_000),
+        NOW,
+        NOW.plusSeconds(1),
+        hash());
+
+    assertThat(BetResponse.from(bet).resolution())
+        .isEqualTo(
+            new BetResponse.ResolutionView(
+                "WON", Money.krw(2_000), null, NOW.plusSeconds(1), eventId, revisionId, 1L));
+  }
+
+  @Test
+  void exposesVoidWithoutInventingARefund() {
+    UUID eventId = UUID.randomUUID();
+    Bet bet = accepted(eventId);
+    bet.voidBase(eventId, VoidReason.EVENT_CANCELLED, NOW, hash());
+
+    assertThat(BetResponse.from(bet).resolution())
+        .isEqualTo(
+            new BetResponse.ResolutionView(null, null, "EVENT_CANCELLED", NOW, eventId, null, 0L));
+  }
+
   private static Bet accepted(UUID eventId) {
     Bet bet =
         Bet.pending(
