@@ -6,6 +6,7 @@ import com.sportsbook.betting.client.WalletClient;
 import com.sportsbook.betting.client.WalletOperationResponse;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetLeg;
+import com.sportsbook.betting.domain.CompensationAction;
 import com.sportsbook.betting.domain.CompensationState;
 import com.sportsbook.betting.domain.SystemBetCalculator;
 import com.sportsbook.betting.error.BetPlacementException;
@@ -109,10 +110,18 @@ public class BetPlacementService {
       if (current.status() != BetStatus.PENDING) {
         return current;
       }
-      if (current.compensationState() != CompensationState.NONE) {
-        return current;
-      }
       try {
+        if (current.compensationState() != CompensationState.NONE) {
+          switch (current.compensationState()) {
+            case REQUIRED -> store.beginCompensation(betId, clock.instant());
+            case IN_PROGRESS -> performCompensation(current);
+            case COMPLETED -> {
+              return finishCompensatedRejection(current, surfaceRejection);
+            }
+            case NONE -> throw new IllegalStateException("Unreachable compensation state");
+          }
+          continue;
+        }
         switch (current.placementPhase()) {
           case CREATED -> reserveRisk(current, surfaceRejection);
           case RISK_RESERVED -> confirmWallet(current, recovery);
@@ -126,6 +135,10 @@ public class BetPlacementService {
       }
     }
     return store.findById(betId);
+  }
+
+  Bet reconcile(UUID betId) {
+    return advance(betId, true, false);
   }
 
   private void confirmWallet(Bet bet, boolean recovery) {
@@ -170,6 +183,29 @@ public class BetPlacementService {
     Bet accepted = store.acceptAndEnqueue(bet.betId(), event, clock.instant());
     idempotency.markProcessed(IdempotencyKey.of(accepted.idempotencyKey()), accepted.betId());
     return accepted;
+  }
+
+  private void performCompensation(Bet bet) {
+    if (bet.compensationAction() == CompensationAction.RISK_RELEASE) {
+      RiskClient.ReleaseResult result = risk.release(bet.betId());
+      store.completeRiskRelease(
+          bet.betId(), result == RiskClient.ReleaseResult.COMMITTED, clock.instant());
+      return;
+    }
+    if (bet.compensationAction() == CompensationAction.WALLET_REFUND) {
+      UUID operationId = wallet.refund(bet.betId(), bet.userId(), totalExposure(bet));
+      store.completeWalletRefund(bet.betId(), operationId, clock.instant());
+      return;
+    }
+    throw new IllegalStateException("PENDING compensation has no action");
+  }
+
+  private Bet finishCompensatedRejection(Bet bet, boolean surfaceRejection) {
+    Bet rejected = store.rejectAfterCompensation(bet.betId(), clock.instant());
+    if (surfaceRejection) {
+      return PlacementReplay.bet(rejected, rejected.userId(), rejected.requestFingerprint());
+    }
+    return rejected;
   }
 
   private void reserveRisk(Bet bet, boolean surfaceRejection) {
