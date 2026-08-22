@@ -16,6 +16,8 @@ import com.sportsbook.betting.domain.BetDraft;
 import com.sportsbook.betting.domain.BetLeg;
 import com.sportsbook.betting.domain.SystemBetCalculator;
 import com.sportsbook.betting.error.PersistedRejectionException;
+import com.sportsbook.betting.outbox.BetEventFactory;
+import com.sportsbook.betting.outbox.OutboxEvent;
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.error.ErrorCode;
 import com.sportsbook.protocol.value.IdempotencyKey;
@@ -37,6 +39,8 @@ class BetPlacementServiceTest {
     BetAssembler assembler = mock(BetAssembler.class);
     RiskClient risk = mock(RiskClient.class);
     WalletClient wallet = mock(WalletClient.class);
+    BetEventFactory events = mock(BetEventFactory.class);
+    IdempotencyCache idempotency = mock(IdempotencyCache.class);
     BetStore store = mock(BetStore.class);
     PlaceBetCommand command = command();
     PlacementRequest request =
@@ -50,7 +54,7 @@ class BetPlacementServiceTest {
     when(store.findPlacementRequest("request-1")).thenReturn(Optional.of(request));
 
     catchThrowableOfType(
-        () -> service(assembler, risk, wallet, store).place(command),
+        () -> service(assembler, risk, wallet, events, idempotency, store).place(command),
         PersistedRejectionException.class);
 
     verifyNoInteractions(assembler, risk, wallet);
@@ -61,6 +65,8 @@ class BetPlacementServiceTest {
     BetAssembler assembler = mock(BetAssembler.class);
     RiskClient risk = mock(RiskClient.class);
     WalletClient wallet = mock(WalletClient.class);
+    BetEventFactory events = mock(BetEventFactory.class);
+    IdempotencyCache idempotency = mock(IdempotencyCache.class);
     BetStore store = mock(BetStore.class);
     PlaceBetCommand command = command();
     Bet bet = pending(command);
@@ -89,8 +95,32 @@ class BetPlacementServiceTest {
             })
         .when(store)
         .confirmWallet(bet.betId(), operationId, Instant.EPOCH);
+    when(risk.commit(bet.betId(), "b".repeat(64))).thenReturn(RiskClient.CommitResult.COMMITTED);
+    doAnswer(
+            ignored -> {
+              bet.commitRisk(Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .commitRisk(bet.betId(), Instant.EPOCH);
+    OutboxEvent event =
+        OutboxEvent.pending(
+            UUID.randomUUID(),
+            "bet.placed.v1",
+            bet.userId().toString(),
+            "schema",
+            new byte[] {1},
+            Instant.EPOCH);
+    when(events.placedRequested(bet, Instant.EPOCH)).thenReturn(event);
+    doAnswer(
+            ignored -> {
+              bet.accept(Instant.EPOCH);
+              return bet;
+            })
+        .when(store)
+        .acceptAndEnqueue(bet.betId(), event, Instant.EPOCH);
 
-    service(assembler, risk, wallet, store).place(command);
+    service(assembler, risk, wallet, events, idempotency, store).place(command);
 
     InOrder order = inOrder(risk, store, wallet);
     order.verify(risk).reserve(eq(bet.betId()), eq(bet.userId()), eq(Money.krw(1_000)), any());
@@ -99,6 +129,12 @@ class BetPlacementServiceTest {
         .recordRiskReservation(bet.betId(), expiresAt, "b".repeat(64), false, Instant.EPOCH);
     order.verify(wallet).debit(bet.betId(), bet.userId(), Money.krw(1_000));
     order.verify(store).confirmWallet(bet.betId(), operationId, Instant.EPOCH);
+    order.verify(risk).commit(bet.betId(), "b".repeat(64));
+    order.verify(store).commitRisk(bet.betId(), Instant.EPOCH);
+    order.verify(store).acceptAndEnqueue(bet.betId(), event, Instant.EPOCH);
+    InOrder completion = inOrder(store, idempotency);
+    completion.verify(store).acceptAndEnqueue(bet.betId(), event, Instant.EPOCH);
+    completion.verify(idempotency).markProcessed(IdempotencyKey.of("request-1"), bet.betId());
   }
 
   @Test
@@ -125,12 +161,19 @@ class BetPlacementServiceTest {
   }
 
   private static BetPlacementService service(
-      BetAssembler assembler, RiskClient risk, WalletClient wallet, BetStore store) {
+      BetAssembler assembler,
+      RiskClient risk,
+      WalletClient wallet,
+      BetEventFactory events,
+      IdempotencyCache idempotency,
+      BetStore store) {
     return new BetPlacementService(
         assembler,
         risk,
         wallet,
         new SystemBetCalculator(),
+        events,
+        idempotency,
         store,
         Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
   }
