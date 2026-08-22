@@ -2,6 +2,8 @@ package com.sportsbook.settlement.execution;
 
 import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
+import com.sportsbook.settlement.client.WalletFailurePolicy;
+import java.time.Instant;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -58,6 +60,24 @@ public class SettlementAttemptRepository {
             "delete from settlement_attempt where bet_id = ? and action = ? and lease_token = ?",
             attempt.betId(),
             attempt.action().name(),
+            attempt.lease().token())
+        == 1;
+  }
+
+  public boolean releaseForRecovery(SettlementAttempt attempt, Throwable failure, Instant now) {
+    String summary =
+        failure instanceof WalletFailurePolicy.Failure walletFailure
+            ? "WalletFailure:" + walletFailure.errorCode()
+            : failure.getClass().getSimpleName();
+    return jdbc.update(
+            """
+            update settlement_attempt
+            set lease_token = null, lease_until = null, last_error = ?, updated_at = ?
+            where bet_id = ? and lease_token = ?
+            """,
+            summary,
+            required(now),
+            attempt.betId(),
             attempt.lease().token())
         == 1;
   }
