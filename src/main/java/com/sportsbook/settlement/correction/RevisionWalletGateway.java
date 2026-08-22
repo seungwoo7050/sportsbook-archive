@@ -2,6 +2,7 @@ package com.sportsbook.settlement.correction;
 
 import com.sportsbook.settlement.client.WalletAdjustmentProof;
 import com.sportsbook.settlement.client.WalletClient;
+import com.sportsbook.settlement.client.WalletFailurePolicy;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -25,5 +26,16 @@ public class RevisionWalletGateway {
             target.previousPayout(),
             plan.newPayout());
     return proofs.requireExact(plan, proof);
+  }
+
+  public WalletAdjustmentProof recoverAmbiguous(RevisionPlan plan) {
+    try {
+      return proofs.requireExact(plan, wallet.findAdjustment(plan.revisionId()));
+    } catch (WalletFailurePolicy.PermanentFailure failure) {
+      if (failure.status() == 404 && "WALLET_ADJUSTMENT_NOT_FOUND".equals(failure.errorCode())) {
+        return submit(plan);
+      }
+      throw failure;
+    }
   }
 }
