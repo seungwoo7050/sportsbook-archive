@@ -5,6 +5,7 @@ import com.sportsbook.betting.error.DependencyUnavailableException;
 import com.sportsbook.betting.error.DuplicateBetException;
 import com.sportsbook.betting.error.RiskLimitException;
 import com.sportsbook.protocol.value.Money;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -27,6 +28,7 @@ public class RiskClient {
     this.http = http;
   }
 
+  @CircuitBreaker(name = "riskClient", fallbackMethod = "reserveFallback")
   public Reservation reserve(UUID betId, UUID userId, Money fullExposure, List<UUID> selectionIds) {
     try {
       RiskReservationResponse response =
@@ -54,6 +56,7 @@ public class RiskClient {
     }
   }
 
+  @CircuitBreaker(name = "riskClient", fallbackMethod = "commitFallback")
   public CommitResult commit(UUID betId, String reservationToken) {
     if (reservationToken == null || !reservationToken.matches("[0-9a-f]{64}")) {
       throw new IllegalArgumentException("reservationToken must be lowercase SHA-256");
@@ -91,6 +94,7 @@ public class RiskClient {
     }
   }
 
+  @CircuitBreaker(name = "riskClient", fallbackMethod = "releaseFallback")
   public ReleaseResult release(UUID betId) {
     try {
       http.delete()
@@ -132,6 +136,26 @@ public class RiskClient {
     } catch (RuntimeException exception) {
       throw new DependencyUnavailableException("Risk returned an invalid reservation", exception);
     }
+  }
+
+  private Reservation reserveFallback(
+      UUID betId, UUID userId, Money exposure, List<UUID> selections, Throwable failure) {
+    throw fallback(failure);
+  }
+
+  private CommitResult commitFallback(UUID betId, String token, Throwable failure) {
+    throw fallback(failure);
+  }
+
+  private ReleaseResult releaseFallback(UUID betId, Throwable failure) {
+    throw fallback(failure);
+  }
+
+  private static RuntimeException fallback(Throwable failure) {
+    if (failure instanceof BetPlacementException verdict) {
+      return verdict;
+    }
+    return new DependencyUnavailableException("Risk circuit is unavailable", failure);
   }
 
   public enum ReservationState {
