@@ -72,6 +72,9 @@ public class Bet {
   @Column(name = "settled_at")
   private Instant settledAt;
 
+  @Column(name = "revision_number", nullable = false)
+  private long revisionNumber;
+
   @OneToMany(mappedBy = "bet", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("legIndex ASC")
   private List<BetSelection> selections = new ArrayList<>();
@@ -156,6 +159,10 @@ public class Bet {
     return settledAt;
   }
 
+  public long revisionNumber() {
+    return revisionNumber;
+  }
+
   public List<BetSelection> selections() {
     return Collections.unmodifiableList(selections);
   }
@@ -190,6 +197,23 @@ public class Bet {
 
   public void recordVoided(Money refund, Instant now) {
     recordTerminal(SettlementStatus.VOIDED, SettlementResult.VOID, refund, now);
+  }
+
+  public long recordRevision(SettlementResult replacement, Money payout, Instant now) {
+    if (status != SettlementStatus.SETTLED) {
+      throw new IllegalStateException("Only settled bets can be revised");
+    }
+    Objects.requireNonNull(payout, "payout");
+    if (payout.isNegative() || payout.currency() != stake.toMoney().currency()) {
+      throw new IllegalArgumentException("Revision payout must use the stake currency");
+    }
+    revisionNumber = Math.incrementExact(revisionNumber);
+    result = Objects.requireNonNull(replacement, "replacement");
+    payoutAmount = payout.amount();
+    payoutCurrency = payout.currency();
+    settledAt = Objects.requireNonNull(now, "now");
+    updatedAt = now;
+    return revisionNumber;
   }
 
   private void recordTerminal(
