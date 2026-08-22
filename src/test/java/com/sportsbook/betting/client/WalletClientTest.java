@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sportsbook.betting.error.InsufficientBalanceException;
+import com.sportsbook.betting.error.WalletRejectedException;
 import com.sportsbook.protocol.value.Money;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +77,53 @@ class WalletClientTest {
         .hasMessage("not enough");
   }
 
+  @Test
+  void treatsOnlyOperationNotFoundAsAbsent() {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit/" + betId))
+        .andRespond(
+            withStatus(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(
+                    "{\"errorCode\":\"WALLET_OPERATION_NOT_FOUND\"," + "\"detail\":\"missing\"}"));
+
+    assertThat(client.findDebit(betId, userId, Money.krw(1_000))).isEmpty();
+  }
+
+  @Test
+  void retainsStoredAccountNotFoundVerdict() {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit/" + betId))
+        .andRespond(
+            withStatus(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(
+                    "{\"errorCode\":\"WALLET_ACCOUNT_NOT_FOUND\","
+                        + "\"detail\":\"account missing\"}"));
+
+    assertThatThrownBy(() -> client.findDebit(betId, userId, Money.krw(1_000)))
+        .isInstanceOf(WalletRejectedException.class)
+        .hasMessage("account missing");
+  }
+
+  @Test
+  void rejectsMismatchedRecoveredDebitProof() {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit/" + betId))
+        .andRespond(
+            withSuccess(
+                proof(UUID.randomUUID(), UUID.randomUUID(), 1_000, "BET_DEBIT"),
+                MediaType.APPLICATION_JSON));
+
+    assertThatThrownBy(() -> client.findDebit(betId, userId, Money.krw(1_000)))
+        .isInstanceOf(WalletRejectedException.class);
+  }
   private static String proof(UUID operationId, UUID userId, long amount, String reason) {
     return "{\"operationGroupId\":\""
         + operationId
