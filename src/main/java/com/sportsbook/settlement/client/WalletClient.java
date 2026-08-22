@@ -4,7 +4,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.sportsbook.protocol.value.Money;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -16,13 +19,25 @@ public class WalletClient {
 
   private final RestClient http;
 
-  public WalletClient(
+  WalletClient(
       RestClient.Builder builder,
       WalletEndpointProperties endpoint,
       WalletAuthenticationHeaders authentication) {
+    this(builder, endpoint, authentication, null);
+  }
+
+  @Autowired
+  public WalletClient(
+      RestClient.Builder builder,
+      WalletEndpointProperties endpoint,
+      WalletAuthenticationHeaders authentication,
+      @Qualifier(WalletHttpConfiguration.REQUEST_FACTORY) ClientHttpRequestFactory requestFactory) {
+    RestClient.Builder configured = builder.clone();
+    if (requestFactory != null) {
+      configured.requestFactory(requestFactory);
+    }
     this.http =
-        builder
-            .clone()
+        configured
             .baseUrl(endpoint.baseUrl().toString())
             .defaultHeaders(authentication::apply)
             .build();
