@@ -38,9 +38,22 @@ class FirstCandidateAcceptanceTest {
             "settled_at <= current_timestamp",
             "on conflict (event_id) do nothing");
     assertThat(sql.getAllValues().get(1)).contains("insert into match_selection_result");
-    assertThat(sql.getAllValues().get(2))
-        .contains("state = 'ACCEPTED'", "decision_reason = 'FIRST_RESULT'");
+    assertThat(sql.getAllValues().get(2)).contains("state = 'ACCEPTED'", "decision_reason = ?");
     assertThat(parameters.getAllValues().get(2)[0]).isInstanceOf(Timestamp.class);
+    assertThat(parameters.getAllValues().get(2)).contains("FIRST_RESULT");
+  }
+
+  @Test
+  void recordsOperatorApprovalForTheFirstCandidate() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1, 1, 1);
+
+    assertThat(new ResultCandidateStore(jdbc).approveFirst(UUID.randomUUID(), Instant.EPOCH))
+        .isTrue();
+
+    ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
+    verify(jdbc, times(3)).update(anyString(), parameters.capture());
+    assertThat(parameters.getAllValues().get(2)).contains("OPERATOR_APPROVED");
   }
 
   @Test
