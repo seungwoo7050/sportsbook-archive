@@ -37,10 +37,14 @@ public class SettlementFinalizer {
       throw new IllegalArgumentException("Resolved finalization requires SETTLE action");
     }
     Bet bet = bets.findForUpdateById(attempt.betId()).orElseThrow();
-    if (bet.status() != SettlementStatus.PENDING || !attempts.consumeLease(attempt)) {
+    if (bet.status() != SettlementStatus.PENDING) {
       return false;
     }
-    bet.recordSettled(attempt.result(), attempt.money().payout(), now);
+    var finalizedAt = attempts.consumeLease(attempt);
+    if (finalizedAt.isEmpty()) {
+      return false;
+    }
+    bet.recordSettled(attempt.result(), attempt.money().payout(), finalizedAt.orElseThrow());
     outbox.save(events.settled(bet, attempt.eventId()));
     return true;
   }
@@ -51,10 +55,14 @@ public class SettlementFinalizer {
       throw new IllegalArgumentException("Whole slip finalization requires VOID action");
     }
     Bet bet = bets.findForUpdateById(attempt.betId()).orElseThrow();
-    if (bet.status() != SettlementStatus.PENDING || !attempts.consumeLease(attempt)) {
+    if (bet.status() != SettlementStatus.PENDING) {
       return false;
     }
-    bet.recordVoided(attempt.money().payout(), now);
+    var finalizedAt = attempts.consumeLease(attempt);
+    if (finalizedAt.isEmpty()) {
+      return false;
+    }
+    bet.recordVoided(attempt.money().payout(), finalizedAt.orElseThrow());
     outbox.save(events.voided(bet, attempt.eventId(), VoidReason.valueOf(attempt.voidReason())));
     return true;
   }

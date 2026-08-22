@@ -82,13 +82,20 @@ public class SettlementAttemptRepository {
                     clock.updatedAt()));
   }
 
-  public boolean consumeLease(SettlementAttempt attempt) {
-    return jdbc.update(
-            "delete from settlement_attempt where bet_id = ? and action = ? and lease_token = ?",
+  public Optional<Instant> consumeLease(SettlementAttempt attempt) {
+    return jdbc
+        .query(
+            """
+            delete from settlement_attempt where bet_id = ? and action = ?
+                and lease_token = ? and lease_until > current_timestamp
+            returning date_trunc('milliseconds', current_timestamp) as finalized_at
+            """,
+            (result, rowNumber) -> result.getTimestamp("finalized_at").toInstant(),
             attempt.betId(),
             attempt.action().name(),
             attempt.lease().token())
-        == 1;
+        .stream()
+        .findFirst();
   }
 
   public boolean releaseForRecovery(SettlementAttempt attempt, Throwable failure, Instant now) {
