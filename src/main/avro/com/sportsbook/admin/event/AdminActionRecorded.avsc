@@ -1,0 +1,26 @@
+{
+  "namespace": "com.sportsbook.admin.event",
+  "type": "record",
+  "name": "AdminActionRecorded",
+  "doc": "Terminal streaming copy of the authoritative admin audit row.",
+  "fields": [
+    {"name": "actionId", "type": "string"},
+    {"name": "actorId", "type": "string"},
+    {"name": "actorRole", "type": "string"},
+    {"name": "action", "type": "string"},
+    {"name": "target", "type": ["null", "string"], "default": null},
+    {"name": "outcome", "type": "string"},
+    {"name": "httpStatus", "type": ["null", "int"], "default": null},
+    {"name": "reason", "type": ["null", "string"], "default": null},
+    {"name": "traceId", "type": ["null", "string"], "default": null},
+    {
+      "name": "startedAt",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {
+      "name": "completedAt",
+      "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}],
+      "default": null
+    }
+  ]
+}
