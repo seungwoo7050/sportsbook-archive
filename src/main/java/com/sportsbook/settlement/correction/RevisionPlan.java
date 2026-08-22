@@ -23,7 +23,8 @@ public record RevisionPlan(
     Objects.requireNonNull(newPayout, "newPayout");
     Objects.requireNonNull(createdAt, "createdAt");
     if (newPayout.isNegative() || newPayout.currency() != target.previousPayout().currency()) {
-      throw new IllegalArgumentException("Revision payout must preserve currency and be nonnegative");
+      throw new IllegalArgumentException(
+          "Revision payout must preserve currency and be nonnegative");
     }
   }
 
@@ -40,5 +41,9 @@ public record RevisionPlan(
 
   public boolean hasZeroDelta() {
     return deltaAmount() == 0;
+  }
+
+  public boolean requiresWalletAdjustment() {
+    return !hasZeroDelta();
   }
 }
