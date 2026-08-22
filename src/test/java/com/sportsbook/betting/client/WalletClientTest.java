@@ -185,6 +185,68 @@ class WalletClientTest {
     }
   }
 
+  @Test
+  void adoptsOnlyAnAuthoritativeDebitAfterIdempotencyConflict() {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    UUID operationId = UUID.randomUUID();
+    expectDebitConflict(betId);
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit/" + betId))
+        .andRespond(
+            withSuccess(
+                proof(operationId, userId, 1_000, "BET_DEBIT"), MediaType.APPLICATION_JSON));
+
+    assertThat(client.debit(betId, userId, Money.krw(1_000))).isEqualTo(operationId);
+  }
+
+  @Test
+  void isolatesForeignDebitProofAfterIdempotencyConflict() {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    expectDebitConflict(betId);
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit/" + betId))
+        .andRespond(
+            withSuccess(
+                proof(UUID.randomUUID(), UUID.randomUUID(), 1_000, "BET_DEBIT"),
+                MediaType.APPLICATION_JSON));
+
+    assertThatThrownBy(() -> client.debit(betId, userId, Money.krw(1_000)))
+        .isInstanceOf(WalletRejectedException.class);
+  }
+
+  @Test
+  void isolatesMissingDebitProofAfterIdempotencyConflict() {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    expectDebitConflict(betId);
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit/" + betId))
+        .andRespond(
+            withStatus(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"errorCode\":\"WALLET_OPERATION_NOT_FOUND\"}"));
+
+    assertThatThrownBy(() -> client.debit(betId, userId, Money.krw(1_000)))
+        .isInstanceOf(WalletRejectedException.class)
+        .extracting("walletErrorCode")
+        .isEqualTo("WALLET_IDEMPOTENCY_CONFLICT");
+  }
+
+  @Test
+  void keepsRefundConflictIncomplete() {
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/credit"))
+        .andRespond(
+            withStatus(HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"errorCode\":\"WALLET_IDEMPOTENCY_CONFLICT\"}"));
+
+    assertThatThrownBy(() -> client.refund(UUID.randomUUID(), UUID.randomUUID(), Money.krw(1_000)))
+        .isInstanceOf(com.sportsbook.betting.error.WalletProofMismatchException.class);
+  }
+
   private static String proof(UUID operationId, UUID userId, long amount, String reason) {
     return "{\"operationGroupId\":\""
         + operationId
@@ -195,5 +257,15 @@ class WalletClientTest {
         + ",\"currency\":\"KRW\"},\"reason\":\""
         + reason
         + "\",\"at\":\"2026-08-22T00:00:00Z\"}";
+  }
+
+  private void expectDebitConflict(UUID betId) {
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/debit"))
+        .andExpect(header("Idempotency-Key", betId.toString()))
+        .andRespond(
+            withStatus(HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"errorCode\":\"WALLET_IDEMPOTENCY_CONFLICT\"}"));
   }
 }

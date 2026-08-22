@@ -29,13 +29,14 @@ class WalletProblemMapperTest {
         java.util.List.of(
             "WALLET_CURRENCY_MISMATCH",
             "WALLET_AMOUNT_OUT_OF_RANGE",
-            "WALLET_ACCOUNT_RECOVERY_BLOCKED",
-            "WALLET_IDEMPOTENCY_CONFLICT")) {
+            "WALLET_ACCOUNT_RECOVERY_BLOCKED")) {
       assertThat(mapper.map(read(code, "durable rejection")))
           .isInstanceOf(WalletRejectedException.class)
           .extracting("walletErrorCode")
           .isEqualTo(code);
     }
+    assertThat(mapper.map(read("WALLET_IDEMPOTENCY_CONFLICT", "conflict")))
+        .isInstanceOf(com.sportsbook.betting.error.DependencyUnavailableException.class);
   }
 
   private WalletProblem read(String code, String detail) {
