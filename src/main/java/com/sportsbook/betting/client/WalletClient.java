@@ -48,6 +48,11 @@ public class WalletClient {
                   (request, error) -> {
                     throw problems.map(problems.read(error));
                   })
+              .onStatus(
+                  status -> status.value() != HttpStatus.OK.value(),
+                  (request, error) -> {
+                    throw new DependencyUnavailableException("Wallet debit was not accepted");
+                  })
               .body(WalletOperationResponse.class);
       return requireDebitProof(response, userId, fullExposure);
     } catch (BetPlacementException exception) {
@@ -78,6 +83,11 @@ public class WalletClient {
                   (request, error) -> {
                     throw problems.map(problems.read(error));
                   })
+              .onStatus(
+                  status -> status.value() != HttpStatus.OK.value(),
+                  (request, error) -> {
+                    throw new DependencyUnavailableException("Wallet lookup was not accepted");
+                  })
               .body(WalletOperationResponse.class);
       requireDebitProof(response, userId, fullExposure);
       return Optional.of(response);
@@ -104,6 +114,11 @@ public class WalletClient {
                   HttpStatusCode::is4xxClientError,
                   (request, error) -> {
                     throw problems.map(problems.read(error));
+                  })
+              .onStatus(
+                  status -> status.value() != HttpStatus.OK.value(),
+                  (request, error) -> {
+                    throw new DependencyUnavailableException("Wallet refund was not accepted");
                   })
               .body(WalletOperationResponse.class);
       return requireProof(response, userId, fullExposure, REFUND_REASON);
