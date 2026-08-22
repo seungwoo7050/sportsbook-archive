@@ -1,9 +1,11 @@
 package com.sportsbook.betting.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.domain.BetStatus;
+import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.IdempotencyKey;
 import com.sportsbook.protocol.value.Money;
 import java.time.Instant;
@@ -112,6 +114,60 @@ class BetTest {
     assertThat(bet.riskCommitObserved()).isTrue();
     assertThat(bet.compensationState()).isEqualTo(CompensationState.COMPLETED);
     assertThat(bet.status()).isEqualTo(BetStatus.REJECTED);
+  }
+
+  @Test
+  void settlesAgainstOriginalSystemUnitStake() {
+    Bet bet = accepted(new BetSlipType.System(2, 3), List.of(leg("2"), leg("3"), leg("4")));
+    UUID eventId = bet.legs().get(0).eventId();
+
+    bet.settleBase(
+        eventId,
+        SettlementResult.WON,
+        Money.krw(1_000),
+        Money.krw(2_600),
+        NOW.plusSeconds(10),
+        "1".repeat(64));
+
+    assertThat(bet.status()).isEqualTo(BetStatus.SETTLED);
+    assertThat(bet.settlementResult()).isEqualTo(SettlementResult.WON);
+    assertThat(bet.settledPayout()).isEqualTo(Money.krw(2_600));
+    assertThat(bet.resolutionRevisionNumber()).isZero();
+  }
+
+  @Test
+  void projectsWholeSlipVoidSeparately() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+
+    bet.voidBase(bet.legs().get(0).eventId(), VoidReason.EVENT_CANCELLED, NOW, "2".repeat(64));
+
+    assertThat(bet.status()).isEqualTo(BetStatus.VOIDED);
+    assertThat(bet.voidReason()).isEqualTo(VoidReason.EVENT_CANCELLED);
+  }
+
+  @Test
+  void rejectsBaseResolutionForAnUnselectedEvent() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+
+    assertThatThrownBy(
+            () ->
+                bet.settleBase(
+                    UUID.randomUUID(),
+                    SettlementResult.WON,
+                    Money.krw(1_000),
+                    Money.krw(2_000),
+                    NOW,
+                    "a".repeat(64)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("selected leg");
+  }
+  static Bet accepted(BetSlipType type, List<BetLeg> legs) {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), type), legs);
+    bet.recordRiskReservation(NOW.plusSeconds(120), "9".repeat(64), false, NOW);
+    bet.confirmWallet(UUID.randomUUID(), NOW);
+    bet.commitRisk(NOW);
+    bet.accept(NOW);
+    return bet;
   }
 
   @Test
