@@ -64,6 +64,45 @@ public class ResultCandidateStore {
         RecordKind.CREATED, candidate.candidateId(), ResultCandidateState.PENDING);
   }
 
+  @Transactional
+  public boolean acceptFirst(UUID candidateId, java.time.Instant decidedAt) {
+    int current =
+        jdbc.update(
+            """
+            insert into match_result (
+                event_id, mode, settled_at, received_at, accepted_candidate_id)
+            select event_id, mode, settled_at, received_at, candidate_id
+            from result_candidate where candidate_id = ? and state = 'PENDING'
+            on conflict (event_id) do nothing
+            """,
+            candidateId);
+    if (current == 0) {
+      return false;
+    }
+    jdbc.update(
+        """
+        insert into match_selection_result (event_id, selection_id, outcome)
+        select c.event_id, s.selection_id, s.outcome
+        from result_candidate c join result_candidate_selection s
+          on s.candidate_id = c.candidate_id
+        where c.candidate_id = ?
+        """,
+        candidateId);
+    int accepted =
+        jdbc.update(
+            """
+            update result_candidate set state = 'ACCEPTED', decided_at = ?,
+                decision_reason = 'FIRST_RESULT'
+            where candidate_id = ? and state = 'PENDING'
+            """,
+            required(decidedAt),
+            candidateId);
+    if (accepted != 1) {
+      throw new IllegalStateException("First result decision lost its candidate");
+    }
+    return true;
+  }
+
   private RecordOutcome find(UUID eventId, String fingerprint) {
     return jdbc
         .query(
