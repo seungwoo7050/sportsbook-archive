@@ -29,6 +29,12 @@ class MigrationContractTest {
         .isEqualTo("a57b6a695e8a94624d1e62fe4719e5ce384bc6cec00236d11b68b1a2e21b9589");
   }
 
+  @Test
+  void preservesWholeSlipVoidSchema() {
+    assertThat(sha256("V4__bet_void_reason.sql"))
+        .isEqualTo("4e42907201bdbfe211f505ac9a8fbe4321a493b55a56747f48af078eb98f3ca8");
+  }
+
   private String sha256(String migration) {
     try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {
