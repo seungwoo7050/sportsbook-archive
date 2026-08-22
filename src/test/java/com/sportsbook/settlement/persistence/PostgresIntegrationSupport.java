@@ -3,6 +3,7 @@ package com.sportsbook.settlement.persistence;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,5 +78,40 @@ abstract class PostgresIntegrationSupport {
     return new PendingBet(betId, userId, eventId, selectionId);
   }
 
+  protected PendingMultiple insertPendingMultiple(Map<UUID, UUID> eventSelections) {
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    Timestamp now = Timestamp.from(Instant.parse("2026-08-22T00:00:00Z"));
+    jdbc.update(
+        """
+        insert into bet (bet_id, user_id, slip_type, stake_amount, stake_currency,
+            status, requested_at, created_at, updated_at)
+        values (?, ?, 'MULTIPLE', 100, 'KRW', 'PENDING', ?, ?, ?)
+        """,
+        betId,
+        userId,
+        now,
+        now,
+        now);
+    int index = 0;
+    for (var selection : eventSelections.entrySet()) {
+      jdbc.update(
+          """
+          insert into bet_selection (selection_row_id, bet_id, leg_index, event_id,
+              market_id, selection_id, odds) values (?, ?, ?, ?, ?, ?, ?)
+          """,
+          UUID.randomUUID(),
+          betId,
+          index++,
+          selection.getKey(),
+          UUID.randomUUID(),
+          selection.getValue(),
+          new BigDecimal("2.0000"));
+    }
+    return new PendingMultiple(betId, userId, Map.copyOf(eventSelections));
+  }
+
   protected record PendingBet(UUID betId, UUID userId, UUID eventId, UUID selectionId) {}
+
+  protected record PendingMultiple(UUID betId, UUID userId, Map<UUID, UUID> eventSelections) {}
 }
