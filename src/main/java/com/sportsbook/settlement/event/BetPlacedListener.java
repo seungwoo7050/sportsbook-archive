@@ -5,6 +5,10 @@ import com.sportsbook.settlement.lifecycle.LifecycleFanout;
 import com.sportsbook.settlement.lifecycle.LifecycleStore;
 import com.sportsbook.settlement.readmodel.BetPlacement;
 import com.sportsbook.settlement.readmodel.BetReadModelWriter;
+import com.sportsbook.settlement.result.AcceptedResultRepository;
+import com.sportsbook.settlement.result.ResultFanout;
+import java.util.List;
+import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -21,17 +25,25 @@ public class BetPlacedListener {
   private final BetPlacedMapper mapper;
   private final LifecycleStore lifecycles;
   private final LifecycleFanout lifecycleFanout;
+  private final AcceptedResultRepository acceptedResults;
+  private final ResultFanout resultFanout;
 
   @Autowired
   public BetPlacedListener(
-      BetReadModelWriter writer, LifecycleStore lifecycles, LifecycleFanout lifecycleFanout) {
+      BetReadModelWriter writer,
+      LifecycleStore lifecycles,
+      LifecycleFanout lifecycleFanout,
+      AcceptedResultRepository acceptedResults,
+      ResultFanout resultFanout) {
     this(
         writer,
         new StrictAvroDecoder(),
         new KafkaUuidKeyValidator(),
         new BetPlacedMapper(),
         lifecycles,
-        lifecycleFanout);
+        lifecycleFanout,
+        acceptedResults,
+        resultFanout);
   }
 
   BetPlacedListener(
@@ -40,13 +52,17 @@ public class BetPlacedListener {
       KafkaUuidKeyValidator keys,
       BetPlacedMapper mapper,
       LifecycleStore lifecycles,
-      LifecycleFanout lifecycleFanout) {
+      LifecycleFanout lifecycleFanout,
+      AcceptedResultRepository acceptedResults,
+      ResultFanout resultFanout) {
     this.writer = writer;
     this.decoder = decoder;
     this.keys = keys;
     this.mapper = mapper;
     this.lifecycles = lifecycles;
     this.lifecycleFanout = lifecycleFanout;
+    this.acceptedResults = acceptedResults;
+    this.resultFanout = resultFanout;
   }
 
   @KafkaListener(
@@ -57,11 +73,16 @@ public class BetPlacedListener {
     keys.requireMatching(record.key(), event.getUserId(), "userId");
     BetPlacement placement = mapper.map(event);
     writer.record(placement);
-    placement.selections().stream()
-        .map(BetPlacement.Selection::eventId)
-        .distinct()
-        .sorted()
-        .forEach(eventId -> lifecycles.findTombstone(eventId).ifPresent(lifecycleFanout::fanOut));
+    List<UUID> eventIds =
+        placement.selections().stream()
+            .map(BetPlacement.Selection::eventId)
+            .distinct()
+            .sorted()
+            .toList();
+    eventIds.forEach(
+        eventId -> lifecycles.findTombstone(eventId).ifPresent(lifecycleFanout::fanOut));
+    eventIds.forEach(
+        eventId -> acceptedResults.findByEventId(eventId).ifPresent(resultFanout::fanOut));
     acknowledgment.acknowledge();
   }
 }
