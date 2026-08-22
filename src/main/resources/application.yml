@@ -22,6 +22,10 @@ spring:
       ack-mode: manual_immediate
 
 management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
   endpoint:
     health:
       probes:
