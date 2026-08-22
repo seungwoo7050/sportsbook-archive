@@ -1,6 +1,7 @@
 package com.sportsbook.settlement.correction;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -33,5 +34,25 @@ public class CorrectionTargetRepository {
         eventId,
         candidateId,
         limit);
+  }
+
+  public Optional<UUID> findNextActionableEvent() {
+    return jdbc
+        .query(
+            """
+            select distinct m.event_id from match_result m
+            join bet_selection s on s.event_id = m.event_id
+            join bet b on b.bet_id = s.bet_id
+            where m.accepted_candidate_id is not null and b.status = 'SETTLED'
+                and (s.source_candidate_id is null
+                    or s.source_candidate_id <> m.accepted_candidate_id)
+                and not exists (select 1 from settlement_revision r
+                    where r.bet_id = b.bet_id
+                      and r.revision_number = b.revision_number + 1)
+            order by m.event_id limit 1
+            """,
+            (result, rowNumber) -> result.getObject("event_id", UUID.class))
+        .stream()
+        .findFirst();
   }
 }
