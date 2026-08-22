@@ -39,8 +39,7 @@ public class MarketAdminController {
       @RequestBody MarketStatusPayload body,
       AdminContext context,
       HttpServletRequest servletRequest) {
-    changeStatus(
-        eventId, marketId, MarketClient.Action.SUSPEND, body, context, servletRequest);
+    changeStatus(eventId, marketId, MarketClient.Action.SUSPEND, body, context, servletRequest);
   }
 
   @PostMapping("/close")
@@ -57,6 +56,22 @@ public class MarketAdminController {
       AdminContext context,
       HttpServletRequest servletRequest) {
     changeStatus(eventId, marketId, MarketClient.Action.CLOSE, body, context, servletRequest);
+  }
+
+  @PostMapping("/reopen")
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  @PreAuthorize("hasAnyRole('ADMIN','TRADER')")
+  @Audited(
+      action = AdminAction.MARKET_REOPEN,
+      target = "#eventId + '/' + #marketId",
+      reason = "#body.reason()")
+  public void reopen(
+      @PathVariable UUID eventId,
+      @PathVariable UUID marketId,
+      @RequestBody MarketStatusPayload body,
+      AdminContext context,
+      HttpServletRequest servletRequest) {
+    changeStatus(eventId, marketId, MarketClient.Action.REOPEN, body, context, servletRequest);
   }
 
   private void changeStatus(
