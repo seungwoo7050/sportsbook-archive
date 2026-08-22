@@ -29,6 +29,15 @@ public interface BetRepository extends JpaRepository<Bet, UUID> {
   List<UUID> findPendingIdsByEvent(@Param("eventId") UUID eventId);
 
   @Query(
+      value =
+          "select distinct b.bet_id from bet b join bet_selection s on s.bet_id = b.bet_id "
+              + "where b.status = 'PENDING' and s.event_id = :eventId "
+              + "and not exists (select 1 from settlement_attempt a where a.bet_id = b.bet_id) "
+              + "order by b.bet_id",
+      nativeQuery = true)
+  List<UUID> findResultActionableIdsByEvent(@Param("eventId") UUID eventId);
+
+  @Query(
       "select distinct b.betId from Bet b join b.selections s "
           + "where b.status = com.sportsbook.settlement.domain.SettlementStatus.SETTLED "
           + "and s.eventId = :eventId and (s.sourceCandidateId is null "
