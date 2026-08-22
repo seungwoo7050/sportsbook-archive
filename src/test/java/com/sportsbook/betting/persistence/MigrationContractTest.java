@@ -23,13 +23,19 @@ class MigrationContractTest {
         .isEqualTo("28161d23320d94a41d17b64a1dd0e2c9513fdfa74ac10ea1fb86bc4edf2c3d39");
   }
 
+  @Test
+  void preservesSettlementOutcomeSchema() {
+    assertThat(sha256("V3__settlement_outcome.sql"))
+        .isEqualTo("a57b6a695e8a94624d1e62fe4719e5ce384bc6cec00236d11b68b1a2e21b9589");
+  }
+
   private String sha256(String migration) {
-    try (InputStream input =
-        getClass().getResourceAsStream("/db/migration/" + migration)) {
+    try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {
         throw new IllegalStateException("Missing migration " + migration);
       }
-      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+      return HexFormat.of()
+          .formatHex(MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
     } catch (IOException | NoSuchAlgorithmException exception) {
       throw new IllegalStateException(exception);
     }
