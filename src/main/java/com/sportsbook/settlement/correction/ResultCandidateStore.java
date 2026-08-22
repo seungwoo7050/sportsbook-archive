@@ -117,6 +117,24 @@ public class ResultCandidateStore {
         .findFirst();
   }
 
+  public Optional<AcceptedCandidate> findAcceptedCandidate(UUID eventId) {
+    return jdbc
+        .query(
+            """
+            select m.accepted_candidate_id, c.received_at
+            from match_result m join result_candidate c
+              on c.candidate_id = m.accepted_candidate_id
+            where m.event_id = ? and m.accepted_candidate_id is not null
+            """,
+            (result, rowNumber) ->
+                new AcceptedCandidate(
+                    result.getObject("accepted_candidate_id", UUID.class),
+                    result.getTimestamp("received_at").toInstant()),
+            eventId)
+        .stream()
+        .findFirst();
+  }
+
   @Transactional
   public boolean replaceAccepted(
       UUID candidateId, UUID expectedAcceptedId, java.time.Instant decidedAt) {
@@ -205,4 +223,6 @@ public class ResultCandidateStore {
   }
 
   public record RecordOutcome(RecordKind kind, UUID candidateId, ResultCandidateState state) {}
+
+  public record AcceptedCandidate(UUID candidateId, java.time.Instant receivedAt) {}
 }
