@@ -70,6 +70,7 @@ class BetTest {
     bet.requestReconciliation(requestedAt);
 
     assertThat(bet.reconciliationRequestedAt()).isEqualTo(requestedAt);
+    assertThat(bet.reconciliationEligibleAt()).isEqualTo(requestedAt);
   }
 
   @Test

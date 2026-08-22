@@ -71,6 +71,15 @@ class MigrationContractTest {
         .contains("WHERE resolution_revision_id IS NOT NULL");
   }
 
+  @Test
+  void addsOwnerFencedRecoveryWithoutChangingEarlierMigrations() {
+    assertThat(migrationText("V10__reconciliation_lease.sql"))
+        .contains("reconciliation_eligible_at TIMESTAMP WITH TIME ZONE")
+        .contains("reconciliation_claim_owner VARCHAR(128)")
+        .contains("reconciliation_claim_until TIMESTAMP WITH TIME ZONE")
+        .contains("WHERE status = 'PENDING'");
+  }
+
   private String migrationText(String migration) {
     try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {

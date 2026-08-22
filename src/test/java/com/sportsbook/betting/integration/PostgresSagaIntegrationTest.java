@@ -87,6 +87,6 @@ class PostgresSagaIntegrationTest extends PostgresIntegrationSupport {
     assertThat(
             jdbc.queryForObject(
                 "select count(*) from flyway_schema_history where success", Integer.class))
-        .isEqualTo(9);
+        .isEqualTo(10);
   }
 }
