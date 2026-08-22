@@ -48,6 +48,19 @@ class BetTest {
   }
 
   @Test
+  void storesOpaqueRiskProofBeforeWalletWork() {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
+    Instant expires = NOW.plusSeconds(120);
+
+    bet.recordRiskReservation(expires, "b".repeat(64), false, NOW.plusSeconds(1));
+
+    assertThat(bet.placementPhase()).isEqualTo(PlacementPhase.RISK_RESERVED);
+    assertThat(bet.riskReservationExpiresAt()).isEqualTo(expires);
+    assertThat(bet.riskReservationToken()).isEqualTo("b".repeat(64));
+    assertThat(bet.riskCommitObserved()).isFalse();
+  }
+
+  @Test
   void rejectsSlipShapeMismatch() {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () ->
