@@ -4,6 +4,8 @@ import com.sportsbook.betting.domain.BetLeg;
 import com.sportsbook.betting.error.ValidationFailedException;
 import com.sportsbook.betting.policy.BettingPolicyProperties;
 import com.sportsbook.protocol.domain.BetSlipType;
+import com.sportsbook.protocol.value.Money;
+import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +31,28 @@ public class BetSlipValidator {
     requireDistinctSelections(legs);
     if (!(type instanceof BetSlipType.Single)) {
       requireDistinctMarketsAndEvents(legs);
+    }
+    requireTotalOdds(legs);
+  }
+
+  public void validateStake(Money stake) {
+    Long minimum = policy.minStake().get(stake.currency());
+    Long maximum = policy.maxStake().get(stake.currency());
+    if (minimum == null || maximum == null) {
+      throw new ValidationFailedException("Unsupported stake currency");
+    }
+    if (stake.amount() < minimum || stake.amount() > maximum) {
+      throw new ValidationFailedException("Stake is outside configured bounds");
+    }
+  }
+
+  private void requireTotalOdds(List<BetLeg> legs) {
+    BigDecimal product = BigDecimal.ONE;
+    for (BetLeg leg : legs) {
+      product = product.multiply(leg.oddsAtSubmission().decimal());
+    }
+    if (product.compareTo(policy.maxTotalOdds()) > 0) {
+      throw new ValidationFailedException("Maximum total odds exceeded");
     }
   }
 
