@@ -235,6 +235,22 @@ public class ResultCandidateStore {
         == 1;
   }
 
+  public boolean reject(UUID candidateId, java.time.Instant decidedAt, String reason) {
+    if (reason == null || reason.isBlank()) {
+      throw new IllegalArgumentException("Candidate rejection reason is required");
+    }
+    return jdbc.update(
+            """
+            update result_candidate set state = 'REJECTED', decided_at = ?,
+                decision_reason = ?
+            where candidate_id = ? and state = 'PENDING'
+            """,
+            required(decidedAt),
+            reason.strip(),
+            candidateId)
+        == 1;
+  }
+
   private RecordOutcome find(UUID eventId, String fingerprint) {
     return jdbc
         .query(
