@@ -262,6 +262,40 @@ class BetPlacementServiceTest {
         .reserve(any(), any(), any(), any());
   }
 
+  @Test
+  void treatsCommittedReleaseConflictAsTerminal() {
+    RiskClient risk = mock(RiskClient.class);
+    WalletClient wallet = mock(WalletClient.class);
+    BetStore store = mock(BetStore.class);
+    Bet bet = pending(command());
+    bet.recordRiskReservation(Instant.EPOCH.plusSeconds(60), "d".repeat(64), false, Instant.EPOCH);
+    bet.requireRiskRelease("INSUFFICIENT_BALANCE", "declined", Instant.EPOCH);
+    when(store.findById(bet.betId())).thenReturn(bet);
+    checkpointCompensation(store, bet);
+    when(risk.release(bet.betId())).thenReturn(RiskClient.ReleaseResult.COMMITTED);
+    doAnswer(
+            ignored -> {
+              bet.completeRiskRelease(true, Instant.EPOCH);
+              return null;
+            })
+        .when(store)
+        .completeRiskRelease(bet.betId(), true, Instant.EPOCH);
+    rejectAfterCompensation(store, bet);
+
+    Bet result =
+        service(
+                mock(BetAssembler.class),
+                risk,
+                wallet,
+                mock(BetEventFactory.class),
+                mock(IdempotencyCache.class),
+                store)
+            .reconcile(bet.betId());
+
+    assertThat(result.status()).isEqualTo(BetStatus.REJECTED);
+    assertThat(result.riskCommitObserved()).isTrue();
+  }
+
   private static void checkpointCompensation(BetStore store, Bet bet) {
     doAnswer(
             ignored -> {
