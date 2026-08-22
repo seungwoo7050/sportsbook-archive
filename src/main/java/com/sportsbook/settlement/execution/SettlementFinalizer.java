@@ -1,5 +1,6 @@
 package com.sportsbook.settlement.execution;
 
+import com.sportsbook.protocol.event.VoidReason;
 import com.sportsbook.settlement.config.SettlementTopics;
 import com.sportsbook.settlement.domain.Bet;
 import com.sportsbook.settlement.domain.SettlementStatus;
@@ -41,6 +42,20 @@ public class SettlementFinalizer {
     }
     bet.recordSettled(attempt.result(), attempt.money().payout(), now);
     outbox.save(events.settled(bet, attempt.eventId()));
+    return true;
+  }
+
+  @Transactional
+  public boolean voidBet(SettlementAttempt attempt, Instant now) {
+    if (attempt.action() != SettlementAttempt.Action.VOID) {
+      throw new IllegalArgumentException("Whole slip finalization requires VOID action");
+    }
+    Bet bet = bets.findForUpdateById(attempt.betId()).orElseThrow();
+    if (bet.status() != SettlementStatus.PENDING || !attempts.consumeLease(attempt)) {
+      return false;
+    }
+    bet.recordVoided(attempt.money().payout(), now);
+    outbox.save(events.voided(bet, attempt.eventId(), VoidReason.valueOf(attempt.voidReason())));
     return true;
   }
 }
