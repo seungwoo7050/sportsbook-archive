@@ -41,6 +41,17 @@ class MigrationBlobTest {
         .contains("CREATE TABLE match_result", "PRIMARY KEY (event_id, selection_id)");
   }
 
+  @Test
+  void preservesV5AttemptBlobAndMoneyConservation() throws IOException {
+    Path migration = MIGRATIONS.resolve("V5__settlement_attempt.sql");
+
+    assertThat(gitBlobOid(migration)).isEqualTo("e6008f31087f8363963a90d42b393ccc201095e8");
+    assertThat(Files.readString(migration))
+        .contains(
+            "locked_release_amount + locked_forfeit_amount = committed_amount",
+            "locked_release_amount + house_profit_amount = payout_amount");
+  }
+
   private static String gitBlobOid(Path path) throws IOException {
     byte[] content = Files.readAllBytes(path);
     byte[] header = ("blob " + content.length + "\0").getBytes(StandardCharsets.UTF_8);
