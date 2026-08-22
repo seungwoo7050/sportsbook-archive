@@ -36,6 +36,13 @@ class GatewayVoidedEventContractTest {
     assertRejected(BetVoided.newBuilder(event).setEventId("1-1-1-1-1").build());
   }
 
+  @Test
+  void rejectsMarketVoidOnTheWholeSlipChannel() {
+    BetVoided event = BetVoided.newBuilder(voided()).setReason(VoidReason.MARKET_VOID).build();
+
+    assertRejected(event);
+  }
+
   private static void assertRejected(BetVoided event) {
     assertRejected(event, event.getEventId());
   }
