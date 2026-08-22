@@ -1,7 +1,8 @@
 package com.sportsbook.betting.settlement;
 
 import com.sportsbook.betting.config.BettingTopics;
-import com.sportsbook.betting.outbox.AvroSerializer;
+import com.sportsbook.betting.config.KafkaMessageValidator;
+import com.sportsbook.betting.config.PermanentKafkaException;
 import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
@@ -28,32 +29,32 @@ public class SettlementResultListener {
         BettingTopics.BET_RESOLUTION_REVISED
       },
       groupId = "betting-resolution")
-  public void onResolution(ConsumerRecord<String, byte[]> record) throws NoSuchAlgorithmException {
+  public void onResolution(ConsumerRecord<byte[], byte[]> record) throws NoSuchAlgorithmException {
+    if (record.value() == null) {
+      throw new PermanentKafkaException("Resolution payload is required");
+    }
     String hash = sha256(record.value());
     switch (record.topic()) {
       case BettingTopics.BET_SETTLED -> {
-        BetSettled event = AvroSerializer.deserialize(record.value(), BetSettled.class);
-        requireKey(record, event.getEventId());
+        BetSettled event = KafkaMessageValidator.decode(record.value(), BetSettled.class);
+        KafkaMessageValidator.requireKey(record.key(), event.getEventId(), "Settlement eventId");
         settlement.apply(event, hash);
       }
       case BettingTopics.BET_VOIDED -> {
-        BetVoided event = AvroSerializer.deserialize(record.value(), BetVoided.class);
-        requireKey(record, event.getEventId());
+        BetVoided event = KafkaMessageValidator.decode(record.value(), BetVoided.class);
+        if (event.getReason() == com.sportsbook.protocol.event.VoidReason.MARKET_VOID) {
+          throw new PermanentKafkaException("MARKET_VOID must use a settled VOID result");
+        }
+        KafkaMessageValidator.requireKey(record.key(), event.getEventId(), "Void eventId");
         settlement.apply(event, hash);
       }
       case BettingTopics.BET_RESOLUTION_REVISED -> {
         BetResolutionRevised event =
-            AvroSerializer.deserialize(record.value(), BetResolutionRevised.class);
-        requireKey(record, event.getBetId());
+            KafkaMessageValidator.decode(record.value(), BetResolutionRevised.class);
+        KafkaMessageValidator.requireKey(record.key(), event.getBetId(), "Revision betId");
         settlement.apply(event, hash);
       }
-      default -> throw new IllegalArgumentException("Unsupported resolution topic");
-    }
-  }
-
-  private static void requireKey(ConsumerRecord<String, byte[]> record, String eventId) {
-    if (!eventId.equals(record.key())) {
-      throw new IllegalArgumentException("Resolution Kafka key does not match eventId");
+      default -> throw new PermanentKafkaException("Unsupported resolution topic");
     }
   }
 
