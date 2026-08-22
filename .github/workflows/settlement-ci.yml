@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: settlement-service
+          fetch-depth: 0
       - name: Checkout fixed shared protocol
         uses: actions/checkout@v4
         with:
@@ -34,6 +35,9 @@ jobs:
           ./mvnw -B
           -Dmaven.repo.local=${{ runner.temp }}/settlement-m2
           -DskipTests install
+      - name: Verify archive history
+        working-directory: settlement-service
+        run: bash .github/scripts/verify-history.sh
       - name: Verify settlement service
         working-directory: settlement-service
         run: >-
