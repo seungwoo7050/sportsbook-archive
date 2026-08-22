@@ -1,12 +1,12 @@
 package com.sportsbook.settlement.execution;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.Odds;
@@ -16,6 +16,8 @@ import com.sportsbook.settlement.domain.BetSelection;
 import com.sportsbook.settlement.domain.EmbeddedMoney;
 import com.sportsbook.settlement.domain.SettlementStatus;
 import com.sportsbook.settlement.domain.SlipKind;
+import com.sportsbook.settlement.event.StrictAvroDecoder;
+import com.sportsbook.settlement.outbox.OutboxEvent;
 import com.sportsbook.settlement.outbox.OutboxEventRepository;
 import com.sportsbook.settlement.persistence.BetRepository;
 import java.math.BigDecimal;
@@ -25,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class SettlementFinalizerTest {
 
@@ -37,20 +40,26 @@ class SettlementFinalizerTest {
         new SettlementFinalizer(
             bets, attempts, outbox, new SettlementTopics(null, null, null, null, null, null));
     Instant now = Instant.parse("2026-08-22T00:00:00Z");
+    Instant databaseNow = now.plusSeconds(1);
     UUID eventId = UUID.randomUUID();
     UUID selectionId = UUID.randomUUID();
     Bet bet = pendingBet(eventId, selectionId, now);
     bet.applySelectionSnapshot(eventId, Map.of(selectionId, SettlementResult.WON), false, now);
     SettlementAttempt attempt = resolvedAttempt(bet.betId(), eventId, now);
     when(bets.findForUpdateById(bet.betId())).thenReturn(Optional.of(bet));
-    when(attempts.consumeLease(attempt)).thenReturn(true);
+    when(attempts.consumeLease(attempt)).thenReturn(Optional.of(databaseNow));
 
     assertThat(finalizer.settle(attempt, now)).isTrue();
 
     assertThat(bet.status()).isEqualTo(SettlementStatus.SETTLED);
     assertThat(bet.payout()).isEqualTo(Money.krw(2000));
+    assertThat(bet.settledAt()).isEqualTo(databaseNow);
     verify(attempts).consumeLease(attempt);
-    verify(outbox).save(any());
+    ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
+    verify(outbox).save(event.capture());
+    BetSettled decoded =
+        new StrictAvroDecoder().decode(event.getValue().payload(), BetSettled.class);
+    assertThat(decoded.getSettledAt()).isEqualTo(databaseNow);
   }
 
   private static Bet pendingBet(UUID eventId, UUID selectionId, Instant now) {

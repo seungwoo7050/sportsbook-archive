@@ -39,6 +39,7 @@ class VoidFinalizerTest {
         new SettlementFinalizer(
             bets, attempts, outbox, new SettlementTopics(null, null, null, null, null, null));
     Instant now = Instant.parse("2026-08-22T00:00:00Z");
+    Instant databaseNow = now.plusSeconds(1);
     Bet bet = pendingBet(now);
     SettlementAttempt attempt =
         SettlementAttempt.wholeSlipVoid(
@@ -49,7 +50,7 @@ class VoidFinalizerTest {
             new SettlementLease(UUID.randomUUID(), Instant.MAX),
             now);
     when(bets.findForUpdateById(bet.betId())).thenReturn(Optional.of(bet));
-    when(attempts.consumeLease(attempt)).thenReturn(true);
+    when(attempts.consumeLease(attempt)).thenReturn(Optional.of(databaseNow));
 
     assertThat(finalizer.voidBet(attempt, now)).isTrue();
 
@@ -58,6 +59,7 @@ class VoidFinalizerTest {
     verify(outbox).save(event.capture());
     BetVoided decoded = new StrictAvroDecoder().decode(event.getValue().payload(), BetVoided.class);
     assertThat(decoded.getReason()).isEqualTo(VoidReason.EVENT_CANCELLED);
+    assertThat(decoded.getVoidedAt()).isEqualTo(databaseNow);
   }
 
   private static Bet pendingBet(Instant now) {
