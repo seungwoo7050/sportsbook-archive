@@ -161,5 +161,32 @@ public class RevisionPlanRepository {
         .findFirst();
   }
 
+  public Optional<RevisionState> rejectPermanent(
+      UUID revisionId,
+      RevisionLease lease,
+      WalletFailurePolicy.PermanentFailure failure,
+      Instant now) {
+    String code =
+        failure.errorCode().matches("[A-Z0-9_]{1,128}") ? failure.errorCode() : "WALLET_FAILURE";
+    return jdbc
+        .query(
+            """
+            update settlement_revision set
+                state = case when wallet_status = 'BLOCKED' then 'BLOCKED' else 'REJECTED' end,
+                lease_token = null, lease_until = null, next_retry_at = null,
+                last_error_code = ?, updated_at = ?
+            where revision_id = ? and state = 'PENDING' and lease_token = ?
+                and lease_until > current_timestamp
+            returning state
+            """,
+            (result, rowNumber) -> RevisionState.valueOf(result.getString("state")),
+            code,
+            required(now),
+            revisionId,
+            lease.token())
+        .stream()
+        .findFirst();
+  }
+
   public record Persisted(UUID revisionId, boolean created, RevisionLease lease) {}
 }
