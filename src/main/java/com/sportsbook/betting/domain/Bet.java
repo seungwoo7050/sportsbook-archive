@@ -1,7 +1,12 @@
 package com.sportsbook.betting.domain;
 
 import com.sportsbook.protocol.domain.BetStatus;
+import com.sportsbook.protocol.domain.BetSlipType;
+import com.sportsbook.protocol.value.Money;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -26,6 +31,38 @@ public class Bet {
   private String betReference;
 
   @Enumerated(EnumType.STRING)
+  @Column(name = "slip_type", nullable = false, updatable = false, length = 16)
+  private SlipKind slipKind;
+
+  @Column(name = "system_min_wins")
+  private Integer systemMinWins;
+
+  @Column(name = "system_total_selections")
+  private Integer systemTotalSelections;
+
+  @Embedded
+  @AttributeOverrides({
+    @AttributeOverride(name = "amount", column = @Column(name = "stake_amount", nullable = false)),
+    @AttributeOverride(
+        name = "currency",
+        column = @Column(name = "stake_currency", nullable = false, length = 3))
+  })
+  private EmbeddedMoney stake;
+
+  @Embedded
+  @AttributeOverrides({
+    @AttributeOverride(
+        name = "amount", column = @Column(name = "max_payout_amount", nullable = false)),
+    @AttributeOverride(
+        name = "currency",
+        column = @Column(name = "max_payout_currency", nullable = false, length = 3))
+  })
+  private EmbeddedMoney maxPayout;
+
+  @Column(name = "request_fingerprint", updatable = false, length = 64)
+  private String requestFingerprint;
+
+  @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 16)
   private BetStatus status;
 
@@ -48,6 +85,14 @@ public class Bet {
     this.betId = draft.betId();
     this.userId = draft.userId();
     this.betReference = draft.reference();
+    this.slipKind = SlipKind.of(draft.slipType());
+    if (draft.slipType() instanceof BetSlipType.System system) {
+      this.systemMinWins = system.minWins();
+      this.systemTotalSelections = system.totalSelections();
+    }
+    this.stake = EmbeddedMoney.of(draft.stake());
+    this.maxPayout = EmbeddedMoney.of(draft.maxPayout());
+    this.requestFingerprint = draft.requestFingerprint();
     this.idempotencyKey = draft.idempotencyKey().value();
     this.status = BetStatus.PENDING;
     this.createdAt = draft.createdAt();
@@ -72,6 +117,26 @@ public class Bet {
 
   public BetStatus status() {
     return status;
+  }
+
+  public BetSlipType slipType() {
+    return switch (slipKind) {
+      case SINGLE -> new BetSlipType.Single();
+      case MULTIPLE -> new BetSlipType.Multiple();
+      case SYSTEM -> new BetSlipType.System(systemMinWins, systemTotalSelections);
+    };
+  }
+
+  public Money stake() {
+    return stake.toMoney();
+  }
+
+  public Money maxPayout() {
+    return maxPayout.toMoney();
+  }
+
+  public String requestFingerprint() {
+    return requestFingerprint;
   }
 
   public String idempotencyKey() {
