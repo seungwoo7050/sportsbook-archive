@@ -15,6 +15,7 @@ import org.springframework.web.client.RestClient;
 public class WalletClient {
 
   static final String CREDIT_PATH = "/internal/v1/wallet/transactions/credit";
+  static final String FORFEIT_PATH = "/internal/v1/wallet/transactions/forfeit";
   static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
 
   private final RestClient http;
@@ -56,7 +57,21 @@ public class WalletClient {
     return Objects.requireNonNull(response, "wallet credit response").operationGroupId();
   }
 
+  public UUID forfeit(String idempotencyKey, UUID userId, Money amount) {
+    CreditResponse response =
+        http.post()
+            .uri(FORFEIT_PATH)
+            .header(IDEMPOTENCY_HEADER, idempotencyKey)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(new ForfeitRequest(userId, amount))
+            .retrieve()
+            .body(CreditResponse.class);
+    return Objects.requireNonNull(response, "wallet forfeit response").operationGroupId();
+  }
+
   private record CreditRequest(UUID userId, Money amount, String source, String reason) {}
+
+  private record ForfeitRequest(UUID userId, Money amount) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   private record CreditResponse(UUID operationGroupId) {}
