@@ -12,7 +12,6 @@ import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.settlement.resolver.ResolvedSelection;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -27,9 +26,10 @@ class RevisionPlanRepositoryTest {
   void writesTheImmutablePlanBeforeItsSelectionSnapshot() {
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
     Instant leaseUntil = Instant.EPOCH.plusSeconds(30);
+    Instant createdAt = Instant.EPOCH.plusSeconds(1);
     when(jdbc.query(
             anyString(), any(org.springframework.jdbc.core.RowMapper.class), any(Object[].class)))
-        .thenReturn(List.of(Timestamp.from(leaseUntil)));
+        .thenReturn(List.of(new RevisionPlanRepository.Claimed(leaseUntil, createdAt)));
     RevisionPlan plan = plan();
 
     var persisted = new RevisionPlanRepository(jdbc).persist(plan, Duration.ofSeconds(30));
@@ -51,13 +51,14 @@ class RevisionPlanRepositoryTest {
             "on conflict do nothing");
     assertThat(values.getValue()[11]).isEqualTo("SINGLE");
     assertThat(values.getValue()[14]).isEqualTo(100L);
-    assertThat(values.getValue()[15]).isInstanceOf(Timestamp.class);
+    assertThat(values.getValue()[15]).isInstanceOf(java.sql.Timestamp.class);
     assertThat(values.getValue()[17]).isEqualTo(30_000L);
-    assertThat(values.getValue()[20]).isInstanceOf(Timestamp.class);
+    assertThat(values.getValue()[20]).isInstanceOf(java.sql.Timestamp.class);
     assertThat(snapshot.getValue()).contains("leg_index", "odds");
     assertThat(rows.getValue().get(0)).containsSequence(0, Odds.ofDecimal("2.0000").decimal());
     assertThat(persisted.created()).isTrue();
     assertThat(persisted.lease().until()).isEqualTo(leaseUntil);
+    assertThat(persisted.durablePlan(plan).createdAt()).isEqualTo(createdAt);
   }
 
   private static RevisionPlan plan() {

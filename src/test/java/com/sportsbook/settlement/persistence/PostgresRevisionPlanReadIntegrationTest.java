@@ -64,8 +64,9 @@ class PostgresRevisionPlanReadIntegrationTest extends PostgresIntegrationSupport
         new RevisionPlan(
             UUID.randomUUID(), target, SettlementResult.PUSH, Money.krw(100), createdAt);
 
-    assertThat(plans.persist(plan, Duration.ofSeconds(30)).created()).isTrue();
+    var persisted = plans.persist(plan, Duration.ofSeconds(30));
 
-    assertThat(reader.find(plan.revisionId())).contains(plan);
+    assertThat(persisted.created()).isTrue();
+    assertThat(reader.find(plan.revisionId())).contains(persisted.durablePlan(plan));
   }
 }
