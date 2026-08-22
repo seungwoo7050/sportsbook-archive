@@ -11,7 +11,7 @@ import org.springframework.http.client.ClientHttpResponse;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record RiskReservationResponse(
-    boolean approved,
+    Boolean approved,
     boolean replayed,
     String rejectionReason,
     String reservationState,

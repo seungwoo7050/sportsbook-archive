@@ -125,6 +125,9 @@ public class RiskClient {
     if (response == null) {
       throw new DependencyUnavailableException("Risk returned an empty response");
     }
+    if (response.approved() == null) {
+      throw new DependencyUnavailableException("Risk omitted its approval verdict");
+    }
     if (!response.approved()) {
       throw new RiskLimitException(response.rejectionReason());
     }
