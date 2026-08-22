@@ -39,11 +39,11 @@ class RevisionExecutionRunnerTest {
   void finalizesZeroDeltaPlansWithoutCallingWallet() {
     RevisionPlan plan = plan(200);
     RevisionLease lease = new RevisionLease(UUID.randomUUID(), Instant.MAX);
-    when(finalizer.apply(plan, lease, null, now)).thenReturn(true);
+    when(finalizer.apply(plan, lease, null)).thenReturn(true);
 
     assertThat(runner.execute(plan, lease, false))
         .isEqualTo(RevisionExecutionRunner.Result.APPLIED);
-    verify(finalizer).apply(plan, lease, null, now);
+    verify(finalizer).apply(plan, lease, null);
     verifyNoInteractions(wallet);
   }
 
@@ -99,7 +99,7 @@ class RevisionExecutionRunnerTest {
     WalletAdjustmentProof blocked = proof(plan, WalletAdjustmentProof.Status.BLOCKED);
     WalletAdjustmentProof rejected = proof(plan, WalletAdjustmentProof.Status.REJECTED);
     when(wallet.recoverAmbiguous(plan, true)).thenReturn(applied, blocked, rejected);
-    when(finalizer.apply(plan, lease, applied, now)).thenReturn(true);
+    when(finalizer.apply(plan, lease, applied)).thenReturn(true);
     when(revisions.markBlocked(plan.revisionId(), lease, blocked, now))
         .thenReturn(java.util.Optional.of(RevisionState.BLOCKED));
     when(revisions.markRejected(plan.revisionId(), lease, rejected, now)).thenReturn(true);
@@ -110,7 +110,7 @@ class RevisionExecutionRunnerTest {
         .isEqualTo(RevisionExecutionRunner.Result.BLOCKED);
     assertThat(runner.execute(plan, lease, true, true))
         .isEqualTo(RevisionExecutionRunner.Result.REJECTED);
-    verify(finalizer).apply(plan, lease, applied, now);
+    verify(finalizer).apply(plan, lease, applied);
     verify(revisions).markBlocked(plan.revisionId(), lease, blocked, now);
     verify(revisions).markRejected(plan.revisionId(), lease, rejected, now);
   }
