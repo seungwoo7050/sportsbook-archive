@@ -1,5 +1,6 @@
 package com.sportsbook.settlement.admin;
 
+import com.sportsbook.settlement.observability.SettlementMetrics;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -9,10 +10,13 @@ public class AdminRevisionCommands {
 
   private final AdminRevisionRetry retry;
   private final AdminRevisionQueryRepository revisions;
+  private final SettlementMetrics metrics;
 
-  public AdminRevisionCommands(AdminRevisionRetry retry, AdminRevisionQueryRepository revisions) {
+  public AdminRevisionCommands(
+      AdminRevisionRetry retry, AdminRevisionQueryRepository revisions, SettlementMetrics metrics) {
     this.retry = retry;
     this.revisions = revisions;
+    this.metrics = metrics;
   }
 
   public Receipt retry(UUID idempotencyKey, UUID revisionId) {
@@ -21,6 +25,7 @@ public class AdminRevisionCommands {
         revisions
             .find(revisionId)
             .orElseThrow(() -> new IllegalStateException("Queued revision is missing"));
+    metrics.count("admin_retry", decision.replay() ? "replay" : "queued");
     return new Receipt(
         decision.action().idempotencyKey(),
         decision.replay() ? "REPLAY" : "QUEUED",
