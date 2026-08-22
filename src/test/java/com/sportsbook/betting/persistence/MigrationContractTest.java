@@ -54,6 +54,14 @@ class MigrationContractTest {
         .contains("^[0-9a-f]{64}$");
   }
 
+  @Test
+  void deduplicatesWalletHintsByEventHeader() {
+    assertThat(migrationText("V8__wallet_event_reconciliation.sql"))
+        .contains("event_id        UUID                     PRIMARY KEY")
+        .contains("payload_sha256 ~ '^[0-9a-f]{64}$'")
+        .contains("WHERE processed_at IS NULL");
+  }
+
   private String migrationText(String migration) {
     try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {
