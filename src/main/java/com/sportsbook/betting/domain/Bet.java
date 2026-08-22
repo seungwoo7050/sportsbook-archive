@@ -155,6 +155,9 @@ public class Bet {
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 
+  @Column(name = "reconciliation_requested_at")
+  private Instant reconciliationRequestedAt;
+
   @OneToMany(mappedBy = "bet", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("legIndex ASC")
   private List<BetLeg> legs = new ArrayList<>();
@@ -589,6 +592,14 @@ public class Bet {
 
   public Instant updatedAt() {
     return updatedAt;
+  }
+
+  public void requestReconciliation(Instant at) {
+    reconciliationRequestedAt = Objects.requireNonNull(at, "at");
+  }
+
+  public Instant reconciliationRequestedAt() {
+    return reconciliationRequestedAt;
   }
 
   public List<BetLeg> legs() {
