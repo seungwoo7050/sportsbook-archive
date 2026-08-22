@@ -55,6 +55,43 @@ public class RiskClient {
     }
   }
 
+  public CommitResult commit(UUID betId, String reservationToken) {
+    if (reservationToken == null || !reservationToken.matches("[0-9a-f]{64}")) {
+      throw new IllegalArgumentException("reservationToken must be lowercase SHA-256");
+    }
+    try {
+      http.put()
+          .uri(RESERVATIONS + "/{betId}/commit", betId)
+          .header("X-Risk-Reservation-Token", reservationToken)
+          .retrieve()
+          .onStatus(
+              status -> status.value() == HttpStatus.NOT_FOUND.value(),
+              (request, ignored) -> {
+                throw new ReservationMissing();
+              })
+          .onStatus(
+              status -> status.value() == HttpStatus.CONFLICT.value(),
+              (request, ignored) -> {
+                throw new ReservationConflict();
+              })
+          .onStatus(
+              status -> status.value() != HttpStatus.NO_CONTENT.value(),
+              (request, ignored) -> {
+                throw new DependencyUnavailableException("Risk commit was not accepted");
+              })
+          .toBodilessEntity();
+      return CommitResult.COMMITTED;
+    } catch (ReservationMissing exception) {
+      return CommitResult.NOT_FOUND;
+    } catch (ReservationConflict exception) {
+      return CommitResult.CONFLICT;
+    } catch (BetPlacementException exception) {
+      throw exception;
+    } catch (RestClientException exception) {
+      throw new DependencyUnavailableException("Risk commit is unavailable", exception);
+    }
+  }
+
   private static Reservation requireApproved(RiskReservationResponse response) {
     if (response == null) {
       throw new DependencyUnavailableException("Risk returned an empty response");
@@ -77,6 +114,12 @@ public class RiskClient {
     COMMITTED
   }
 
+  public enum CommitResult {
+    COMMITTED,
+    NOT_FOUND,
+    CONFLICT
+  }
+
   public record Reservation(ReservationState state, Instant expiresAt, String token) {
     public Reservation {
       Objects.requireNonNull(state, "state");
@@ -89,5 +132,13 @@ public class RiskClient {
     public boolean alreadyCommitted() {
       return state == ReservationState.COMMITTED;
     }
+  }
+
+  private static final class ReservationMissing extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+  }
+
+  private static final class ReservationConflict extends RuntimeException {
+    private static final long serialVersionUID = 1L;
   }
 }
