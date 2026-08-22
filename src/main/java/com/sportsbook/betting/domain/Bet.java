@@ -126,6 +126,9 @@ public class Bet {
   @Column(name = "resolution_event_id")
   private UUID resolutionEventId;
 
+  @Column(name = "resolution_revision_id")
+  private UUID resolutionRevisionId;
+
   @Column(name = "resolution_revision_number")
   private Long resolutionRevisionNumber;
 
@@ -335,6 +338,64 @@ public class Bet {
     return value;
   }
 
+  public RevisionApplyResult applyRevision(
+      UUID eventId,
+      UUID revisionId,
+      long revisionNumber,
+      SettlementResult previousResult,
+      SettlementResult newResult,
+      Money previousPayout,
+      Money newPayout,
+      Instant sourceSettledAt,
+      Instant revisedAt,
+      String payloadHash) {
+    if (status != BetStatus.ACCEPTED && status != BetStatus.SETTLED) {
+      throw new IllegalStateException("Revisions require ACCEPTED or SETTLED status");
+    }
+    if (revisionNumber < 1) {
+      throw new IllegalArgumentException("revisionNumber must be at least 1");
+    }
+    long current = resolutionRevisionNumber == null ? 0 : resolutionRevisionNumber;
+    if (revisionNumber < current) {
+      return RevisionApplyResult.IGNORED;
+    }
+    if (revisionNumber == current) {
+      if (Objects.equals(resolutionRevisionId, revisionId)
+          && Objects.equals(resolutionPayloadSha256, payloadHash)) {
+        return RevisionApplyResult.DUPLICATE;
+      }
+      throw new IllegalStateException("Conflicting equal resolution revision");
+    }
+    boolean gap = revisionNumber > current + 1;
+    if (!gap && status == BetStatus.SETTLED) {
+      if (settlementResult != previousResult || !Objects.equals(settledPayout(), previousPayout)) {
+        throw new IllegalStateException("Revision previous snapshot does not match projection");
+      }
+    }
+    if (newPayout.currency() != stake.currency() || newPayout.isNegative()) {
+      throw new IllegalArgumentException("Revision payout is invalid");
+    }
+    this.status = BetStatus.SETTLED;
+    this.settlementResult = Objects.requireNonNull(newResult, "newResult");
+    this.settledPayout = EmbeddedMoney.of(newPayout);
+    this.voidReason = null;
+    this.resolutionEventId = Objects.requireNonNull(eventId, "eventId");
+    this.resolutionRevisionId = Objects.requireNonNull(revisionId, "revisionId");
+    this.resolutionRevisionNumber = revisionNumber;
+    this.resolutionPayloadSha256 = requireHash(payloadHash);
+    this.sourceResultSettledAt = Objects.requireNonNull(sourceSettledAt, "sourceSettledAt");
+    this.resolvedAt = Objects.requireNonNull(revisedAt, "revisedAt");
+    this.updatedAt = revisedAt;
+    return gap ? RevisionApplyResult.APPLIED_WITH_GAP : RevisionApplyResult.APPLIED;
+  }
+
+  public enum RevisionApplyResult {
+    APPLIED,
+    APPLIED_WITH_GAP,
+    DUPLICATE,
+    IGNORED
+  }
+
   private void requireCompensationInProgress(CompensationAction action) {
     requireStatus(BetStatus.PENDING);
     if (compensationAction != action || compensationState != CompensationState.IN_PROGRESS) {
@@ -507,6 +568,15 @@ public class Bet {
 
   public long resolutionRevisionNumber() {
     return resolutionRevisionNumber == null ? -1 : resolutionRevisionNumber;
+  }
+
+  public UUID resolutionRevisionId() {
+    return resolutionRevisionId;
+  }
+
+  public boolean hasResolution(UUID eventId, String payloadHash) {
+    return Objects.equals(resolutionEventId, eventId)
+        && Objects.equals(resolutionPayloadSha256, payloadHash);
   }
 
   public String idempotencyKey() {
