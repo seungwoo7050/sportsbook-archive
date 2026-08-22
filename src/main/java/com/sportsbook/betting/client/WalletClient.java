@@ -44,6 +44,15 @@ public class WalletClient {
               .body(new WalletDebitRequest(userId, fullExposure))
               .retrieve()
               .onStatus(
+                  status -> status.value() == HttpStatus.CONFLICT.value(),
+                  (request, error) -> {
+                    WalletProblem problem = problems.read(error);
+                    if (WalletProblemMapper.IDEMPOTENCY_CONFLICT.equals(problem.errorCode())) {
+                      throw new DebitConflict();
+                    }
+                    throw problems.map(problem);
+                  })
+              .onStatus(
                   HttpStatusCode::is4xxClientError,
                   (request, error) -> {
                     throw problems.map(problems.read(error));
@@ -55,6 +64,14 @@ public class WalletClient {
                   })
               .body(WalletOperationResponse.class);
       return requireDebitProof(response, userId, fullExposure);
+    } catch (DebitConflict conflict) {
+      return findDebit(betId, userId, fullExposure)
+          .map(WalletOperationResponse::operationGroupId)
+          .orElseThrow(
+              () ->
+                  new WalletRejectedException(
+                      WalletProblemMapper.IDEMPOTENCY_CONFLICT,
+                      "Wallet debit identity could not be proven"));
     } catch (BetPlacementException exception) {
       throw exception;
     } catch (RestClientException exception) {
@@ -110,6 +127,15 @@ public class WalletClient {
               .contentType(MediaType.APPLICATION_JSON)
               .body(WalletCreditRequest.refund(userId, fullExposure))
               .retrieve()
+              .onStatus(
+                  status -> status.value() == HttpStatus.CONFLICT.value(),
+                  (request, error) -> {
+                    WalletProblem problem = problems.read(error);
+                    if (WalletProblemMapper.IDEMPOTENCY_CONFLICT.equals(problem.errorCode())) {
+                      throw new WalletProofMismatchException("refund");
+                    }
+                    throw problems.map(problem);
+                  })
               .onStatus(
                   HttpStatusCode::is4xxClientError,
                   (request, error) -> {
@@ -174,6 +200,10 @@ public class WalletClient {
   }
 
   private static final class DebitAbsent extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+  }
+
+  private static final class DebitConflict extends RuntimeException {
     private static final long serialVersionUID = 1L;
   }
 }

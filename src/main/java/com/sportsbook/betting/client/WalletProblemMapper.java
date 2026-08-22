@@ -40,12 +40,10 @@ public class WalletProblemMapper {
   RuntimeException map(WalletProblem problem) {
     return switch (problem.errorCode()) {
       case INSUFFICIENT_BALANCE -> new InsufficientBalanceException(problem.detail());
-      case ACCOUNT_NOT_FOUND,
-              CURRENCY_MISMATCH,
-              AMOUNT_OUT_OF_RANGE,
-              RECOVERY_BLOCKED,
-              IDEMPOTENCY_CONFLICT ->
+      case ACCOUNT_NOT_FOUND, CURRENCY_MISMATCH, AMOUNT_OUT_OF_RANGE, RECOVERY_BLOCKED ->
           new WalletRejectedException(problem.errorCode(), problem.detail());
+      case IDEMPOTENCY_CONFLICT ->
+          new DependencyUnavailableException("Wallet idempotency identity conflicts");
       default -> new DependencyUnavailableException("Wallet returned an unexpected problem");
     };
   }
