@@ -74,6 +74,17 @@ class RiskClientTest {
   }
 
   @Test
+  void rejectsAReservationResponseWithoutAnApprovalVerdict() {
+    server
+        .expect(requestTo("http://risk/internal/v1/risk/reservations"))
+        .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+    assertThatThrownBy(this::reserve)
+        .isInstanceOf(DependencyUnavailableException.class)
+        .hasMessage("Risk omitted its approval verdict");
+  }
+
+  @Test
   void acceptsOnlyHttp200OrTheFixedValidationVerdict() {
     server
         .expect(requestTo("http://risk/internal/v1/risk/reservations"))
