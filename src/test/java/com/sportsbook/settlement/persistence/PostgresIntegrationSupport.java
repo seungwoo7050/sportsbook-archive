@@ -1,5 +1,6 @@
 package com.sportsbook.settlement.persistence;
 
+import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.settlement.correction.RevisionRecoveryScanner;
 import com.sportsbook.settlement.execution.SettlementAttemptRecovery;
 import com.sportsbook.settlement.lifecycle.LifecycleTombstoneScanner;
@@ -118,6 +119,64 @@ abstract class PostgresIntegrationSupport {
           new BigDecimal("2.0000"));
     }
     return new PendingMultiple(betId, userId, Map.copyOf(eventSelections));
+  }
+
+  protected UUID insertResultCandidate(
+      UUID eventId, UUID selectionId, SettlementResult outcome, Instant settledAt, String state) {
+    UUID candidateId = UUID.randomUUID();
+    Timestamp timestamp = Timestamp.from(settledAt);
+    jdbc.update(
+        "insert into result_candidate (candidate_id,event_id,fingerprint,mode,settled_at,"
+            + "received_at,state,decided_at) values (?,?,?,'COMPLETED',?,?,?,?)",
+        candidateId,
+        eventId,
+        candidateId.toString().replace("-", "").repeat(2),
+        timestamp,
+        timestamp,
+        state,
+        "PENDING".equals(state) ? null : timestamp);
+    jdbc.update(
+        "insert into result_candidate_selection (candidate_id,selection_id,outcome) "
+            + "values (?,?,?)",
+        candidateId,
+        selectionId,
+        outcome.name());
+    return candidateId;
+  }
+
+  protected void acceptResult(
+      PendingBet bet, UUID candidateId, SettlementResult outcome, Instant settledAt) {
+    Timestamp timestamp = Timestamp.from(settledAt);
+    jdbc.update(
+        "insert into match_result (event_id,mode,settled_at,received_at,"
+            + "accepted_candidate_id) values (?,'COMPLETED',?,?,?)",
+        bet.eventId(),
+        timestamp,
+        timestamp,
+        candidateId);
+    jdbc.update(
+        "insert into match_selection_result (event_id,selection_id,outcome) values (?,?,?)",
+        bet.eventId(),
+        bet.selectionId(),
+        outcome.name());
+  }
+
+  protected void settleBet(
+      PendingBet bet, UUID sourceCandidateId, SettlementResult result, long payout) {
+    Timestamp timestamp = Timestamp.from(Instant.parse("2026-08-22T00:00:00Z"));
+    jdbc.update(
+        "update bet set status='SETTLED',result=?,payout_amount=?,payout_currency='KRW',"
+            + "settled_at=?,updated_at=? where bet_id=?",
+        result.name(),
+        payout,
+        timestamp,
+        timestamp,
+        bet.betId());
+    jdbc.update(
+        "update bet_selection set outcome=?,source_candidate_id=? where bet_id=?",
+        result.name(),
+        sourceCandidateId,
+        bet.betId());
   }
 
   protected record PendingBet(UUID betId, UUID userId, UUID eventId, UUID selectionId) {}
