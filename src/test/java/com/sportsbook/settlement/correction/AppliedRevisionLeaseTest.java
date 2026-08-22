@@ -12,6 +12,7 @@ import com.sportsbook.protocol.value.Money;
 import com.sportsbook.settlement.client.WalletAdjustmentProof;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,28 +23,33 @@ class AppliedRevisionLeaseTest {
   @Test
   void consumesTheExactOwnerAndRetainsRecoveredWalletEvidence() {
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+    Instant appliedAt = Instant.EPOCH.plusSeconds(3);
+    when(jdbc.query(
+            anyString(), any(org.springframework.jdbc.core.RowMapper.class), any(Object[].class)))
+        .thenReturn(List.of(appliedAt));
     RevisionLease lease = new RevisionLease(UUID.randomUUID(), Instant.EPOCH.plusSeconds(30));
 
-    assertThat(
-            new RevisionPlanRepository(jdbc)
-                .markApplied(UUID.randomUUID(), lease, applied(), Instant.EPOCH.plusSeconds(3)))
-        .isTrue();
+    assertThat(new RevisionPlanRepository(jdbc).markApplied(UUID.randomUUID(), lease, applied()))
+        .contains(appliedAt);
 
     ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
     ArgumentCaptor<Object[]> values = ArgumentCaptor.forClass(Object[].class);
-    verify(jdbc).update(sql.capture(), values.capture());
+    verify(jdbc)
+        .query(sql.capture(), any(org.springframework.jdbc.core.RowMapper.class), values.capture());
     assertThat(sql.getValue())
         .contains(
             "state = 'APPLIED'",
             "lease_token = null",
             "next_retry_at = null",
-            "lease_until > current_timestamp");
+            "lease_until > current_timestamp",
+            "source_result_settled_at <= current_timestamp",
+            "applied_at = date_trunc('milliseconds', current_timestamp)",
+            "returning applied_at");
     assertThat(values.getValue()[0]).isEqualTo("APPLIED");
     assertThat(values.getValue()[1]).isEqualTo(7L);
     assertThat(values.getValue()[2]).isInstanceOf(UUID.class);
     assertThat(values.getValue()[3]).isInstanceOf(Timestamp.class);
-    assertThat(values.getValue()[8]).isEqualTo(lease.token());
+    assertThat(values.getValue()[6]).isEqualTo(lease.token());
   }
 
   private static WalletAdjustmentProof applied() {
