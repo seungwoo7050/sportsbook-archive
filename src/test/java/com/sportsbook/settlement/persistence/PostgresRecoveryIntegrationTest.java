@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.settlement.execution.SettlementAttempt;
+import com.sportsbook.settlement.execution.SettlementAttemptDraft;
 import com.sportsbook.settlement.execution.SettlementAttemptRepository;
 import com.sportsbook.settlement.execution.SettlementExecution;
-import com.sportsbook.settlement.execution.SettlementLease;
 import com.sportsbook.settlement.execution.SettlementMoneyPlan;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -27,12 +27,14 @@ class PostgresRecoveryIntegrationTest extends PostgresIntegrationSupport {
     PendingBet expiredBet = insertPendingBet(UUID.randomUUID());
     PendingBet releasedBet = insertPendingBet(UUID.randomUUID());
     PendingBet activeBet = insertPendingBet(UUID.randomUUID());
-    SettlementAttempt expired = attempt(expiredBet, now.minusSeconds(60), now.minusSeconds(30));
-    SettlementAttempt released = attempt(releasedBet, now.minusSeconds(20), now.plusSeconds(10));
-    SettlementAttempt active = attempt(activeBet, now.minusSeconds(10), now.plusSeconds(30));
-    assertThat(attempts.claimPending(expired)).isTrue();
-    assertThat(attempts.claimPending(released)).isTrue();
-    assertThat(attempts.claimPending(active)).isTrue();
+    SettlementAttempt expired = attempt(expiredBet);
+    SettlementAttempt released = attempt(releasedBet);
+    SettlementAttempt active = attempt(activeBet);
+    jdbc.update(
+        "update settlement_attempt set lease_until=?, updated_at=? where bet_id=?",
+        Timestamp.from(now.minusSeconds(30)),
+        Timestamp.from(now.minusSeconds(10)),
+        expired.betId());
 
     assertThat(
             attempts.releaseForRecovery(
@@ -61,21 +63,15 @@ class PostgresRecoveryIntegrationTest extends PostgresIntegrationSupport {
             });
   }
 
-  private SettlementAttempt attempt(PendingBet bet, Instant createdAt, Instant leaseUntil) {
+  private SettlementAttempt attempt(PendingBet bet) {
     SettlementMoneyPlan money =
         new SettlementMoneyPlan(
             Money.krw(100), Money.krw(200), Money.krw(100), Money.krw(0), Money.krw(100));
-    return new SettlementAttempt(
-        bet.betId(),
-        SettlementAttempt.Action.SETTLE,
-        bet.eventId(),
-        SettlementResult.WON,
-        null,
-        money,
-        new SettlementLease(UUID.randomUUID(), leaseUntil),
-        1,
-        null,
-        createdAt,
-        createdAt);
+    return attempts
+        .claimPending(
+            SettlementAttemptDraft.resolved(
+                bet.betId(), bet.eventId(), SettlementResult.WON, money),
+            Duration.ofSeconds(30))
+        .orElseThrow();
   }
 }
