@@ -55,6 +55,8 @@
              tests do not collide with the app's Jetty / Jackson versions. -->
         <wiremock.version>3.9.2</wiremock.version>
 
+        <spotless.version>2.43.0</spotless.version>
+
         <!-- @Tag("load") tests are skipped by default; override empty to run them:
              mvn test -DexcludedGroups= -Dtest=*LoadTest -->
         <surefire.excludedGroups>load</surefire.excludedGroups>
@@ -274,6 +276,32 @@
                         </exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                        </includes>
+                        <googleJavaFormat>
+                            <version>1.22.0</version>
+                            <style>GOOGLE</style>
+                        </googleJavaFormat>
+                        <removeUnusedImports/>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals><goal>check</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
 
         </plugins>
