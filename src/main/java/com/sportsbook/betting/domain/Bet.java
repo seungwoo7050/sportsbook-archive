@@ -355,8 +355,12 @@ public class Bet {
     if (status != BetStatus.ACCEPTED && status != BetStatus.SETTLED) {
       throw new IllegalStateException("Revisions require ACCEPTED or SETTLED status");
     }
+    requireSelectionEvent(eventId);
     if (revisionNumber < 1) {
       throw new IllegalArgumentException("revisionNumber must be at least 1");
+    }
+    if (previousPayout.currency() != stake.currency() || previousPayout.isNegative()) {
+      throw new IllegalArgumentException("Revision previous payout is invalid");
     }
     long current = resolutionRevisionNumber == null ? 0 : resolutionRevisionNumber;
     if (revisionNumber < current) {
