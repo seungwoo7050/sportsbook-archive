@@ -20,5 +20,7 @@ management:
         include: health,info,prometheus
 
 settlement:
+  admin:
+    api-key: ${SETTLEMENT_ADMIN_API_KEY:}
   wallet:
     api-key: ${SETTLEMENT_WALLET_API_KEY:}
