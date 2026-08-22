@@ -6,6 +6,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.sportsbook.protocol.value.Money;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -15,7 +16,27 @@ import org.springframework.web.client.RestClient;
 class WalletMalformedSuccessTest {
 
   @Test
-  void treatsMissingOperationIdentityAsTransientMalformedSuccess() {
+  void treatsIncompleteOrMismatchedOperationProofsAsTransient() {
+    UUID userId = UUID.randomUUID();
+    UUID operationId = UUID.randomUUID();
+    String exact =
+        """
+        {"operationGroupId":"%s","userId":"%s",
+         "amount":{"amount":100,"currency":"KRW"},"reason":"BET_REFUND",
+         "at":"2026-08-22T00:00:00Z"}
+        """
+            .formatted(operationId, userId);
+    List.of(
+            "{\"extra\":\"allowed\"}",
+            exact.replace(userId.toString(), UUID.randomUUID().toString()),
+            exact.replace("\"amount\":100", "\"amount\":101"),
+            exact.replace("KRW", "USD"),
+            exact.replace("BET_REFUND", "BET_PAYOUT"),
+            exact.replace("\"at\":\"2026-08-22T00:00:00Z\"", "\"at\":null"))
+        .forEach(body -> assertMalformed(userId, body));
+  }
+
+  private static void assertMalformed(UUID userId, String body) {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     WalletClient client =
@@ -26,13 +47,13 @@ class WalletMalformedSuccessTest {
                 new WalletCredentials("0123456789abcdef0123456789abcdef")));
     server
         .expect(requestTo("http://wallet.test" + WalletClient.CREDIT_PATH))
-        .andRespond(withSuccess("{\"extra\":\"allowed\"}", MediaType.APPLICATION_JSON));
+        .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
 
     assertThatThrownBy(
             () ->
                 client.credit(
                     "settlement:refund:test",
-                    UUID.randomUUID(),
+                    userId,
                     Money.krw(100),
                     WalletCreditPurpose.RETURNED_STAKE))
         .isInstanceOf(WalletFailurePolicy.TransientFailure.class)
