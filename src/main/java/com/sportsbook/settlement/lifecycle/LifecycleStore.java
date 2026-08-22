@@ -4,6 +4,9 @@ import static com.sportsbook.settlement.persistence.JdbcTimestamps.nullable;
 import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import com.sportsbook.protocol.event.EventLifecycleStatus;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +58,29 @@ public class LifecycleStore {
             required(observation.receivedAt()),
             observation.fingerprint());
     return latched == 1 ? RecordResult.TERMINAL_LATCHED : RecordResult.TERMINAL_ALREADY_LATCHED;
+  }
+
+  public Optional<LifecycleObservation> findTombstone(UUID eventId) {
+    return jdbc
+        .query(
+            """
+            select terminal_status, occurred_at, received_at, fingerprint
+            from event_lifecycle_tombstone where event_id = ?
+            """,
+            (result, rowNumber) -> {
+              String fingerprint = result.getString("fingerprint");
+              return new LifecycleObservation(
+                  UUID.nameUUIDFromBytes(fingerprint.getBytes(StandardCharsets.UTF_8)),
+                  eventId,
+                  EventLifecycleStatus.valueOf(result.getString("terminal_status")),
+                  result.getTimestamp("occurred_at").toInstant(),
+                  null,
+                  result.getTimestamp("received_at").toInstant(),
+                  fingerprint);
+            },
+            eventId)
+        .stream()
+        .findFirst();
   }
 
   private static boolean terminal(EventLifecycleStatus status) {

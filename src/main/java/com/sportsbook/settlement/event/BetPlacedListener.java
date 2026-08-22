@@ -1,6 +1,9 @@
 package com.sportsbook.settlement.event;
 
 import com.sportsbook.protocol.event.BetPlacedRequested;
+import com.sportsbook.settlement.lifecycle.LifecycleFanout;
+import com.sportsbook.settlement.lifecycle.LifecycleStore;
+import com.sportsbook.settlement.readmodel.BetPlacement;
 import com.sportsbook.settlement.readmodel.BetReadModelWriter;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,21 +19,34 @@ public class BetPlacedListener {
   private final StrictAvroDecoder decoder;
   private final KafkaUuidKeyValidator keys;
   private final BetPlacedMapper mapper;
+  private final LifecycleStore lifecycles;
+  private final LifecycleFanout lifecycleFanout;
 
   @Autowired
-  public BetPlacedListener(BetReadModelWriter writer) {
-    this(writer, new StrictAvroDecoder(), new KafkaUuidKeyValidator(), new BetPlacedMapper());
+  public BetPlacedListener(
+      BetReadModelWriter writer, LifecycleStore lifecycles, LifecycleFanout lifecycleFanout) {
+    this(
+        writer,
+        new StrictAvroDecoder(),
+        new KafkaUuidKeyValidator(),
+        new BetPlacedMapper(),
+        lifecycles,
+        lifecycleFanout);
   }
 
   BetPlacedListener(
       BetReadModelWriter writer,
       StrictAvroDecoder decoder,
       KafkaUuidKeyValidator keys,
-      BetPlacedMapper mapper) {
+      BetPlacedMapper mapper,
+      LifecycleStore lifecycles,
+      LifecycleFanout lifecycleFanout) {
     this.writer = writer;
     this.decoder = decoder;
     this.keys = keys;
     this.mapper = mapper;
+    this.lifecycles = lifecycles;
+    this.lifecycleFanout = lifecycleFanout;
   }
 
   @KafkaListener(
@@ -39,7 +55,13 @@ public class BetPlacedListener {
   public void receive(ConsumerRecord<byte[], byte[]> record, Acknowledgment acknowledgment) {
     BetPlacedRequested event = decoder.decode(record.value(), BetPlacedRequested.class);
     keys.requireMatching(record.key(), event.getUserId(), "userId");
-    writer.record(mapper.map(event));
+    BetPlacement placement = mapper.map(event);
+    writer.record(placement);
+    placement.selections().stream()
+        .map(BetPlacement.Selection::eventId)
+        .distinct()
+        .sorted()
+        .forEach(eventId -> lifecycles.findTombstone(eventId).ifPresent(lifecycleFanout::fanOut));
     acknowledgment.acknowledge();
   }
 }
