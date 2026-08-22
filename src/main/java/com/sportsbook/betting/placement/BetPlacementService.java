@@ -2,16 +2,22 @@ package com.sportsbook.betting.placement;
 
 import com.sportsbook.betting.client.RiskClient;
 import com.sportsbook.betting.client.RiskClient.Reservation;
+import com.sportsbook.betting.client.WalletClient;
+import com.sportsbook.betting.client.WalletOperationResponse;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetLeg;
-import com.sportsbook.betting.domain.PlacementPhase;
+import com.sportsbook.betting.domain.CompensationState;
 import com.sportsbook.betting.domain.SystemBetCalculator;
 import com.sportsbook.betting.error.BetPlacementException;
+import com.sportsbook.betting.error.DependencyUnavailableException;
 import com.sportsbook.betting.error.DuplicateBetException;
+import com.sportsbook.betting.error.InsufficientBalanceException;
 import com.sportsbook.betting.error.MarketClosedException;
 import com.sportsbook.betting.error.OddsDriftException;
 import com.sportsbook.betting.error.RiskLimitException;
 import com.sportsbook.betting.error.ValidationFailedException;
+import com.sportsbook.betting.error.WalletRejectedException;
+import com.sportsbook.protocol.domain.BetStatus;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
@@ -22,8 +28,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class BetPlacementService {
 
+  private static final int MAX_ADVANCE_STEPS = 8;
+
   private final BetAssembler assembler;
   private final RiskClient risk;
+  private final WalletClient wallet;
   private final SystemBetCalculator calculator;
   private final BetStore store;
   private final Clock clock;
@@ -31,11 +40,13 @@ public class BetPlacementService {
   public BetPlacementService(
       BetAssembler assembler,
       RiskClient risk,
+      WalletClient wallet,
       SystemBetCalculator calculator,
       BetStore store,
       Clock clock) {
     this.assembler = assembler;
     this.risk = risk;
+    this.wallet = wallet;
     this.calculator = calculator;
     this.store = store;
     this.clock = clock;
@@ -79,16 +90,50 @@ public class BetPlacementService {
     } catch (DataIntegrityViolationException collision) {
       return replayKnown(key, command, fingerprint, collision);
     }
-    return advance(bet.betId(), true);
+    return advance(bet.betId(), false, true);
   }
 
-  private Bet advance(UUID betId, boolean surfaceRejection) {
-    Bet current = store.findById(betId);
-    if (current.placementPhase() == PlacementPhase.CREATED) {
-      reserveRisk(current, surfaceRejection);
-      return store.findById(betId);
+  private Bet advance(UUID betId, boolean recovery, boolean surfaceRejection) {
+    for (int step = 0; step < MAX_ADVANCE_STEPS; step++) {
+      Bet current = store.findById(betId);
+      if (current.status() != BetStatus.PENDING) {
+        return current;
+      }
+      if (current.compensationState() != CompensationState.NONE) {
+        return current;
+      }
+      try {
+        switch (current.placementPhase()) {
+          case CREATED -> reserveRisk(current, surfaceRejection);
+          case RISK_RESERVED -> confirmWallet(current, recovery);
+          default -> {
+            return current;
+          }
+        }
+      } catch (DependencyUnavailableException unavailable) {
+        return store.findById(betId);
+      }
     }
-    return current;
+    return store.findById(betId);
+  }
+
+  private void confirmWallet(Bet bet, boolean recovery) {
+    try {
+      UUID operationId =
+          recovery
+              ? wallet
+                  .findDebit(bet.betId(), bet.userId(), totalExposure(bet))
+                  .map(WalletOperationResponse::operationGroupId)
+                  .orElse(null)
+              : null;
+      if (operationId == null) {
+        operationId = wallet.debit(bet.betId(), bet.userId(), totalExposure(bet));
+      }
+      store.confirmWallet(bet.betId(), operationId, clock.instant());
+    } catch (InsufficientBalanceException | WalletRejectedException rejection) {
+      store.requireRiskRelease(
+          bet.betId(), rejection.errorCode(), rejection.getMessage(), clock.instant());
+    }
   }
 
   private void reserveRisk(Bet bet, boolean surfaceRejection) {
