@@ -139,6 +139,45 @@ class RiskClientTest {
       server.reset();
     }
   }
+
+  @Test
+  void releasesReservationIdempotently() {
+    UUID betId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId))
+        .andExpect(method(HttpMethod.DELETE))
+        .andRespond(withNoContent());
+
+    assertThat(client.release(betId)).isEqualTo(RiskClient.ReleaseResult.RELEASED);
+
+    server.verify();
+  }
+
+  @Test
+  void reportsCommittedReservationAsDefinitiveReleaseConflict() {
+    UUID betId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId))
+        .andRespond(
+            org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(
+                HttpStatus.CONFLICT));
+
+    assertThat(client.release(betId)).isEqualTo(RiskClient.ReleaseResult.COMMITTED);
+  }
+
+  @Test
+  void acceptsOnlyNoContentForRelease() {
+    UUID betId = UUID.randomUUID();
+    for (HttpStatus status : List.of(HttpStatus.OK, HttpStatus.FOUND)) {
+      server
+          .expect(requestTo("http://risk/internal/v1/risk/reservations/" + betId))
+          .andRespond(withStatus(status));
+      assertThatThrownBy(() -> client.release(betId))
+          .isInstanceOf(DependencyUnavailableException.class);
+      server.reset();
+    }
+  }
+
   private RiskClient.Reservation reserve() {
     return client.reserve(
         UUID.randomUUID(), UUID.randomUUID(), Money.krw(6_000), List.of(UUID.randomUUID()));
