@@ -163,6 +163,33 @@ abstract class PostgresIntegrationSupport {
         outcome.name());
   }
 
+  protected void replaceAcceptedResult(
+      PendingBet bet, UUID candidateId, SettlementResult outcome, Instant settledAt) {
+    Timestamp timestamp = Timestamp.from(settledAt);
+    jdbc.update(
+        "update result_candidate set state='SUPERSEDED',decision_reason='TEST_REPLACED' "
+            + "where event_id=? and state='ACCEPTED'",
+        bet.eventId());
+    jdbc.update(
+        "update result_candidate set state='ACCEPTED',decided_at=?,decision_reason='TEST_ACCEPTED' "
+            + "where candidate_id=? and state='PENDING'",
+        timestamp,
+        candidateId);
+    jdbc.update(
+        "update match_result set settled_at=?,received_at=?,accepted_candidate_id=? "
+            + "where event_id=?",
+        timestamp,
+        timestamp,
+        candidateId,
+        bet.eventId());
+    jdbc.update("delete from match_selection_result where event_id=?", bet.eventId());
+    jdbc.update(
+        "insert into match_selection_result (event_id,selection_id,outcome) values (?,?,?)",
+        bet.eventId(),
+        bet.selectionId(),
+        outcome.name());
+  }
+
   protected void settleBet(
       PendingBet bet, UUID sourceCandidateId, SettlementResult result, long payout) {
     Timestamp timestamp = Timestamp.from(Instant.parse("2026-08-22T00:00:00Z"));
