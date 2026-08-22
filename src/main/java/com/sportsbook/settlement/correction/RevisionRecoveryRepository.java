@@ -33,20 +33,27 @@ public class RevisionRecoveryRepository {
         where state in ('PENDING', 'BLOCKED') and attempt_count >= 12
             and lease_token is not null and lease_until <= current_timestamp
         """);
-    List<UUID> due =
+    List<Candidate> due =
         jdbc.query(
             """
-            select revision_id from settlement_revision
+            select revision_id, wallet_status from settlement_revision
             where attempt_count < 12 and state in ('PENDING', 'BLOCKED') and (
-                (lease_token is null and next_retry_at <= current_timestamp)
+                (lease_token is null and (
+                    (state = 'PENDING' and next_retry_at <= current_timestamp)
+                    or (state = 'BLOCKED' and next_retry_at <= current_timestamp
+                        and wallet_status = 'BLOCKED'
+                        and wallet_next_attempt_at <= current_timestamp)))
                 or (lease_token is not null and lease_until <= current_timestamp))
             order by coalesce(next_retry_at, lease_until), revision_id
             limit ? for update skip locked
             """,
-            (result, rowNumber) -> result.getObject("revision_id", UUID.class),
+            (result, rowNumber) ->
+                new Candidate(
+                    result.getObject("revision_id", UUID.class),
+                    "BLOCKED".equals(result.getString("wallet_status"))),
             limit);
     List<Claim> claimed = new ArrayList<>(due.size());
-    for (UUID revisionId : due) {
+    for (Candidate candidate : due) {
       UUID token = UUID.randomUUID();
       Timestamp until =
           jdbc
@@ -64,14 +71,20 @@ public class RevisionRecoveryRepository {
                   (result, rowNumber) -> result.getTimestamp("lease_until"),
                   token,
                   leaseMillis,
-                  revisionId)
+                  candidate.revisionId())
               .stream()
               .findFirst()
               .orElseThrow(() -> new IllegalStateException("Revision claim lost its locked row"));
-      claimed.add(new Claim(revisionId, new RevisionLease(token, until.toInstant())));
+      claimed.add(
+          new Claim(
+              candidate.revisionId(),
+              new RevisionLease(token, until.toInstant()),
+              candidate.blockedProof()));
     }
     return List.copyOf(claimed);
   }
 
-  public record Claim(UUID revisionId, RevisionLease lease) {}
+  record Candidate(UUID revisionId, boolean blockedProof) {}
+
+  public record Claim(UUID revisionId, RevisionLease lease, boolean blockedProof) {}
 }
