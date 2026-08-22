@@ -61,6 +61,18 @@ class BetTest {
   }
 
   @Test
+  void advancesOnlyFromPersistedReservationToWalletProof() {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
+    UUID operationId = UUID.randomUUID();
+    bet.recordRiskReservation(NOW.plusSeconds(120), "c".repeat(64), false, NOW);
+
+    bet.confirmWallet(operationId, NOW.plusSeconds(1));
+
+    assertThat(bet.placementPhase()).isEqualTo(PlacementPhase.WALLET_CONFIRMED);
+    assertThat(bet.walletOperationId()).isEqualTo(operationId);
+  }
+
+  @Test
   void rejectsSlipShapeMismatch() {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () ->
