@@ -16,6 +16,8 @@ class PostgresRevisionClaimIntegrationTest extends PostgresIntegrationSupport {
   void claimsDuePendingAndBlockedRowsButExcludesFutureAndExhaustedWork() {
     UUID pending = insertRevision(1);
     UUID blocked = insertRevision(4);
+    UUID blockedFuture = insertRevision(3);
+    UUID pausedBlocked = insertRevision(5);
     UUID future = insertRevision(2);
     UUID exhausted = insertRevision(11);
     jdbc.update(
@@ -24,6 +26,18 @@ class PostgresRevisionClaimIntegrationTest extends PostgresIntegrationSupport {
             + "wallet_next_attempt_at=current_timestamp - interval '1 second' "
             + "where revision_id=?",
         blocked);
+    jdbc.update(
+        "update settlement_revision set state='BLOCKED', wallet_status='BLOCKED', "
+            + "wallet_queue_sequence=2, wallet_queued_at=current_timestamp, "
+            + "wallet_next_attempt_at=current_timestamp + interval '1 hour' "
+            + "where revision_id=?",
+        blockedFuture);
+    jdbc.update(
+        "update settlement_revision set state='BLOCKED', attempt_count=12, next_retry_at=null, "
+            + "last_error_code='WALLET_RETRY_EXHAUSTED', wallet_status='BLOCKED', "
+            + "wallet_queue_sequence=3, wallet_queued_at=current_timestamp, "
+            + "wallet_next_attempt_at=current_timestamp where revision_id=?",
+        pausedBlocked);
     jdbc.update(
         "update settlement_revision set state='EXHAUSTED', attempt_count=12, "
             + "next_retry_at=null, last_error_code='WALLET_RETRY_EXHAUSTED' where revision_id=?",
@@ -38,7 +52,12 @@ class PostgresRevisionClaimIntegrationTest extends PostgresIntegrationSupport {
     assertThat(claims)
         .extracting(RevisionRecoveryRepository.Claim::revisionId)
         .containsExactlyInAnyOrder(pending, blocked)
-        .doesNotContain(future, exhausted);
+        .doesNotContain(blockedFuture, pausedBlocked, future, exhausted);
+    assertThat(claims)
+        .filteredOn(claim -> claim.revisionId().equals(blocked))
+        .first()
+        .extracting(RevisionRecoveryRepository.Claim::blockedProof)
+        .isEqualTo(true);
     assertThat(
             jdbc.queryForObject(
                 "select count(*) from settlement_revision where revision_id in (?, ?) "
@@ -49,6 +68,14 @@ class PostgresRevisionClaimIntegrationTest extends PostgresIntegrationSupport {
                 pending,
                 blocked))
         .isEqualTo(2);
+    assertThat(
+            jdbc.queryForObject(
+                "select wallet_status='BLOCKED' and wallet_queue_sequence=1 "
+                    + "and wallet_next_attempt_at is not null from settlement_revision "
+                    + "where revision_id=?",
+                Boolean.class,
+                blocked))
+        .isTrue();
   }
 
   private UUID insertRevision(int attempts) {

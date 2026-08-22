@@ -26,7 +26,7 @@ class RevisionRecoveryRepositoryTest {
     UUID revisionId = UUID.randomUUID();
     Instant until = Instant.parse("2026-08-22T00:00:30Z");
     when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
-        .thenReturn((List) List.of(revisionId))
+        .thenReturn((List) List.of(new RevisionRecoveryRepository.Candidate(revisionId, true)))
         .thenReturn((List) List.of(Timestamp.from(until)));
 
     List<RevisionRecoveryRepository.Claim> claimed =
@@ -35,6 +35,7 @@ class RevisionRecoveryRepositoryTest {
     assertThat(claimed).hasSize(1);
     assertThat(claimed.get(0).revisionId()).isEqualTo(revisionId);
     assertThat(claimed.get(0).lease().until()).isEqualTo(until);
+    assertThat(claimed.get(0).blockedProof()).isTrue();
     ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
     ArgumentCaptor<Object[]> values = ArgumentCaptor.forClass(Object[].class);
     verify(jdbc).update(sql.capture());
@@ -46,6 +47,7 @@ class RevisionRecoveryRepositoryTest {
         .contains(
             "attempt_count < 12",
             "next_retry_at <= current_timestamp",
+            "wallet_next_attempt_at <= current_timestamp",
             "lease_until <= current_timestamp",
             "for update skip locked");
     assertThat(sql.getAllValues().get(2))
