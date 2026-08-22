@@ -5,7 +5,6 @@ import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import com.sportsbook.settlement.client.WalletAdjustmentProof;
 import com.sportsbook.settlement.client.WalletFailurePolicy;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -33,7 +32,7 @@ public class RevisionPlanRepository {
     RevisionTarget target = plan.target();
     RevisionSnapshot snapshot = RevisionSnapshot.capture(target);
     UUID leaseToken = UUID.randomUUID();
-    List<Timestamp> claimed =
+    List<Claimed> claimed =
         jdbc.query(
             """
             insert into settlement_revision (
@@ -48,9 +47,12 @@ public class RevisionPlanRepository {
             from bet where bet_id = ? and status = 'SETTLED' and revision_number = ?
                 and ? <= current_timestamp
             on conflict do nothing
-            returning lease_until
+            returning lease_until, created_at
             """,
-            (result, rowNumber) -> result.getTimestamp("lease_until"),
+            (result, rowNumber) ->
+                new Claimed(
+                    result.getTimestamp("lease_until").toInstant(),
+                    result.getTimestamp("created_at").toInstant()),
             plan.revisionId(),
             target.betId(),
             target.revisionNumber(),
@@ -80,8 +82,12 @@ public class RevisionPlanRepository {
           values (?, ?, ?, ?, ?)
           """,
           RevisionSelectionRows.from(plan.revisionId(), snapshot));
+      Claimed times = claimed.get(0);
       return new Persisted(
-          plan.revisionId(), true, new RevisionLease(leaseToken, claimed.get(0).toInstant()));
+          plan.revisionId(),
+          true,
+          new RevisionLease(leaseToken, times.leaseUntil()),
+          times.createdAt());
     }
     UUID existing =
         jdbc
@@ -96,7 +102,7 @@ public class RevisionPlanRepository {
             .stream()
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("Concurrent revision allocation lost"));
-    return new Persisted(existing, false, null);
+    return new Persisted(existing, false, null, null);
   }
 
   public Optional<RevisionState> markBlocked(
@@ -239,5 +245,17 @@ public class RevisionPlanRepository {
         == 1;
   }
 
-  public record Persisted(UUID revisionId, boolean created, RevisionLease lease) {}
+  record Claimed(Instant leaseUntil, Instant createdAt) {}
+
+  public record Persisted(
+      UUID revisionId, boolean created, RevisionLease lease, Instant createdAt) {
+
+    public RevisionPlan durablePlan(RevisionPlan requested) {
+      if (!created || !revisionId.equals(requested.revisionId())) {
+        throw new IllegalStateException("Only a newly persisted plan has a durable timestamp");
+      }
+      return new RevisionPlan(
+          revisionId, requested.target(), requested.newResult(), requested.newPayout(), createdAt);
+    }
+  }
 }
