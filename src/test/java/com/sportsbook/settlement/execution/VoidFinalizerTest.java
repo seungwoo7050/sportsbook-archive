@@ -52,7 +52,7 @@ class VoidFinalizerTest {
     when(bets.findForUpdateById(bet.betId())).thenReturn(Optional.of(bet));
     when(attempts.consumeLease(attempt)).thenReturn(Optional.of(databaseNow));
 
-    assertThat(finalizer.voidBet(attempt, now)).isTrue();
+    assertThat(finalizer.voidBet(attempt)).isTrue();
 
     assertThat(bet.status()).isEqualTo(SettlementStatus.VOIDED);
     ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);

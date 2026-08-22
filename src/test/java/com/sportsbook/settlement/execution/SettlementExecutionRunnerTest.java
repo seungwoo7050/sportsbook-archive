@@ -30,7 +30,7 @@ class SettlementExecutionRunnerTest {
     SettlementExecution second = execution();
     RuntimeException failure = new RuntimeException("dependency failed");
     doThrow(failure).when(wallet).releaseLocked(first.attempt(), first.userId());
-    when(finalizer.settle(second.attempt(), now)).thenReturn(true);
+    when(finalizer.settle(second.attempt())).thenReturn(true);
 
     SettlementExecutionRunner.BatchResult result = runner.fanOut(List.of(first, second));
 
@@ -39,7 +39,7 @@ class SettlementExecutionRunnerTest {
     verify(wallet).releaseLocked(second.attempt(), second.userId());
     verify(wallet).forfeitLocked(second.attempt(), second.userId());
     verify(wallet).payHouseProfit(second.attempt(), second.userId());
-    verify(finalizer).settle(second.attempt(), now);
+    verify(finalizer).settle(second.attempt());
   }
 
   private static SettlementExecution execution() {

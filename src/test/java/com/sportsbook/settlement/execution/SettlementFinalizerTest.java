@@ -49,7 +49,7 @@ class SettlementFinalizerTest {
     when(bets.findForUpdateById(bet.betId())).thenReturn(Optional.of(bet));
     when(attempts.consumeLease(attempt)).thenReturn(Optional.of(databaseNow));
 
-    assertThat(finalizer.settle(attempt, now)).isTrue();
+    assertThat(finalizer.settle(attempt)).isTrue();
 
     assertThat(bet.status()).isEqualTo(SettlementStatus.SETTLED);
     assertThat(bet.payout()).isEqualTo(Money.krw(2000));
