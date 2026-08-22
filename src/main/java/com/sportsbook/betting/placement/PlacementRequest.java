@@ -1,5 +1,7 @@
 package com.sportsbook.betting.placement;
 
+import com.sportsbook.betting.domain.Bet;
+import com.sportsbook.protocol.error.ErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -59,6 +61,24 @@ public class PlacementRequest {
     this.errorCode = errorCode;
     this.errorDetail = errorDetail;
     this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
+  }
+
+  public static PlacementRequest forBet(Bet bet) {
+    return new PlacementRequest(
+        bet.idempotencyKey(),
+        bet.userId(),
+        bet.requestFingerprint(),
+        PlacementOutcome.BET,
+        bet.betId(),
+        null,
+        null,
+        bet.createdAt());
+  }
+
+  public static PlacementRequest rejected(
+      String key, UUID userId, String fingerprint, ErrorCode code, String detail, Instant at) {
+    return new PlacementRequest(
+        key, userId, fingerprint, PlacementOutcome.REJECTION, null, code.name(), detail, at);
   }
 
   public String idempotencyKey() {
