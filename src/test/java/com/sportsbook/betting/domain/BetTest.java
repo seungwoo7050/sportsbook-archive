@@ -87,6 +87,19 @@ class BetTest {
   }
 
   @Test
+  void recordsRefundIntentBeforeCompensation() {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
+    bet.recordRiskReservation(NOW.plusSeconds(120), "e".repeat(64), false, NOW);
+    bet.confirmWallet(UUID.randomUUID(), NOW);
+
+    bet.requireWalletRefund("DUPLICATE_BET", "risk commit conflict", NOW.plusSeconds(1));
+
+    assertThat(bet.compensationAction()).isEqualTo(CompensationAction.WALLET_REFUND);
+    assertThat(bet.compensationState()).isEqualTo(CompensationState.REQUIRED);
+    assertThat(bet.rejectionReason()).isEqualTo("DUPLICATE_BET");
+  }
+
+  @Test
   void rejectsSlipShapeMismatch() {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () ->
