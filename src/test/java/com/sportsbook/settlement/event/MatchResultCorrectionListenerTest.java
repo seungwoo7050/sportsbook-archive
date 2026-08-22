@@ -1,0 +1,52 @@
+package com.sportsbook.settlement.event;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.sportsbook.settlement.correction.CorrectionFanout;
+import com.sportsbook.settlement.correction.ResultCandidateIntake;
+import com.sportsbook.settlement.result.AcceptedResult;
+import com.sportsbook.settlement.result.AcceptedResultRepository;
+import com.sportsbook.settlement.result.MatchOutcomeMode;
+import com.sportsbook.settlement.result.ResultFanout;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.kafka.support.Acknowledgment;
+
+class MatchResultCorrectionListenerTest {
+
+  @Test
+  void catchesUpPendingBetsBeforeSettledCorrectionsAndAcknowledgment() {
+    UUID eventId = UUID.randomUUID();
+    ResultCandidateIntake intake = mock(ResultCandidateIntake.class);
+    AcceptedResultRepository acceptedResults = mock(AcceptedResultRepository.class);
+    ResultFanout base = mock(ResultFanout.class);
+    CorrectionFanout corrections = mock(CorrectionFanout.class);
+    Acknowledgment acknowledgment = mock(Acknowledgment.class);
+    AcceptedResult accepted =
+        new AcceptedResult(
+            eventId, UUID.randomUUID(), MatchOutcomeMode.VOIDED, Map.of(), Instant.EPOCH);
+    when(intake.ingest(any()))
+        .thenReturn(ResultCandidateIntake.IntakeResult.AUTO_CORRECTION_ACCEPTED);
+    when(acceptedResults.findByEventId(eventId)).thenReturn(Optional.of(accepted));
+    MatchResultListener listener =
+        new MatchResultListener(
+            intake, acceptedResults, base, corrections, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+
+    listener.receive(MatchResultListenerTest.record(eventId), acknowledgment);
+
+    var order = inOrder(intake, acceptedResults, base, corrections, acknowledgment);
+    order.verify(intake).ingest(any());
+    order.verify(acceptedResults).findByEventId(eventId);
+    order.verify(base).fanOut(accepted);
+    order.verify(corrections).fanOut(accepted);
+    order.verify(acknowledgment).acknowledge();
+  }
+}
