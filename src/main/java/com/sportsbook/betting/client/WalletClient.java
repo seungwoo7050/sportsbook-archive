@@ -5,6 +5,7 @@ import com.sportsbook.betting.error.DependencyUnavailableException;
 import com.sportsbook.betting.error.WalletProofMismatchException;
 import com.sportsbook.betting.error.WalletRejectedException;
 import com.sportsbook.protocol.value.Money;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -32,6 +33,7 @@ public class WalletClient {
     this.problems = problems;
   }
 
+  @CircuitBreaker(name = "walletClient", fallbackMethod = "debitFallback")
   public UUID debit(UUID betId, UUID userId, Money fullExposure) {
     try {
       WalletOperationResponse response =
@@ -55,6 +57,7 @@ public class WalletClient {
     }
   }
 
+  @CircuitBreaker(name = "walletClient", fallbackMethod = "findDebitFallback")
   public Optional<WalletOperationResponse> findDebit(UUID betId, UUID userId, Money fullExposure) {
     try {
       WalletOperationResponse response =
@@ -87,6 +90,7 @@ public class WalletClient {
     }
   }
 
+  @CircuitBreaker(name = "walletClient", fallbackMethod = "refundFallback")
   public UUID refund(UUID betId, UUID userId, Money fullExposure) {
     try {
       WalletOperationResponse response =
@@ -132,6 +136,26 @@ public class WalletClient {
       throw new WalletRejectedException(
           "WALLET_OPERATION_MISMATCH", "Wallet debit proof did not match this bet");
     }
+  }
+
+  private UUID debitFallback(UUID betId, UUID userId, Money exposure, Throwable failure) {
+    throw fallback(failure);
+  }
+
+  private Optional<WalletOperationResponse> findDebitFallback(
+      UUID betId, UUID userId, Money amount, Throwable failure) {
+    throw fallback(failure);
+  }
+
+  private UUID refundFallback(UUID betId, UUID userId, Money exposure, Throwable failure) {
+    throw fallback(failure);
+  }
+
+  private static RuntimeException fallback(Throwable failure) {
+    if (failure instanceof BetPlacementException verdict) {
+      return verdict;
+    }
+    return new DependencyUnavailableException("Wallet circuit is unavailable", failure);
   }
 
   private static final class DebitAbsent extends RuntimeException {
