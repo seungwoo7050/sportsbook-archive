@@ -1,0 +1,29 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Editors
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# Runtime
+*.log
+logs/
+.DS_Store
+Thumbs.db
+
+# Load-test scratch output
+load-test/.k6-cache/
+load-test/results/raw/
+load-test/scenarios/users.txt
