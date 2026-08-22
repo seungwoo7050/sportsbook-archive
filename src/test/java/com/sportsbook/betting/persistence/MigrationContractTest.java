@@ -62,6 +62,15 @@ class MigrationContractTest {
         .contains("WHERE processed_at IS NULL");
   }
 
+  @Test
+  void permitsBaseAndHigherResolutionRevisions() {
+    assertThat(migrationText("V9__resolution_revision_projection.sql"))
+        .contains("resolution_revision_number = 0")
+        .contains("resolution_revision_number >= 1")
+        .contains("status <> 'VOIDED' OR resolution_revision_id IS NULL")
+        .contains("WHERE resolution_revision_id IS NOT NULL");
+  }
+
   private String migrationText(String migration) {
     try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {
