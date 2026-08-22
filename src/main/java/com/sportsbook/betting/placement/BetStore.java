@@ -1,6 +1,9 @@
 package com.sportsbook.betting.placement;
 
 import com.sportsbook.betting.domain.Bet;
+import com.sportsbook.betting.domain.CompensationAction;
+import com.sportsbook.betting.domain.CompensationState;
+import com.sportsbook.betting.domain.PlacementPhase;
 import com.sportsbook.betting.outbox.OutboxEvent;
 import com.sportsbook.betting.outbox.OutboxEventRepository;
 import com.sportsbook.betting.persistence.BetRepository;
@@ -68,32 +71,70 @@ public class BetStore {
 
   @Transactional
   public void commitRisk(UUID betId, Instant now) {
-    pending(betId).commitRisk(now);
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.ACCEPTED
+        || (bet.status() == BetStatus.PENDING
+            && bet.placementPhase() == PlacementPhase.RISK_COMMITTED)) {
+      return;
+    }
+    requirePending(bet).commitRisk(now);
   }
 
   @Transactional
   public void requireRiskRelease(UUID betId, ErrorCode reason, String detail, Instant now) {
-    pending(betId).requireRiskRelease(reason.name(), detail, now);
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.REJECTED
+        || bet.compensationAction() == CompensationAction.RISK_RELEASE) {
+      return;
+    }
+    requirePending(bet).requireRiskRelease(reason.name(), detail, now);
   }
 
   @Transactional
   public void requireWalletRefund(UUID betId, ErrorCode reason, String detail, Instant now) {
-    pending(betId).requireWalletRefund(reason.name(), detail, now);
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.REJECTED
+        || bet.compensationAction() == CompensationAction.WALLET_REFUND) {
+      return;
+    }
+    requirePending(bet).requireWalletRefund(reason.name(), detail, now);
   }
 
   @Transactional
   public void beginCompensation(UUID betId, Instant now) {
-    pending(betId).beginCompensation(now);
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.REJECTED
+        || bet.compensationState() == CompensationState.IN_PROGRESS
+        || bet.compensationState() == CompensationState.COMPLETED) {
+      return;
+    }
+    requirePending(bet).beginCompensation(now);
   }
 
   @Transactional
   public void completeRiskRelease(UUID betId, boolean committedConflict, Instant now) {
-    pending(betId).completeRiskRelease(committedConflict, now);
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.REJECTED
+        || (bet.compensationAction() == CompensationAction.RISK_RELEASE
+            && bet.compensationState() == CompensationState.COMPLETED)) {
+      return;
+    }
+    requirePending(bet).completeRiskRelease(committedConflict, now);
   }
 
   @Transactional
   public void completeWalletRefund(UUID betId, UUID operationId, Instant now) {
-    pending(betId).completeWalletRefund(operationId, now);
+    Bet bet = locked(betId);
+    if (bet.status() == BetStatus.REJECTED) {
+      return;
+    }
+    if (bet.compensationState() == CompensationState.COMPLETED) {
+      if (!operationId.equals(bet.compensationOperationId())) {
+        throw new IllegalStateException("Wallet returned conflicting refund operation ids");
+      }
+      return;
+    }
+    requirePending(bet).completeWalletRefund(operationId, now);
   }
 
   @Transactional
@@ -129,9 +170,12 @@ public class BetStore {
   }
 
   private Bet pending(UUID betId) {
-    Bet bet = locked(betId);
+    return requirePending(locked(betId));
+  }
+
+  private Bet requirePending(Bet bet) {
     if (bet.status() != BetStatus.PENDING) {
-      throw new IllegalStateException("Placement cannot update terminal bet " + betId);
+      throw new IllegalStateException("Placement cannot update terminal bet " + bet.betId());
     }
     return bet;
   }
