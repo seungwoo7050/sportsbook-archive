@@ -3,6 +3,7 @@ package com.sportsbook.settlement.correction;
 import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import com.sportsbook.settlement.client.WalletAdjustmentProof;
+import com.sportsbook.settlement.client.WalletFailurePolicy;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -124,6 +125,36 @@ public class RevisionPlanRepository {
             required(proof.nextAttemptAt()),
             required(proof.nextAttemptAt()),
             required(now),
+            revisionId,
+            lease.token())
+        .stream()
+        .findFirst();
+  }
+
+  public Optional<RevisionState> releaseTransient(
+      UUID revisionId, RevisionLease lease, WalletFailurePolicy.TransientFailure failure) {
+    String code =
+        failure.errorCode().matches("[A-Z0-9_]{1,128}") ? failure.errorCode() : "WALLET_FAILURE";
+    return jdbc
+        .query(
+            """
+            update settlement_revision set
+                state = case when wallet_status = 'BLOCKED' then 'BLOCKED'
+                    when attempt_count >= 12 then 'EXHAUSTED' else 'PENDING' end,
+                lease_token = null, lease_until = null,
+                last_error_code = case when attempt_count >= 12
+                    then 'WALLET_RETRY_EXHAUSTED' else ? end,
+                updated_at = current_timestamp,
+                next_retry_at = case when attempt_count >= 12 then null
+                    else current_timestamp + least(interval '300 seconds',
+                        interval '1 second' * power(2,
+                            least(greatest(attempt_count - 1, 0), 9))) end
+            where revision_id = ? and state = 'PENDING' and lease_token = ?
+                and lease_until > current_timestamp
+            returning state
+            """,
+            (result, rowNumber) -> RevisionState.valueOf(result.getString("state")),
+            code,
             revisionId,
             lease.token())
         .stream()
