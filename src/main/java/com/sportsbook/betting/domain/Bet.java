@@ -2,6 +2,7 @@ package com.sportsbook.betting.domain;
 
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.domain.BetStatus;
+import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.Money;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
@@ -101,6 +102,38 @@ public class Bet {
 
   @Column(name = "compensation_operation_id")
   private UUID compensationOperationId;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "settlement_result", length = 8)
+  private SettlementResult settlementResult;
+
+  @Embedded
+  @AttributeOverrides({
+    @AttributeOverride(name = "amount", column = @Column(name = "settled_payout_amount")),
+    @AttributeOverride(
+        name = "currency",
+        column = @Column(name = "settled_payout_currency", length = 3))
+  })
+  private EmbeddedMoney settledPayout;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "void_reason", length = 24)
+  private VoidReason voidReason;
+
+  @Column(name = "resolved_at")
+  private Instant resolvedAt;
+
+  @Column(name = "resolution_event_id")
+  private UUID resolutionEventId;
+
+  @Column(name = "resolution_revision_number")
+  private Long resolutionRevisionNumber;
+
+  @Column(name = "resolution_payload_sha256", length = 64)
+  private String resolutionPayloadSha256;
+
+  @Column(name = "source_result_settled_at")
+  private Instant sourceResultSettledAt;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 16)
@@ -257,6 +290,51 @@ public class Bet {
     this.updatedAt = Objects.requireNonNull(now, "now");
   }
 
+  public void settleBase(
+      UUID eventId,
+      SettlementResult result,
+      Money eventStake,
+      Money payout,
+      Instant settledAt,
+      String payloadHash) {
+    requireStatus(BetStatus.ACCEPTED);
+    requireSelectionEvent(eventId);
+    if (!stake.toMoney().equals(eventStake)) {
+      throw new IllegalArgumentException("Settlement stake does not match original unit stake");
+    }
+    if (payout.currency() != stake.currency() || payout.isNegative()) {
+      throw new IllegalArgumentException("Settlement payout is invalid");
+    }
+    this.status = BetStatus.SETTLED;
+    this.settlementResult = Objects.requireNonNull(result, "result");
+    this.settledPayout = EmbeddedMoney.of(payout);
+    recordBaseResolution(eventId, settledAt, payloadHash);
+  }
+
+  public void voidBase(UUID eventId, VoidReason reason, Instant voidedAt, String payloadHash) {
+    requireStatus(BetStatus.ACCEPTED);
+    requireSelectionEvent(eventId);
+    this.status = BetStatus.VOIDED;
+    this.voidReason = Objects.requireNonNull(reason, "reason");
+    recordBaseResolution(eventId, voidedAt, payloadHash);
+  }
+
+  private void recordBaseResolution(UUID eventId, Instant at, String payloadHash) {
+    this.resolutionEventId = Objects.requireNonNull(eventId, "eventId");
+    this.resolutionRevisionNumber = 0L;
+    this.resolutionPayloadSha256 = requireHash(payloadHash);
+    this.sourceResultSettledAt = Objects.requireNonNull(at, "at");
+    this.resolvedAt = at;
+    this.updatedAt = at;
+  }
+
+  private static String requireHash(String value) {
+    if (value == null || !value.matches("[0-9a-f]{64}")) {
+      throw new IllegalArgumentException("payload hash must be lowercase SHA-256");
+    }
+    return value;
+  }
+
   private void requireCompensationInProgress(CompensationAction action) {
     requireStatus(BetStatus.PENDING);
     if (compensationAction != action || compensationState != CompensationState.IN_PROGRESS) {
@@ -409,6 +487,26 @@ public class Bet {
 
   public UUID compensationOperationId() {
     return compensationOperationId;
+  }
+
+  public SettlementResult settlementResult() {
+    return settlementResult;
+  }
+
+  public Money settledPayout() {
+    return settledPayout == null ? null : settledPayout.toMoney();
+  }
+
+  public VoidReason voidReason() {
+    return voidReason;
+  }
+
+  public Instant resolvedAt() {
+    return resolvedAt;
+  }
+
+  public long resolutionRevisionNumber() {
+    return resolutionRevisionNumber == null ? -1 : resolutionRevisionNumber;
   }
 
   public String idempotencyKey() {
