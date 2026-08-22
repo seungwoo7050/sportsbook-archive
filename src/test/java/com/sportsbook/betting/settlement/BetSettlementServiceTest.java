@@ -1,9 +1,11 @@
 package com.sportsbook.betting.settlement;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.sportsbook.betting.config.PermanentKafkaException;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.domain.BetLeg;
 import com.sportsbook.betting.domain.SystemBetCalculator;
@@ -84,6 +86,33 @@ class BetSettlementServiceTest {
     new BetSettlementService(bets, new SystemBetCalculator()).apply(event, "b".repeat(64));
 
     verify(bet).voidBase(eventId, VoidReason.EVENT_CANCELLED, Instant.EPOCH, "b".repeat(64));
+  }
+
+  @Test
+  void classifiesAResolutionActorMismatchAsPermanent() {
+    BetRepository bets = mock(BetRepository.class);
+    Bet bet = mock(Bet.class);
+    UUID betId = UUID.randomUUID();
+    when(bet.userId()).thenReturn(UUID.randomUUID());
+    when(bets.findLockedByBetId(betId)).thenReturn(Optional.of(bet));
+    BetSettled event =
+        BetSettled.newBuilder()
+            .setBetId(betId.toString())
+            .setUserId(UUID.randomUUID().toString())
+            .setEventId(UUID.randomUUID().toString())
+            .setResult(SettlementResultAvro.WON)
+            .setStake(eventMoney(1_000))
+            .setPayout(eventMoney(2_000))
+            .setSettledAt(Instant.EPOCH)
+            .setResultDetail(java.util.Map.of())
+            .build();
+
+    assertThatThrownBy(
+            () ->
+                new BetSettlementService(bets, new SystemBetCalculator())
+                    .apply(event, "c".repeat(64)))
+        .isInstanceOf(PermanentKafkaException.class)
+        .hasMessageContaining("actor");
   }
 
   private static com.sportsbook.protocol.event.Money eventMoney(long amount) {
