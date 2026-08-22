@@ -23,6 +23,18 @@ public class RevisionPlanRepository {
     this.jdbc = jdbc;
   }
 
+  public boolean exists(UUID betId, long revisionNumber) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            """
+            select exists (select 1 from settlement_revision
+                where bet_id = ? and revision_number = ?)
+            """,
+            Boolean.class,
+            betId,
+            revisionNumber));
+  }
+
   @Transactional
   public Persisted persist(RevisionPlan plan, Duration leaseDuration) {
     long leaseMillis = leaseDuration == null ? 0 : leaseDuration.toMillis();
