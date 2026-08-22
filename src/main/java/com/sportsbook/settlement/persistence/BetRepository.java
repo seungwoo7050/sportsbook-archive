@@ -6,6 +6,7 @@ import jakarta.persistence.QueryHint;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -26,6 +27,14 @@ public interface BetRepository extends JpaRepository<Bet, UUID> {
           + "where s.eventId = :eventId and b.status = "
           + "com.sportsbook.settlement.domain.SettlementStatus.PENDING order by b.betId")
   List<UUID> findPendingIdsByEvent(@Param("eventId") UUID eventId);
+
+  @Query(
+      "select distinct b.betId from Bet b join b.selections s "
+          + "where b.status = com.sportsbook.settlement.domain.SettlementStatus.SETTLED "
+          + "and s.eventId = :eventId and (s.sourceCandidateId is null "
+          + "or s.sourceCandidateId <> :candidateId) order by b.betId")
+  List<UUID> findStaleSettledIdsByEvent(
+      @Param("eventId") UUID eventId, @Param("candidateId") UUID candidateId, Pageable page);
 
   @Query(
       value =
