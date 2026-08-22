@@ -11,6 +11,7 @@ import com.sportsbook.settlement.persistence.BetRepository;
 import com.sportsbook.settlement.resolver.ResolvedSelection;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
@@ -36,8 +37,7 @@ public class RevisionFinalizer {
   }
 
   @Transactional
-  public boolean apply(
-      RevisionPlan plan, RevisionLease lease, WalletAdjustmentProof proof, Instant now) {
+  public boolean apply(RevisionPlan plan, RevisionLease lease, WalletAdjustmentProof proof) {
     if (plan.requiresWalletAdjustment()) {
       new RevisionProofValidator().requireExact(plan, proof);
       if (proof.status() != WalletAdjustmentProof.Status.APPLIED) {
@@ -62,9 +62,12 @@ public class RevisionFinalizer {
                 .anyMatch(selection -> !snapshot.containsKey(selection.selectionId()))
             || bet.selections().stream()
                 .noneMatch(selection -> selection.eventId().equals(target.eventId()));
-    if (stale || !revisions.markApplied(plan.revisionId(), lease, proof, now)) {
+    Optional<Instant> appliedAt =
+        stale ? Optional.empty() : revisions.markApplied(plan.revisionId(), lease, proof);
+    if (appliedAt.isEmpty()) {
       return false;
     }
+    Instant revisedAt = appliedAt.orElseThrow();
     bet.selections()
         .forEach(
             selection -> {
@@ -75,10 +78,16 @@ public class RevisionFinalizer {
                 throw new IllegalStateException("Unrelated selection changed during correction");
               }
             });
-    if (bet.recordRevision(plan.newResult(), plan.newPayout(), now) != target.revisionNumber()) {
+    if (bet.recordRevision(plan.newResult(), plan.newPayout(), revisedAt)
+        != target.revisionNumber()) {
       throw new IllegalStateException("Bet revision sequence diverged");
     }
-    outbox.save(events.revised(plan, now));
+    outbox.save(events.revised(plan, revisedAt));
     return true;
+  }
+
+  public boolean apply(
+      RevisionPlan plan, RevisionLease lease, WalletAdjustmentProof proof, Instant ignored) {
+    return apply(plan, lease, proof);
   }
 }
