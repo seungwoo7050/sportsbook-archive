@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -32,6 +33,58 @@ public class SettlementAttemptRepository {
 
   public SettlementAttemptRepository(JdbcTemplate jdbc) {
     this.jdbc = jdbc;
+  }
+
+  public Optional<SettlementAttempt> claimPending(
+      SettlementAttemptDraft draft, Duration leaseDuration) {
+    long leaseMillis = leaseDuration == null ? 0 : leaseDuration.toMillis();
+    if (leaseMillis < 1) {
+      throw new IllegalArgumentException("Initial settlement lease must be positive");
+    }
+    SettlementMoneyPlan money = draft.money();
+    UUID token = UUID.randomUUID();
+    return jdbc
+        .query(
+            """
+            insert into settlement_attempt (
+                bet_id, action, event_id, result, void_reason,
+                committed_amount, payout_amount, locked_release_amount,
+                locked_forfeit_amount, house_profit_amount, currency,
+                lease_token, lease_until, attempt_count, last_error, created_at, updated_at)
+            select ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                current_timestamp + (? * interval '1 millisecond'),
+                1, null, current_timestamp, current_timestamp
+            from bet where bet_id = ? and status = 'PENDING'
+            on conflict (bet_id) do nothing
+            returning lease_until, created_at, updated_at
+            """,
+            (result, rowNumber) ->
+                new InitialClock(
+                    result.getTimestamp("lease_until").toInstant(),
+                    result.getTimestamp("created_at").toInstant(),
+                    result.getTimestamp("updated_at").toInstant()),
+            draft.betId(),
+            draft.action().name(),
+            draft.eventId(),
+            draft.result() == null ? null : draft.result().name(),
+            draft.voidReason(),
+            money.committed().amount(),
+            money.payout().amount(),
+            money.lockedRelease().amount(),
+            money.lockedForfeit().amount(),
+            money.houseProfit().amount(),
+            money.committed().currency().name(),
+            token,
+            leaseMillis,
+            draft.betId())
+        .stream()
+        .findFirst()
+        .map(
+            clock ->
+                draft.claimed(
+                    new SettlementLease(token, clock.leaseUntil()),
+                    clock.createdAt(),
+                    clock.updatedAt()));
   }
 
   public boolean claimPending(SettlementAttempt attempt) {
@@ -134,4 +187,6 @@ public class SettlementAttemptRepository {
   }
 
   private record RecoveryClock(Instant leaseUntil, Instant updatedAt) {}
+
+  private record InitialClock(Instant leaseUntil, Instant createdAt, Instant updatedAt) {}
 }
