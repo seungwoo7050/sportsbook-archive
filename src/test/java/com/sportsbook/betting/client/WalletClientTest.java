@@ -124,6 +124,39 @@ class WalletClientTest {
     assertThatThrownBy(() -> client.findDebit(betId, userId, Money.krw(1_000)))
         .isInstanceOf(WalletRejectedException.class);
   }
+
+  @Test
+  void refundsLockedExposureUnderIndependentKey() {
+    UUID betId = UUID.randomUUID();
+    UUID operationId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/credit"))
+        .andExpect(header("Idempotency-Key", "refund:" + betId))
+        .andExpect(jsonPath("$.source").value("USER_LOCKED"))
+        .andExpect(jsonPath("$.reason").value("REFUND"))
+        .andRespond(
+            withSuccess(
+                proof(operationId, userId, 6_000, "BET_REFUND"), MediaType.APPLICATION_JSON));
+
+    assertThat(client.refund(betId, userId, Money.krw(6_000))).isEqualTo(operationId);
+  }
+
+  @Test
+  void rejectsMismatchedRefundProof() {
+    UUID userId = UUID.randomUUID();
+    server
+        .expect(requestTo("http://wallet/internal/v1/wallet/transactions/credit"))
+        .andRespond(
+            withSuccess(
+                proof(UUID.randomUUID(), userId, 5_000, "BET_REFUND"), MediaType.APPLICATION_JSON));
+
+    assertThatThrownBy(() -> client.refund(UUID.randomUUID(), userId, Money.krw(6_000)))
+        .isInstanceOf(com.sportsbook.betting.error.WalletProofMismatchException.class)
+        .extracting("operation")
+        .isEqualTo("refund");
+  }
+
   private static String proof(UUID operationId, UUID userId, long amount, String reason) {
     return "{\"operationGroupId\":\""
         + operationId
