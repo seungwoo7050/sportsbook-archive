@@ -32,6 +32,15 @@ class MigrationBlobTest {
         .contains("CREATE TABLE outbox_event", "WHERE published_at IS NULL");
   }
 
+  @Test
+  void preservesV4MatchResultBlobAndSelectionIdentity() throws IOException {
+    Path migration = MIGRATIONS.resolve("V4__match_result.sql");
+
+    assertThat(gitBlobOid(migration)).isEqualTo("03e0fa98695e0aa35eb7c23f6e87f382a720dec1");
+    assertThat(Files.readString(migration))
+        .contains("CREATE TABLE match_result", "PRIMARY KEY (event_id, selection_id)");
+  }
+
   private static String gitBlobOid(Path path) throws IOException {
     byte[] content = Files.readAllBytes(path);
     byte[] header = ("blob " + content.length + "\0").getBytes(StandardCharsets.UTF_8);
