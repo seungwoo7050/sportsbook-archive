@@ -31,6 +31,18 @@ class RevisionPlanTest {
     assertThat(plan.hasZeroDelta()).isFalse();
   }
 
+  @Test
+  void bypassesWalletOnlyWhenThePayoutDeltaIsZero() {
+    RevisionPlan plan =
+        RevisionPlan.allocate(
+            target(),
+            new SettlementOutcome(SettlementResult.WON, Money.krw(200), 1, 1),
+            Instant.EPOCH);
+
+    assertThat(plan.hasZeroDelta()).isTrue();
+    assertThat(plan.requiresWalletAdjustment()).isFalse();
+  }
+
   private static RevisionTarget target() {
     return new RevisionTarget(
         UUID.randomUUID(),
