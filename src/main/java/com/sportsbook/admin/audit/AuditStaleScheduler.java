@@ -19,16 +19,19 @@ public class AuditStaleScheduler {
   private static final String FAILURE_METRIC = "admin.audit.stale.scan.failure";
 
   private final AuditWriteRepository auditWrites;
+  private final AdminActionPublisher publisher;
   private final MeterRegistry meters;
   private final Duration staleAfter;
   private final int batchSize;
 
   public AuditStaleScheduler(
       AuditWriteRepository auditWrites,
+      AdminActionPublisher publisher,
       MeterRegistry meters,
       @Value("${admin.audit.stale-after:PT5M}") Duration staleAfter,
       @Value("${admin.audit.stale-batch-size:100}") int batchSize) {
     this.auditWrites = auditWrites;
+    this.publisher = publisher;
     this.meters = meters;
     this.staleAfter = staleAfter;
     this.batchSize = batchSize;
@@ -40,6 +43,7 @@ public class AuditStaleScheduler {
   void scan() {
     try {
       List<AuditTerminalRecord> claimed = auditWrites.claimStale(staleAfter, batchSize);
+      claimed.forEach(publisher::publish);
       meters.counter(CLAIMED_METRIC).increment(claimed.size());
     } catch (RuntimeException failure) {
       meters.counter(FAILURE_METRIC).increment();
