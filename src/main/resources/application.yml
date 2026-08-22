@@ -62,6 +62,12 @@ admin:
     ip-allowlist: ${ADMIN_IP_ALLOWLIST:127.0.0.1/32,::1/128}
     trusted-proxy-cidrs: ${ADMIN_TRUSTED_PROXY_CIDRS:}
   downstream:
+    wallet-base-url: ${ADMIN_WALLET_BASE_URL:http://localhost:8081}
+    risk-base-url: ${ADMIN_RISK_BASE_URL:http://localhost:8083}
+    odds-feed-base-url: ${ADMIN_ODDS_FEED_BASE_URL:http://localhost:8085}
+    settlement-base-url: ${ADMIN_SETTLEMENT_BASE_URL:http://localhost:8084}
+    connect-timeout: ${ADMIN_DOWNSTREAM_CONNECT_TIMEOUT:200ms}
+    read-timeout: ${ADMIN_DOWNSTREAM_READ_TIMEOUT:2s}
     credentials:
       wallet-api-key: ${ADMIN_WALLET_API_KEY:}
       risk-api-key: ${ADMIN_RISK_API_KEY:}
