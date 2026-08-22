@@ -11,7 +11,6 @@ import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -92,6 +91,32 @@ public class RiskClient {
     }
   }
 
+  public ReleaseResult release(UUID betId) {
+    try {
+      http.delete()
+          .uri(RESERVATIONS + "/{betId}", betId)
+          .retrieve()
+          .onStatus(
+              status -> status.value() == HttpStatus.CONFLICT.value(),
+              (request, ignored) -> {
+                throw new ReservationCommitted();
+              })
+          .onStatus(
+              status -> status.value() != HttpStatus.NO_CONTENT.value(),
+              (request, ignored) -> {
+                throw new DependencyUnavailableException("Risk release was not accepted");
+              })
+          .toBodilessEntity();
+      return ReleaseResult.RELEASED;
+    } catch (ReservationCommitted exception) {
+      return ReleaseResult.COMMITTED;
+    } catch (BetPlacementException exception) {
+      throw exception;
+    } catch (RestClientException exception) {
+      throw new DependencyUnavailableException("Risk release is unavailable", exception);
+    }
+  }
+
   private static Reservation requireApproved(RiskReservationResponse response) {
     if (response == null) {
       throw new DependencyUnavailableException("Risk returned an empty response");
@@ -120,6 +145,11 @@ public class RiskClient {
     CONFLICT
   }
 
+  public enum ReleaseResult {
+    RELEASED,
+    COMMITTED
+  }
+
   public record Reservation(ReservationState state, Instant expiresAt, String token) {
     public Reservation {
       Objects.requireNonNull(state, "state");
@@ -139,6 +169,10 @@ public class RiskClient {
   }
 
   private static final class ReservationConflict extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+  }
+
+  private static final class ReservationCommitted extends RuntimeException {
     private static final long serialVersionUID = 1L;
   }
 }
