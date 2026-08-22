@@ -1,0 +1,50 @@
+name: Gateway CI
+
+on:
+  push:
+    branches:
+      - gateway
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out gateway event revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: gateway
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out shared protocol
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: shared-protocol
+          path: shared-protocol
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Temurin 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Docker availability
+        run: docker info
+
+      - name: Install shared protocol
+        working-directory: shared-protocol
+        run: ./mvnw -B -ntp -Dmaven.repo.local="${{ runner.temp }}/gateway-m2" clean install
+
+      - name: Verify gateway
+        working-directory: gateway
+        run: ./mvnw -B -ntp -Dmaven.repo.local="${{ runner.temp }}/gateway-m2" clean verify
