@@ -3,9 +3,12 @@ package com.sportsbook.betting.settlement;
 import com.sportsbook.betting.config.BettingTopics;
 import com.sportsbook.betting.config.KafkaMessageValidator;
 import com.sportsbook.betting.config.PermanentKafkaException;
+import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -16,10 +19,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class SettlementResultListener {
 
-  private final BetSettlementService settlement;
+  static final String REVISION_GAP_METRIC = "betting.resolution.revision.gaps";
 
-  public SettlementResultListener(BetSettlementService settlement) {
+  private final BetSettlementService settlement;
+  private final Counter revisionGaps;
+
+  public SettlementResultListener(BetSettlementService settlement, MeterRegistry meters) {
     this.settlement = settlement;
+    this.revisionGaps = Counter.builder(REVISION_GAP_METRIC).register(meters);
   }
 
   @KafkaListener(
@@ -52,7 +59,10 @@ public class SettlementResultListener {
         BetResolutionRevised event =
             KafkaMessageValidator.decode(record.value(), BetResolutionRevised.class);
         KafkaMessageValidator.requireKey(record.key(), event.getBetId(), "Revision betId");
-        settlement.apply(event, hash);
+        Bet.RevisionApplyResult result = settlement.apply(event, hash);
+        if (result == Bet.RevisionApplyResult.APPLIED_WITH_GAP) {
+          revisionGaps.increment();
+        }
       }
       default -> throw new PermanentKafkaException("Unsupported resolution topic");
     }
