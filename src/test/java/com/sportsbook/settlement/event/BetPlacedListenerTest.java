@@ -6,18 +6,22 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.event.BetPlacedRequested;
 import com.sportsbook.protocol.event.BetSlipTypeTag;
+import com.sportsbook.protocol.event.EventLifecycleStatus;
 import com.sportsbook.protocol.event.Money;
 import com.sportsbook.protocol.event.RequestedSelection;
+import com.sportsbook.settlement.lifecycle.LifecycleFanout;
+import com.sportsbook.settlement.lifecycle.LifecycleObservation;
+import com.sportsbook.settlement.lifecycle.LifecycleStore;
 import com.sportsbook.settlement.readmodel.BetReadModelWriter;
 import java.io.ByteArrayOutputStream;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumWriter;
@@ -29,7 +33,16 @@ import org.springframework.kafka.support.Acknowledgment;
 class BetPlacedListenerTest {
 
   private final BetReadModelWriter writer = mock(BetReadModelWriter.class);
-  private final BetPlacedListener listener = new BetPlacedListener(writer);
+  private final LifecycleStore lifecycles = mock(LifecycleStore.class);
+  private final LifecycleFanout lifecycleFanout = mock(LifecycleFanout.class);
+  private final BetPlacedListener listener =
+      new BetPlacedListener(
+          writer,
+          new StrictAvroDecoder(),
+          new KafkaUuidKeyValidator(),
+          new BetPlacedMapper(),
+          lifecycles,
+          lifecycleFanout);
   private final Acknowledgment acknowledgment = mock(Acknowledgment.class);
 
   @Test
@@ -58,6 +71,27 @@ class BetPlacedListenerTest {
             () -> listener.receive(record(event, UUID.randomUUID().toString()), acknowledgment))
         .isInstanceOf(IllegalArgumentException.class);
     verifyNoInteractions(writer, acknowledgment);
+  }
+
+  @Test
+  void fansOutStoredTerminalTombstoneBeforeAcknowledgment() {
+    BetPlacedRequested event = event();
+    UUID eventId = UUID.fromString(event.getSelections().get(0).getEventId().toString());
+    LifecycleObservation tombstone =
+        LifecycleObservation.observe(
+            eventId,
+            EventLifecycleStatus.POSTPONED,
+            Instant.EPOCH,
+            Instant.EPOCH.plusSeconds(3600),
+            Instant.EPOCH.plusSeconds(1));
+    when(lifecycles.findTombstone(eventId)).thenReturn(Optional.of(tombstone));
+
+    listener.receive(record(event, event.getUserId().toString()), acknowledgment);
+
+    InOrder caughtUp = inOrder(writer, lifecycleFanout, acknowledgment);
+    caughtUp.verify(writer).record(any());
+    caughtUp.verify(lifecycleFanout).fanOut(tombstone);
+    caughtUp.verify(acknowledgment).acknowledge();
   }
 
   private static ConsumerRecord<byte[], byte[]> record(BetPlacedRequested event, String key) {
