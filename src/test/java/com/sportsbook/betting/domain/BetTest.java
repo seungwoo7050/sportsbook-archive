@@ -161,6 +161,105 @@ class BetTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("selected leg");
   }
+
+  @Test
+  void revisionCanEstablishProjectionBeforeBase() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+    UUID revisionId = UUID.randomUUID();
+
+    Bet.RevisionApplyResult result =
+        bet.applyRevision(
+            bet.legs().get(0).eventId(),
+            revisionId,
+            1,
+            SettlementResult.LOST,
+            SettlementResult.WON,
+            Money.krw(0),
+            Money.krw(2_000),
+            NOW,
+            NOW.plusSeconds(1),
+            "3".repeat(64));
+
+    assertThat(result).isEqualTo(Bet.RevisionApplyResult.APPLIED);
+    assertThat(bet.status()).isEqualTo(BetStatus.SETTLED);
+    assertThat(bet.resolutionRevisionId()).isEqualTo(revisionId);
+    assertThat(bet.resolutionRevisionNumber()).isEqualTo(1);
+  }
+
+  @Test
+  void detectsGapAndIgnoresOlderRevision() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+    bet.settleBase(
+        bet.legs().get(0).eventId(),
+        SettlementResult.LOST,
+        Money.krw(1_000),
+        Money.krw(0),
+        NOW,
+        "4".repeat(64));
+
+    Bet.RevisionApplyResult gap =
+        bet.applyRevision(
+            bet.legs().get(0).eventId(),
+            UUID.randomUUID(),
+            2,
+            SettlementResult.WON,
+            SettlementResult.PUSH,
+            Money.krw(2_000),
+            Money.krw(1_000),
+            NOW,
+            NOW.plusSeconds(2),
+            "5".repeat(64));
+
+    assertThat(gap).isEqualTo(Bet.RevisionApplyResult.APPLIED_WITH_GAP);
+    assertThat(
+            bet.applyRevision(
+                bet.legs().get(0).eventId(),
+                UUID.randomUUID(),
+                1,
+                SettlementResult.LOST,
+                SettlementResult.WON,
+                Money.krw(0),
+                Money.krw(2_000),
+                NOW,
+                NOW.plusSeconds(1),
+                "6".repeat(64)))
+        .isEqualTo(Bet.RevisionApplyResult.IGNORED);
+  }
+
+  @Test
+  void distinguishesEqualRevisionReplayFromConflict() {
+    Bet bet = accepted(new BetSlipType.Single(), List.of(leg("2")));
+    bet.settleBase(
+        bet.legs().get(0).eventId(),
+        SettlementResult.LOST,
+        Money.krw(1_000),
+        Money.krw(0),
+        NOW,
+        "7".repeat(64));
+    UUID revisionId = UUID.randomUUID();
+
+    assertThat(revise(bet, revisionId, "8".repeat(64))).isEqualTo(Bet.RevisionApplyResult.APPLIED);
+    assertThat(revise(bet, revisionId, "8".repeat(64)))
+        .isEqualTo(Bet.RevisionApplyResult.DUPLICATE);
+    assertThatThrownBy(() -> revise(bet, UUID.randomUUID(), "9".repeat(64)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Conflicting equal");
+  }
+
+  static Bet.RevisionApplyResult revise(Bet bet, UUID revisionId, String hash) {
+    return bet.applyRevision(
+        bet.legs().get(0).eventId(),
+        revisionId,
+        1,
+        SettlementResult.LOST,
+        SettlementResult.WON,
+        Money.krw(0),
+        Money.krw(2_000),
+        NOW,
+        NOW.plusSeconds(1),
+        hash);
+  }
+
   static Bet accepted(BetSlipType type, List<BetLeg> legs) {
     Bet bet = Bet.pending(draft(UUID.randomUUID(), type), legs);
     bet.recordRiskReservation(NOW.plusSeconds(120), "9".repeat(64), false, NOW);
