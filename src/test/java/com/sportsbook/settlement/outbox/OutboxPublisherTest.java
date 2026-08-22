@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.sportsbook.settlement.config.SettlementRuntimeProperties;
 import com.sportsbook.settlement.config.SettlementWorkerConfiguration;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -26,6 +27,7 @@ class OutboxPublisherTest {
 
   private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
   private final OutboxEventRepository repository = mock(OutboxEventRepository.class);
+  private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
 
   @SuppressWarnings("unchecked")
   private final KafkaOperations<byte[], byte[]> kafka = mock(KafkaOperations.class);
@@ -35,7 +37,8 @@ class OutboxPublisherTest {
           repository,
           kafka,
           new SettlementRuntimeProperties(null, null, null, 10),
-          Clock.fixed(NOW, ZoneOffset.UTC));
+          Clock.fixed(NOW, ZoneOffset.UTC),
+          meters);
 
   @Test
   void marksRowsOnlyAfterTheRawBrokerSendCompletes() {
@@ -51,6 +54,8 @@ class OutboxPublisherTest {
     assertThat(new String(sent.getValue().key(), UTF_8)).isEqualTo("event-id");
     assertThat(sent.getValue().value()).containsExactly(1, 2, 3);
     assertThat(event.publishedAt()).isEqualTo(NOW);
+    assertThat(meters.counter(OutboxPublisher.PUBLISHED_METRIC, "topic", event.topic()).count())
+        .isEqualTo(1);
   }
 
   @Test
@@ -64,6 +69,8 @@ class OutboxPublisherTest {
 
     assertThatThrownBy(publisher::publishBatch).isInstanceOf(KafkaException.class);
     assertThat(event.publishedAt()).isNull();
+    assertThat(meters.counter(OutboxPublisher.FAILURE_METRIC, "topic", event.topic()).count())
+        .isEqualTo(1);
   }
 
   @Test
