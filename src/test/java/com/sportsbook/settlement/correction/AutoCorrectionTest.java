@@ -26,7 +26,9 @@ class AutoCorrectionTest {
   void intakeLinksAndAutoAcceptsAReplacementCandidate() {
     ResultCandidateStore store = mock(ResultCandidateStore.class);
     UUID acceptedId = UUID.randomUUID();
-    when(store.findAcceptedCandidateId(any())).thenReturn(Optional.of(acceptedId));
+    when(store.findAcceptedCandidate(any()))
+        .thenReturn(
+            Optional.of(new ResultCandidateStore.AcceptedCandidate(acceptedId, Instant.EPOCH)));
     when(store.record(any()))
         .thenAnswer(
             invocation -> {
