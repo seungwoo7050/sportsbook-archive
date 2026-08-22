@@ -5,6 +5,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -23,25 +25,60 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
-    return !request.getRequestURI().startsWith("/internal/v1/bets");
+    String path = businessPath(request);
+    return !path.startsWith("/internal/") && !path.startsWith("/api/");
   }
 
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
-    boolean trustedCaller = "gateway".equals(request.getHeader(SERVICE_HEADER));
-    boolean trustedKey = credentials.matches(request.getHeader(API_KEY_HEADER));
-    if (!trustedCaller || !trustedKey) {
-      response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-      response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-      response
-          .getWriter()
-          .write(
-              "{\"type\":\"https://sportsbook/errors/forbidden\","
-                  + "\"title\":\"Forbidden\",\"status\":403,\"errorCode\":\"FORBIDDEN\"}");
+    List<String> callers = Collections.list(request.getHeaders(SERVICE_HEADER));
+    List<String> keys = Collections.list(request.getHeaders(API_KEY_HEADER));
+    boolean exactKey = keys.size() == 1 && credentials.matches(keys.get(0));
+    if (!exactKey || callers.size() != 1) {
+      reject(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED");
+      return;
+    }
+    boolean trustedCaller = "gateway".equals(callers.get(0));
+    String path = businessPath(request);
+    String method = request.getMethod();
+    boolean collection = path.equals("/internal/v1/bets");
+    boolean item =
+        path.matches(
+            "/internal/v1/bets/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+    boolean allowedRoute =
+        (collection && (method.equals("GET") || method.equals("POST")))
+            || (item && method.equals("GET"));
+    if (!trustedCaller || !allowedRoute) {
+      reject(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN");
       return;
     }
     chain.doFilter(request, response);
+  }
+
+  private static String businessPath(HttpServletRequest request) {
+    String uri = request.getRequestURI();
+    String context = request.getContextPath();
+    return context.isEmpty() || !uri.startsWith(context) ? uri : uri.substring(context.length());
+  }
+
+  private static void reject(HttpServletResponse response, int status, String code)
+      throws IOException {
+    response.setStatus(status);
+    response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    response
+        .getWriter()
+        .write(
+            "{\"type\":\"https://sportsbook/errors/"
+                + code.toLowerCase()
+                + "\","
+                + "\"title\":\""
+                + code
+                + "\",\"status\":"
+                + status
+                + ",\"errorCode\":\""
+                + code
+                + "\"}");
   }
 }
