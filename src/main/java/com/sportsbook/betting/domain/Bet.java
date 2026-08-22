@@ -159,6 +159,25 @@ public class Bet {
     this.updatedAt = Objects.requireNonNull(now, "now");
   }
 
+  public void commitRisk(Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (placementPhase != PlacementPhase.WALLET_CONFIRMED) {
+      throw new IllegalStateException("Risk commit cannot follow " + placementPhase);
+    }
+    this.riskCommitObserved = true;
+    this.placementPhase = PlacementPhase.RISK_COMMITTED;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void accept(Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (placementPhase != PlacementPhase.RISK_COMMITTED || !riskCommitObserved) {
+      throw new IllegalStateException("Acceptance requires committed risk proof");
+    }
+    this.status = BetStatus.ACCEPTED;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
   private void requireStatus(BetStatus expected) {
     if (status != expected) {
       throw new IllegalStateException("Expected " + expected + " but was " + status);
