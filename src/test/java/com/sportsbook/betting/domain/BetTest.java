@@ -26,6 +26,16 @@ class BetTest {
     assertThat(bet.createdAt()).isEqualTo(NOW);
   }
 
+  @Test
+  void retainsSystemShapeAndWagerValues() {
+    Bet bet = Bet.from(draft(UUID.randomUUID(), new BetSlipType.System(2, 3)));
+
+    assertThat(bet.slipType()).isEqualTo(new BetSlipType.System(2, 3));
+    assertThat(bet.stake()).isEqualTo(Money.krw(1_000));
+    assertThat(bet.maxPayout()).isEqualTo(Money.krw(2_000));
+    assertThat(bet.requestFingerprint()).isEqualTo(FINGERPRINT);
+  }
+
   static BetDraft draft(UUID betId, BetSlipType type) {
     return new BetDraft(
         betId,
