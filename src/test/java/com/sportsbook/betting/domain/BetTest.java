@@ -63,6 +63,16 @@ class BetTest {
   }
 
   @Test
+  void recordsTheLatestWalletReconciliationWake() {
+    Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
+    Instant requestedAt = NOW.plusSeconds(5);
+
+    bet.requestReconciliation(requestedAt);
+
+    assertThat(bet.reconciliationRequestedAt()).isEqualTo(requestedAt);
+  }
+
+  @Test
   void advancesOnlyFromPersistedReservationToWalletProof() {
     Bet bet = Bet.pending(draft(UUID.randomUUID(), new BetSlipType.Single()), List.of(leg("2.0")));
     UUID operationId = UUID.randomUUID();
