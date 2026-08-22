@@ -13,13 +13,12 @@ import org.springframework.dao.DataAccessResourceFailureException;
 
 class AuditServiceFailureTest {
 
-  private static final UUID ACTION_ID =
-      UUID.fromString("018f0000-0000-7000-8000-000000000041");
+  private static final UUID ACTION_ID = UUID.fromString("018f0000-0000-7000-8000-000000000041");
 
   @Test
   void identifiesBeginPersistenceFailures() {
     AuditWriteRepository writes = mock(AuditWriteRepository.class);
-    AuditService service = new AuditService(writes);
+    AuditService service = new AuditService(writes, mock(AdminActionPublisher.class));
     AdminContext context = new AdminContext("operator-1", AdminRole.ADMIN, ACTION_ID, "trace-1");
     doThrow(new DataAccessResourceFailureException("database unavailable"))
         .when(writes)
@@ -38,7 +37,7 @@ class AuditServiceFailureTest {
   @Test
   void identifiesTerminalFinalizationFailures() {
     AuditWriteRepository writes = mock(AuditWriteRepository.class);
-    AuditService service = new AuditService(writes);
+    AuditService service = new AuditService(writes, mock(AdminActionPublisher.class));
     doThrow(new IllegalStateException("lost STARTED claim"))
         .when(writes)
         .complete(ACTION_ID, AuditOutcome.UNKNOWN, null);
