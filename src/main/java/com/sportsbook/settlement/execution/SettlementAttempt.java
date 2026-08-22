@@ -1,8 +1,10 @@
 package com.sportsbook.settlement.execution;
 
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.protocol.value.Money;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 public record SettlementAttempt(
@@ -18,6 +20,9 @@ public record SettlementAttempt(
     Instant createdAt,
     Instant updatedAt) {
 
+  private static final Set<String> WHOLE_SLIP_VOID_REASONS =
+      Set.of("EVENT_CANCELLED", "EVENT_POSTPONED", "ADMIN_VOID");
+
   public SettlementAttempt {
     Objects.requireNonNull(betId, "betId");
     Objects.requireNonNull(action, "action");
@@ -28,7 +33,7 @@ public record SettlementAttempt(
     Objects.requireNonNull(updatedAt, "updatedAt");
     boolean resolved = action == Action.SETTLE && result != null && voidReason == null;
     boolean voided =
-        action == Action.VOID && result == null && voidReason != null && !voidReason.isBlank();
+        action == Action.VOID && result == null && WHOLE_SLIP_VOID_REASONS.contains(voidReason);
     if ((!resolved && !voided) || attemptCount < 1) {
       throw new IllegalArgumentException("Invalid settlement attempt action");
     }
@@ -43,6 +48,21 @@ public record SettlementAttempt(
       Instant now) {
     return new SettlementAttempt(
         betId, Action.SETTLE, eventId, result, null, money, lease, 1, null, now, now);
+  }
+
+  public static SettlementAttempt wholeSlipVoid(
+      UUID betId,
+      UUID eventId,
+      String reason,
+      Money totalExposure,
+      SettlementLease lease,
+      Instant now) {
+    Objects.requireNonNull(totalExposure, "totalExposure");
+    Money zero = Money.zero(totalExposure.currency());
+    SettlementMoneyPlan refund =
+        new SettlementMoneyPlan(totalExposure, totalExposure, totalExposure, zero, zero);
+    return new SettlementAttempt(
+        betId, Action.VOID, eventId, null, reason, refund, lease, 1, null, now, now);
   }
 
   public enum Action {
