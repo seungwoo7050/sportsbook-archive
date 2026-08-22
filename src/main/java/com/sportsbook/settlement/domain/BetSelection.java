@@ -48,6 +48,9 @@ public class BetSelection {
   @Column(name = "outcome", length = 8)
   private SettlementResult outcome;
 
+  @Column(name = "source_candidate_id")
+  private UUID sourceCandidateId;
+
   protected BetSelection() {}
 
   public BetSelection(UUID eventId, UUID marketId, UUID selectionId, Odds odds) {
@@ -69,6 +72,15 @@ public class BetSelection {
     }
     outcome = replacement;
     return true;
+  }
+
+  public boolean applyCandidate(UUID candidateId, SettlementResult replacement) {
+    boolean changed = replaceOutcome(replacement);
+    if (!Objects.equals(sourceCandidateId, candidateId)) {
+      sourceCandidateId = Objects.requireNonNull(candidateId, "candidateId");
+      changed = true;
+    }
+    return changed;
   }
 
   public UUID selectionRowId() {
@@ -97,5 +109,9 @@ public class BetSelection {
 
   public SettlementResult outcome() {
     return outcome;
+  }
+
+  public UUID sourceCandidateId() {
+    return sourceCandidateId;
   }
 }
