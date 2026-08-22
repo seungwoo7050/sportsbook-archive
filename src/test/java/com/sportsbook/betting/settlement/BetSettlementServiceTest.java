@@ -13,6 +13,7 @@ import com.sportsbook.betting.domain.VoidReason;
 import com.sportsbook.betting.persistence.BetRepository;
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.protocol.event.BetResolutionRevised;
 import com.sportsbook.protocol.event.BetSettled;
 import com.sportsbook.protocol.event.BetVoided;
 import com.sportsbook.protocol.event.SettlementResultAvro;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 
 class BetSettlementServiceTest {
 
@@ -113,6 +115,41 @@ class BetSettlementServiceTest {
                     .apply(event, "c".repeat(64)))
         .isInstanceOf(PermanentKafkaException.class)
         .hasMessageContaining("actor");
+  }
+
+  @Test
+  void flushesRevisionIdentityBeforeReturningSuccess() {
+    BetRepository bets = mock(BetRepository.class);
+    Bet bet = mock(Bet.class);
+    UUID betId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    when(bet.userId()).thenReturn(userId);
+    when(bets.findLockedByBetId(betId)).thenReturn(Optional.of(bet));
+    org.mockito.Mockito.doThrow(new DataIntegrityViolationException("duplicate revision"))
+        .when(bets)
+        .flush();
+    BetResolutionRevised event =
+        BetResolutionRevised.newBuilder()
+            .setBetId(betId.toString())
+            .setUserId(userId.toString())
+            .setEventId(UUID.randomUUID().toString())
+            .setRevisionId(UUID.randomUUID().toString())
+            .setRevisionNumber(1L)
+            .setPreviousResult(SettlementResultAvro.LOST)
+            .setNewResult(SettlementResultAvro.WON)
+            .setPreviousPayout(eventMoney(0))
+            .setNewPayout(eventMoney(2_000))
+            .setSourceResultSettledAt(Instant.EPOCH)
+            .setRevisedAt(Instant.EPOCH.plusSeconds(1))
+            .build();
+
+    assertThatThrownBy(
+            () ->
+                new BetSettlementService(bets, new SystemBetCalculator())
+                    .apply(event, "d".repeat(64)))
+        .isInstanceOf(PermanentKafkaException.class)
+        .hasMessageContaining("revision");
+    verify(bets).flush();
   }
 
   private static com.sportsbook.protocol.event.Money eventMoney(long amount) {
