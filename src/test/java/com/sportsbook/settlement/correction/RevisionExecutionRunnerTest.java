@@ -9,8 +9,10 @@ import static org.mockito.Mockito.when;
 
 import com.sportsbook.protocol.domain.BetSlipType;
 import com.sportsbook.protocol.domain.SettlementResult;
+import com.sportsbook.protocol.value.Currency;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.Odds;
+import com.sportsbook.settlement.client.WalletAdjustmentProof;
 import com.sportsbook.settlement.client.WalletFailurePolicy;
 import com.sportsbook.settlement.resolver.ResolvedSelection;
 import java.io.ByteArrayInputStream;
@@ -89,6 +91,30 @@ class RevisionExecutionRunnerTest {
     verify(revisions).rejectPermanent(plan.revisionId(), lease, missing, now);
   }
 
+  @Test
+  void routesAuthoritativeRecoveredProofsThroughOwnerFencedTransitions() {
+    RevisionPlan plan = plan(100);
+    RevisionLease lease = new RevisionLease(UUID.randomUUID(), Instant.MAX);
+    WalletAdjustmentProof applied = proof(plan, WalletAdjustmentProof.Status.APPLIED);
+    WalletAdjustmentProof blocked = proof(plan, WalletAdjustmentProof.Status.BLOCKED);
+    WalletAdjustmentProof rejected = proof(plan, WalletAdjustmentProof.Status.REJECTED);
+    when(wallet.recoverAmbiguous(plan, true)).thenReturn(applied, blocked, rejected);
+    when(finalizer.apply(plan, lease, applied, now)).thenReturn(true);
+    when(revisions.markBlocked(plan.revisionId(), lease, blocked, now))
+        .thenReturn(java.util.Optional.of(RevisionState.BLOCKED));
+    when(revisions.markRejected(plan.revisionId(), lease, rejected, now)).thenReturn(true);
+
+    assertThat(runner.execute(plan, lease, true, true))
+        .isEqualTo(RevisionExecutionRunner.Result.APPLIED);
+    assertThat(runner.execute(plan, lease, true, true))
+        .isEqualTo(RevisionExecutionRunner.Result.BLOCKED);
+    assertThat(runner.execute(plan, lease, true, true))
+        .isEqualTo(RevisionExecutionRunner.Result.REJECTED);
+    verify(finalizer).apply(plan, lease, applied, now);
+    verify(revisions).markBlocked(plan.revisionId(), lease, blocked, now);
+    verify(revisions).markRejected(plan.revisionId(), lease, rejected, now);
+  }
+
   private static WalletFailurePolicy.PermanentFailure missingAdjustment() throws Exception {
     ClientHttpResponse response = mock(ClientHttpResponse.class);
     when(response.getStatusCode()).thenReturn(HttpStatus.NOT_FOUND);
@@ -103,6 +129,25 @@ class RevisionExecutionRunnerTest {
     } catch (WalletFailurePolicy.PermanentFailure failure) {
       return failure;
     }
+  }
+
+  private static WalletAdjustmentProof proof(
+      RevisionPlan plan, WalletAdjustmentProof.Status status) {
+    return new WalletAdjustmentProof(
+        plan.revisionId(),
+        plan.target().betId(),
+        plan.target().revisionNumber(),
+        plan.target().userId(),
+        plan.target().previousPayout(),
+        plan.newPayout(),
+        plan.deltaAmount(),
+        Currency.KRW,
+        status,
+        status == WalletAdjustmentProof.Status.BLOCKED ? 1L : null,
+        status == WalletAdjustmentProof.Status.APPLIED ? UUID.randomUUID() : null,
+        status == WalletAdjustmentProof.Status.BLOCKED ? Instant.EPOCH : null,
+        status == WalletAdjustmentProof.Status.APPLIED ? Instant.EPOCH : null,
+        status == WalletAdjustmentProof.Status.BLOCKED ? Instant.EPOCH.plusSeconds(1) : null);
   }
 
   private static RevisionPlan plan(long newPayout) {
