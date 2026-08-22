@@ -12,4 +12,13 @@ class RepositoryLayoutTest {
   void ignoresGeneratedBuildOutput() throws Exception {
     assertThat(Files.readAllLines(Path.of(".gitignore"))).contains("target/");
   }
+
+  @Test
+  void keepsQualityGatesInTheBuild() throws Exception {
+    String pom = Files.readString(Path.of("pom.xml"));
+    assertThat(pom)
+        .contains("spotless-maven-plugin")
+        .contains("maven-checkstyle-plugin");
+    assertThat(Path.of("config/checkstyle/checkstyle.xml")).exists();
+  }
 }
