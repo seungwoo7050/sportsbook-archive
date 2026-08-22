@@ -4,31 +4,22 @@ import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.core.ProducerFactory;
 
 /** Dedicated bounded raw-byte producer for exact dead-letter publication. */
 @Configuration
 public class RawKafkaProducerConfiguration {
 
-  public static final String PRODUCER_FACTORY = "settlementRawProducerFactory";
   public static final String OPERATIONS = "settlementRawKafkaOperations";
 
-  @Bean(PRODUCER_FACTORY)
-  ProducerFactory<byte[], byte[]> settlementRawProducerFactory(KafkaProperties properties) {
-    return new DefaultKafkaProducerFactory<>(producerProperties(properties));
-  }
-
   @Bean(OPERATIONS)
-  KafkaOperations<byte[], byte[]> settlementRawKafkaOperations(
-      @Qualifier(PRODUCER_FACTORY) ProducerFactory<byte[], byte[]> producerFactory) {
-    return new KafkaTemplate<>(producerFactory);
+  KafkaOperations<byte[], byte[]> settlementRawKafkaOperations(KafkaProperties properties) {
+    return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(producerProperties(properties)));
   }
 
   static Map<String, Object> producerProperties(KafkaProperties properties) {
