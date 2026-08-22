@@ -5,6 +5,7 @@ import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import com.sportsbook.protocol.event.EventLifecycleStatus;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -81,6 +82,36 @@ public class LifecycleStore {
             eventId)
         .stream()
         .findFirst();
+  }
+
+  public List<LifecycleObservation> findActionableTombstones(int limit) {
+    if (limit < 1 || limit > 1000) {
+      throw new IllegalArgumentException("Lifecycle scan limit must be between 1 and 1000");
+    }
+    return jdbc.query(
+        """
+        select t.event_id, t.terminal_status, t.occurred_at, t.received_at, t.fingerprint
+        from event_lifecycle_tombstone t
+        where exists (
+            select 1 from bet_selection s join bet b on b.bet_id = s.bet_id
+            where s.event_id = t.event_id and b.status = 'PENDING'
+              and not exists (
+                  select 1 from settlement_attempt a where a.bet_id = b.bet_id))
+        order by t.received_at, t.event_id limit ?
+        """,
+        (result, rowNumber) -> {
+          UUID eventId = result.getObject("event_id", UUID.class);
+          String fingerprint = result.getString("fingerprint");
+          return new LifecycleObservation(
+              UUID.nameUUIDFromBytes(fingerprint.getBytes(StandardCharsets.UTF_8)),
+              eventId,
+              EventLifecycleStatus.valueOf(result.getString("terminal_status")),
+              result.getTimestamp("occurred_at").toInstant(),
+              null,
+              result.getTimestamp("received_at").toInstant(),
+              fingerprint);
+        },
+        limit);
   }
 
   private static boolean terminal(EventLifecycleStatus status) {
