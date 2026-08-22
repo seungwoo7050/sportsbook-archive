@@ -25,4 +25,13 @@ public class SettlementWalletExecutor {
         wholeSlipVoid ? WalletCreditPurpose.WHOLE_SLIP_VOID : WalletCreditPurpose.RETURNED_STAKE;
     return Optional.of(wallet.credit(key, userId, attempt.money().lockedRelease(), purpose));
   }
+
+  public Optional<UUID> forfeitLocked(SettlementAttempt attempt, UUID userId) {
+    if (attempt.money().lockedForfeit().isZero()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        wallet.forfeit(
+            "settle:forfeit:" + attempt.betId(), userId, attempt.money().lockedForfeit()));
+  }
 }
