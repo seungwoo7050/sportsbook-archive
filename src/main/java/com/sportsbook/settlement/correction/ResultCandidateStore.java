@@ -138,6 +138,33 @@ public class ResultCandidateStore {
   @Transactional
   public boolean replaceAccepted(
       UUID candidateId, UUID expectedAcceptedId, java.time.Instant decidedAt) {
+    return replaceAccepted(candidateId, expectedAcceptedId, decidedAt, "AUTO_CORRECTION");
+  }
+
+  @Transactional
+  public boolean approve(UUID candidateId, java.time.Instant decidedAt) {
+    Optional<UUID> expectedAccepted =
+        jdbc
+            .query(
+                """
+                select replaces_candidate_id from result_candidate
+                where candidate_id = ? and state = 'PENDING'
+                  and replaces_candidate_id is not null
+                """,
+                (result, rowNumber) -> result.getObject("replaces_candidate_id", UUID.class),
+                candidateId)
+            .stream()
+            .findFirst();
+    return expectedAccepted.isPresent()
+        && replaceAccepted(
+            candidateId, expectedAccepted.orElseThrow(), decidedAt, "OPERATOR_APPROVED");
+  }
+
+  private boolean replaceAccepted(
+      UUID candidateId,
+      UUID expectedAcceptedId,
+      java.time.Instant decidedAt,
+      String decisionReason) {
     int replaced =
         jdbc.update(
             """
@@ -171,10 +198,11 @@ public class ResultCandidateStore {
         jdbc.update(
             """
             update result_candidate set state = 'SUPERSEDED', decided_at = ?,
-                decision_reason = 'AUTO_CORRECTION'
+                decision_reason = ?
             where candidate_id = ? and state = 'ACCEPTED'
             """,
             required(decidedAt),
+            decisionReason,
             expectedAcceptedId);
     if (superseded != 1) {
       throw new IllegalStateException("Replacement result lost its accepted candidate");
@@ -183,10 +211,11 @@ public class ResultCandidateStore {
         jdbc.update(
             """
             update result_candidate set state = 'ACCEPTED', decided_at = ?,
-                decision_reason = 'AUTO_CORRECTION'
+                decision_reason = ?
             where candidate_id = ? and state = 'PENDING'
             """,
             required(decidedAt),
+            decisionReason,
             candidateId);
     if (accepted != 1) {
       throw new IllegalStateException("Replacement result lost its pending candidate");
