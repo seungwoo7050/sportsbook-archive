@@ -6,6 +6,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
@@ -13,12 +14,16 @@ import java.util.UUID;
 public final class ResultCandidateFingerprinter {
 
   public String fingerprint(
-      UUID eventId, MatchOutcomeMode mode, Map<UUID, SettlementResult> outcomes) {
+      UUID eventId,
+      MatchOutcomeMode mode,
+      Map<UUID, SettlementResult> outcomes,
+      Instant settledAt) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
       add(digest, "result-candidate-v1");
       add(digest, eventId.toString());
       add(digest, mode.name());
+      add(digest, Long.toString(settledAt.toEpochMilli()));
       if (mode != MatchOutcomeMode.VOIDED) {
         outcomes.entrySet().stream()
             .sorted(Map.Entry.comparingByKey())

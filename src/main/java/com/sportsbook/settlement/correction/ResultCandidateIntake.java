@@ -28,7 +28,8 @@ public class ResultCandidateIntake {
   public IntakeResult ingest(MatchResultRecord result) {
     var acceptedAtRecord = store.findAcceptedCandidate(result.eventId());
     String fingerprint =
-        fingerprints.fingerprint(result.eventId(), result.mode(), result.outcomes());
+        fingerprints.fingerprint(
+            result.eventId(), result.mode(), result.outcomes(), result.settledAt());
     ResultCandidate candidate =
         ResultCandidate.pending(
             result.eventId(),
