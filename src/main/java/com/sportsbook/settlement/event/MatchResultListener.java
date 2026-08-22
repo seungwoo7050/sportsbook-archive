@@ -1,6 +1,7 @@
 package com.sportsbook.settlement.event;
 
 import com.sportsbook.protocol.event.MatchResult;
+import com.sportsbook.settlement.correction.CorrectionFanout;
 import com.sportsbook.settlement.correction.ResultCandidateIntake;
 import com.sportsbook.settlement.result.AcceptedResultRepository;
 import com.sportsbook.settlement.result.ResultFanout;
@@ -17,6 +18,7 @@ public class MatchResultListener {
   private final ResultCandidateIntake intake;
   private final AcceptedResultRepository acceptedResults;
   private final ResultFanout fanout;
+  private final CorrectionFanout corrections;
   private final Clock clock;
   private final StrictAvroDecoder decoder;
   private final KafkaUuidKeyValidator keys;
@@ -27,11 +29,13 @@ public class MatchResultListener {
       ResultCandidateIntake intake,
       AcceptedResultRepository acceptedResults,
       ResultFanout fanout,
+      CorrectionFanout corrections,
       Clock clock) {
     this(
         intake,
         acceptedResults,
         fanout,
+        corrections,
         clock,
         new StrictAvroDecoder(),
         new KafkaUuidKeyValidator(),
@@ -42,6 +46,7 @@ public class MatchResultListener {
       ResultCandidateIntake intake,
       AcceptedResultRepository acceptedResults,
       ResultFanout fanout,
+      CorrectionFanout corrections,
       Clock clock,
       StrictAvroDecoder decoder,
       KafkaUuidKeyValidator keys,
@@ -49,6 +54,7 @@ public class MatchResultListener {
     this.intake = intake;
     this.acceptedResults = acceptedResults;
     this.fanout = fanout;
+    this.corrections = corrections;
     this.clock = clock;
     this.decoder = decoder;
     this.keys = keys;
@@ -62,14 +68,19 @@ public class MatchResultListener {
     MatchResult event = decoder.decode(record.value(), MatchResult.class);
     var eventId = keys.requireMatching(record.key(), event.getEventId(), "eventId");
     var result = intake.ingest(mapper.map(event, clock.instant()));
-    if (result == ResultCandidateIntake.IntakeResult.FIRST_ACCEPTED
-        || result == ResultCandidateIntake.IntakeResult.ACCEPTED_REPLAY) {
+    boolean correction =
+        result == ResultCandidateIntake.IntakeResult.AUTO_CORRECTION_ACCEPTED
+            || result == ResultCandidateIntake.IntakeResult.ACCEPTED_REPLAY;
+    if (result == ResultCandidateIntake.IntakeResult.FIRST_ACCEPTED || correction) {
       var accepted =
           acceptedResults
               .findByEventId(eventId)
               .orElseThrow(
                   () -> new IllegalStateException("Accepted result projection is missing"));
       fanout.fanOut(accepted);
+      if (correction) {
+        corrections.fanOut(accepted);
+      }
     }
     acknowledgment.acknowledge();
   }
