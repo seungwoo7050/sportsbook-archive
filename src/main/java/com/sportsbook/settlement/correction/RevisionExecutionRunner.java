@@ -32,9 +32,7 @@ public class RevisionExecutionRunner {
   public Result execute(
       RevisionPlan plan, RevisionLease lease, boolean recoverFirst, boolean submitWhenMissing) {
     if (!plan.requiresWalletAdjustment()) {
-      return finalizer.apply(plan, lease, null, clock.instant())
-          ? Result.APPLIED
-          : Result.LOST_OWNERSHIP;
+      return finalizer.apply(plan, lease, null) ? Result.APPLIED : Result.LOST_OWNERSHIP;
     }
     try {
       WalletAdjustmentProof proof =
@@ -42,9 +40,7 @@ public class RevisionExecutionRunner {
       Instant completedAt = clock.instant();
       return switch (proof.status()) {
         case APPLIED ->
-            finalizer.apply(plan, lease, proof, completedAt)
-                ? Result.APPLIED
-                : Result.LOST_OWNERSHIP;
+            finalizer.apply(plan, lease, proof) ? Result.APPLIED : Result.LOST_OWNERSHIP;
         case BLOCKED ->
             revisions
                 .markBlocked(plan.revisionId(), lease, proof, completedAt)
