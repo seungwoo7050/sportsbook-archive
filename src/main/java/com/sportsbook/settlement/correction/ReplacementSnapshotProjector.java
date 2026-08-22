@@ -4,16 +4,16 @@ import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.settlement.domain.Bet;
 import com.sportsbook.settlement.domain.SettlementStatus;
 import com.sportsbook.settlement.resolver.ResolvedSelection;
+import com.sportsbook.settlement.result.AcceptedResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 public final class ReplacementSnapshotProjector {
 
-  public Optional<RevisionTarget> project(Bet bet, ResultCandidate source) {
-    if (bet.status() != SettlementStatus.SETTLED
-        || source.state() != ResultCandidateState.ACCEPTED) {
-      throw new IllegalArgumentException("Correction requires settled bet and accepted result");
+  public Optional<RevisionTarget> project(Bet bet, AcceptedResult source) {
+    if (bet.status() != SettlementStatus.SETTLED) {
+      throw new IllegalArgumentException("Correction requires a settled bet");
     }
     List<ResolvedSelection> resolved = new ArrayList<>(bet.selections().size());
     boolean sourceEventPresent = false;
@@ -21,8 +21,7 @@ public final class ReplacementSnapshotProjector {
       SettlementResult outcome = selection.outcome();
       if (selection.eventId().equals(source.eventId())) {
         sourceEventPresent = true;
-        Optional<SettlementResult> replacement =
-            source.mode().resolve(source.outcomes().get(selection.selectionId()));
+        Optional<SettlementResult> replacement = source.resolve(selection.selectionId());
         if (replacement.isEmpty()) {
           return Optional.empty();
         }
@@ -45,6 +44,6 @@ public final class ReplacementSnapshotProjector {
             bet.slipType(),
             bet.stake(),
             resolved,
-            source.settledAt()));
+            source.sourceSettledAt()));
   }
 }
