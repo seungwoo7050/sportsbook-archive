@@ -22,12 +22,7 @@ public record SettlementTopics(
     betResolutionRevised = defaulted(betResolutionRevised, "bet.resolution.revised.v1");
     List<String> topics =
         List.of(
-            betPlaced,
-            matchResult,
-            eventLifecycle,
-            betSettled,
-            betVoided,
-            betResolutionRevised);
+            betPlaced, matchResult, eventLifecycle, betSettled, betVoided, betResolutionRevised);
     if (new HashSet<>(topics).size() != topics.size()) {
       throw new IllegalArgumentException("Settlement topics must be distinct");
     }
