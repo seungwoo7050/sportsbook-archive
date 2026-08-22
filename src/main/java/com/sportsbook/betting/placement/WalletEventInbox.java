@@ -1,5 +1,6 @@
 package com.sportsbook.betting.placement;
 
+import com.sportsbook.betting.config.PermanentKafkaException;
 import com.sportsbook.betting.domain.Bet;
 import com.sportsbook.betting.persistence.BetRepository;
 import com.sportsbook.betting.persistence.WalletEventReceiptRepository;
@@ -33,13 +34,13 @@ public class WalletEventInbox {
           && existing.payloadSha256().equals(payloadHash)) {
         return existing;
       }
-      throw new IllegalStateException("Conflicting wallet event replay: " + eventId);
+      throw new PermanentKafkaException("Conflicting wallet event replay: " + eventId);
     }
     Bet bet =
         bets.findLockedByBetId(betId)
-            .orElseThrow(() -> new IllegalStateException("Wallet event references unknown bet"));
+            .orElseThrow(() -> new PermanentKafkaException("Wallet event references unknown bet"));
     if (!bet.userId().equals(userId)) {
-      throw new IllegalStateException("Wallet event actor does not own bet");
+      throw new PermanentKafkaException("Wallet event actor does not own bet");
     }
     Instant now = clock.instant();
     WalletEventReceipt receipt =
