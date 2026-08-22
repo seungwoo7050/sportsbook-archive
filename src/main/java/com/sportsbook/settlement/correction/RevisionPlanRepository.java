@@ -196,31 +196,40 @@ public class RevisionPlanRepository {
         .findFirst();
   }
 
-  public boolean markApplied(
-      UUID revisionId, RevisionLease lease, WalletAdjustmentProof proof, Instant now) {
+  public Optional<Instant> markApplied(
+      UUID revisionId, RevisionLease lease, WalletAdjustmentProof proof) {
     if (proof != null && proof.status() != WalletAdjustmentProof.Status.APPLIED) {
       throw new IllegalArgumentException("Revision finalization requires an applied Wallet proof");
     }
-    return jdbc.update(
+    return jdbc
+        .query(
             """
             update settlement_revision set state = 'APPLIED', lease_token = null,
                 lease_until = null, last_error_code = null, wallet_status = ?,
                 wallet_queue_sequence = ?, wallet_operation_group_id = ?, wallet_queued_at = ?,
                 wallet_applied_at = ?, wallet_next_attempt_at = null, next_retry_at = null,
-                updated_at = ?, applied_at = ?
+                updated_at = date_trunc('milliseconds', current_timestamp),
+                applied_at = date_trunc('milliseconds', current_timestamp)
             where revision_id = ? and state = 'PENDING' and lease_token = ?
                 and lease_until > current_timestamp
+                and source_result_settled_at <= current_timestamp
+            returning applied_at
             """,
+            (result, rowNumber) -> result.getTimestamp("applied_at").toInstant(),
             proof == null ? null : proof.status().name(),
             proof == null ? null : proof.queueSequence(),
             proof == null ? null : proof.operationGroupId(),
             nullable(proof == null ? null : proof.queuedAt()),
             nullable(proof == null ? null : proof.appliedAt()),
-            required(now),
-            required(now),
             revisionId,
             lease.token())
-        == 1;
+        .stream()
+        .findFirst();
+  }
+
+  public boolean markApplied(
+      UUID revisionId, RevisionLease lease, WalletAdjustmentProof proof, Instant ignored) {
+    return markApplied(revisionId, lease, proof).isPresent();
   }
 
   public boolean markRejected(
