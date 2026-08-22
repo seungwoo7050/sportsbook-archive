@@ -173,9 +173,13 @@ public class ResultCandidateStore {
                 accepted_candidate_id = c.candidate_id
             from result_candidate c
             where c.candidate_id = ? and c.state = 'PENDING'
+              and c.replaces_candidate_id = ?
+              and c.candidate_sequence > (select candidate_sequence from result_candidate
+                  where candidate_id = c.replaces_candidate_id)
               and m.event_id = c.event_id and m.accepted_candidate_id = ?
             """,
             candidateId,
+            expectedAcceptedId,
             expectedAcceptedId);
     if (replaced == 0) {
       return false;
