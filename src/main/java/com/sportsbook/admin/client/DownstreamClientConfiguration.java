@@ -29,6 +29,16 @@ class DownstreamClientConfiguration {
         builder, properties.riskBaseUrl().toString(), credentials.riskApiKey(), properties);
   }
 
+  @Bean
+  @Qualifier("oddsRestClient")
+  RestClient oddsRestClient(
+      RestClient.Builder builder,
+      DownstreamProperties properties,
+      DownstreamCredentials credentials) {
+    return internalClient(
+        builder, properties.oddsFeedBaseUrl().toString(), credentials.oddsFeedApiKey(), properties);
+  }
+
   private static RestClient internalClient(
       RestClient.Builder builder,
       String baseUrl,
