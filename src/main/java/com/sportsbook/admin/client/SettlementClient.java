@@ -109,4 +109,27 @@ public class SettlementClient {
     return SettlementCandidateReceipt.verify(
         idempotencyKey, SettlementCandidateReceipt.Outcome.CANDIDATE_REJECTED, receipt);
   }
+
+  public SettlementRetryReceipt retryRevision(UUID revisionId, UUID idempotencyKey) {
+    var response =
+        failures.execute(
+            () ->
+                http.post()
+                    .uri(
+                        builder ->
+                            builder
+                                .pathSegment("internal", "admin", "revisions")
+                                .pathSegment(revisionId.toString(), "retry")
+                                .build())
+                    .header("Idempotency-Key", idempotencyKey.toString())
+                    .retrieve()
+                    .toEntity(SettlementRetryReceipt.class));
+    SettlementRetryReceipt receipt =
+        DownstreamContract.requireBody(
+            response,
+            HttpStatus.ACCEPTED,
+            ignored -> true,
+            "Settlement revision retry must return HTTP 202 with a receipt");
+    return SettlementRetryReceipt.verify(idempotencyKey, receipt);
+  }
 }
