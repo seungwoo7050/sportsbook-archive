@@ -85,6 +85,23 @@ public class Bet {
   @Column(name = "wallet_operation_id")
   private UUID walletOperationId;
 
+  @Column(name = "rejection_reason", length = 64)
+  private String rejectionReason;
+
+  @Column(name = "rejection_detail", length = 1024)
+  private String rejectionDetail;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "compensation_action", length = 24)
+  private CompensationAction compensationAction;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "compensation_state", nullable = false, length = 16)
+  private CompensationState compensationState;
+
+  @Column(name = "compensation_operation_id")
+  private UUID compensationOperationId;
+
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 16)
   private BetStatus status;
@@ -123,6 +140,7 @@ public class Bet {
     this.idempotencyKey = draft.idempotencyKey().value();
     this.status = BetStatus.PENDING;
     this.placementPhase = PlacementPhase.CREATED;
+    this.compensationState = CompensationState.NONE;
     this.createdAt = draft.createdAt();
     this.updatedAt = draft.createdAt();
   }
@@ -130,6 +148,7 @@ public class Bet {
   public void recordRiskReservation(
       Instant expiresAt, String token, boolean alreadyCommitted, Instant now) {
     requireStatus(BetStatus.PENDING);
+    requireNoCompensation();
     if (placementPhase != PlacementPhase.CREATED
         && placementPhase != PlacementPhase.RISK_RESERVED) {
       throw new IllegalStateException("Risk reservation cannot follow " + placementPhase);
@@ -146,6 +165,7 @@ public class Bet {
 
   public void confirmWallet(UUID operationId, Instant now) {
     requireStatus(BetStatus.PENDING);
+    requireNoCompensation();
     if (placementPhase != PlacementPhase.RISK_RESERVED
         && placementPhase != PlacementPhase.WALLET_CONFIRMED) {
       throw new IllegalStateException("Wallet confirmation cannot follow " + placementPhase);
@@ -161,6 +181,7 @@ public class Bet {
 
   public void commitRisk(Instant now) {
     requireStatus(BetStatus.PENDING);
+    requireNoCompensation();
     if (placementPhase != PlacementPhase.WALLET_CONFIRMED) {
       throw new IllegalStateException("Risk commit cannot follow " + placementPhase);
     }
@@ -171,11 +192,64 @@ public class Bet {
 
   public void accept(Instant now) {
     requireStatus(BetStatus.PENDING);
+    requireNoCompensation();
     if (placementPhase != PlacementPhase.RISK_COMMITTED || !riskCommitObserved) {
       throw new IllegalStateException("Acceptance requires committed risk proof");
     }
     this.status = BetStatus.ACCEPTED;
     this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void rejectAtCreation(String reason, String detail, Instant now) {
+    requireStatus(BetStatus.PENDING);
+    if (placementPhase != PlacementPhase.CREATED) {
+      throw new IllegalStateException("Creation rejection cannot follow " + placementPhase);
+    }
+    this.status = BetStatus.REJECTED;
+    this.rejectionReason = requireText(reason, "reason");
+    this.rejectionDetail = requireText(detail, "detail");
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  public void requireRiskRelease(String reason, String detail, Instant now) {
+    requireCompensation(
+        PlacementPhase.RISK_RESERVED, CompensationAction.RISK_RELEASE, reason, detail, now);
+  }
+
+  public void requireWalletRefund(String reason, String detail, Instant now) {
+    requireCompensation(
+        PlacementPhase.WALLET_CONFIRMED, CompensationAction.WALLET_REFUND, reason, detail, now);
+  }
+
+  private void requireCompensation(
+      PlacementPhase expected,
+      CompensationAction action,
+      String reason,
+      String detail,
+      Instant now) {
+    requireStatus(BetStatus.PENDING);
+    requireNoCompensation();
+    if (placementPhase != expected) {
+      throw new IllegalStateException(action + " cannot follow " + placementPhase);
+    }
+    this.compensationAction = action;
+    this.compensationState = CompensationState.REQUIRED;
+    this.rejectionReason = requireText(reason, "reason");
+    this.rejectionDetail = requireText(detail, "detail");
+    this.updatedAt = Objects.requireNonNull(now, "now");
+  }
+
+  private void requireNoCompensation() {
+    if (compensationState != CompensationState.NONE || compensationAction != null) {
+      throw new IllegalStateException("Forward placement is fenced by compensation");
+    }
+  }
+
+  private static String requireText(String value, String name) {
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException(name + " must not be blank");
+    }
+    return value;
   }
 
   private void requireStatus(BetStatus expected) {
@@ -272,6 +346,26 @@ public class Bet {
 
   public UUID walletOperationId() {
     return walletOperationId;
+  }
+
+  public String rejectionReason() {
+    return rejectionReason;
+  }
+
+  public String rejectionDetail() {
+    return rejectionDetail;
+  }
+
+  public CompensationAction compensationAction() {
+    return compensationAction;
+  }
+
+  public CompensationState compensationState() {
+    return compensationState;
+  }
+
+  public UUID compensationOperationId() {
+    return compensationOperationId;
   }
 
   public String idempotencyKey() {
