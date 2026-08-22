@@ -50,7 +50,11 @@ class WalletClientCreditTest {
                         .formatted(userId)))
         .andRespond(
             withSuccess(
-                ("{\"operationGroupId\":\"%s\",\"userId\":\"%s\",\"extra\":\"allowed\"}")
+                ("""
+                 {"operationGroupId":"%s","userId":"%s",
+                  "amount":{"amount":1500,"currency":"KRW"},"reason":"BET_REFUND",
+                  "at":"2026-08-22T00:00:00Z","extra":"allowed"}
+                 """)
                     .formatted(operationId, userId),
                 MediaType.APPLICATION_JSON));
 

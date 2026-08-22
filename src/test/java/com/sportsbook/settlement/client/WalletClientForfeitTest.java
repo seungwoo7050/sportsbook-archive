@@ -44,7 +44,12 @@ class WalletClientForfeitTest {
                     true))
         .andRespond(
             withSuccess(
-                "{\"operationGroupId\":\"%s\"}".formatted(operationId),
+                """
+                {"operationGroupId":"%s","userId":"%s",
+                 "amount":{"amount":3000,"currency":"KRW"},"reason":"BET_FORFEIT",
+                 "at":"2026-08-22T00:00:00Z"}
+                """
+                    .formatted(operationId, userId),
                 MediaType.APPLICATION_JSON));
 
     UUID result = client.forfeit("settlement:forfeit:test", userId, Money.krw(3000));

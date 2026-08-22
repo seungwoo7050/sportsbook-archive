@@ -12,13 +12,14 @@ class WalletCreditPurposeTest {
     assertThat(
             Map.of(
                 WalletCreditPurpose.WHOLE_SLIP_VOID,
-                "USER_LOCKED:VOID",
+                "USER_LOCKED:VOID:BET_REFUND",
                 WalletCreditPurpose.RETURNED_STAKE,
-                "USER_LOCKED:REFUND",
+                "USER_LOCKED:REFUND:BET_REFUND",
                 WalletCreditPurpose.PROFIT_PAYOUT,
-                "HOUSE_POOL:PAYOUT"))
+                "HOUSE_POOL:PAYOUT:BET_PAYOUT"))
         .allSatisfy(
             (purpose, wire) ->
-                assertThat(purpose.source() + ":" + purpose.reason()).isEqualTo(wire));
+                assertThat(purpose.source() + ":" + purpose.reason() + ":" + purpose.proofReason())
+                    .isEqualTo(wire));
   }
 }
