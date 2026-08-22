@@ -158,6 +158,15 @@ public class Bet {
   @Column(name = "reconciliation_requested_at")
   private Instant reconciliationRequestedAt;
 
+  @Column(name = "reconciliation_eligible_at")
+  private Instant reconciliationEligibleAt;
+
+  @Column(name = "reconciliation_claim_owner", length = 128)
+  private String reconciliationClaimOwner;
+
+  @Column(name = "reconciliation_claim_until")
+  private Instant reconciliationClaimUntil;
+
   @OneToMany(mappedBy = "bet", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("legIndex ASC")
   private List<BetLeg> legs = new ArrayList<>();
@@ -600,10 +609,15 @@ public class Bet {
 
   public void requestReconciliation(Instant at) {
     reconciliationRequestedAt = Objects.requireNonNull(at, "at");
+    reconciliationEligibleAt = at;
   }
 
   public Instant reconciliationRequestedAt() {
     return reconciliationRequestedAt;
+  }
+
+  public Instant reconciliationEligibleAt() {
+    return reconciliationEligibleAt;
   }
 
   public List<BetLeg> legs() {
