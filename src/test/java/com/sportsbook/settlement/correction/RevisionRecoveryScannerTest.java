@@ -10,7 +10,9 @@ import com.sportsbook.protocol.domain.SettlementResult;
 import com.sportsbook.protocol.value.Money;
 import com.sportsbook.protocol.value.Odds;
 import com.sportsbook.settlement.config.SettlementRuntimeProperties;
+import com.sportsbook.settlement.observability.SettlementMetrics;
 import com.sportsbook.settlement.resolver.ResolvedSelection;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +42,10 @@ class RevisionRecoveryScannerTest {
         .thenReturn(RevisionExecutionRunner.Result.APPLIED);
     when(runner.execute(blocked, secondLease, true, false))
         .thenReturn(RevisionExecutionRunner.Result.BLOCKED);
-    RevisionRecoveryScanner scanner = new RevisionRecoveryScanner(recovery, plans, runner, runtime);
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    RevisionRecoveryScanner scanner =
+        new RevisionRecoveryScanner(
+            recovery, plans, runner, runtime, new SettlementMetrics(registry));
 
     assertThat(scanner.recover())
         .containsExactly(
@@ -51,6 +56,15 @@ class RevisionRecoveryScannerTest {
     ordered.verify(runner).execute(ambiguous, firstLease, true, true);
     ordered.verify(plans).find(blocked.revisionId());
     ordered.verify(runner).execute(blocked, secondLease, true, false);
+    assertThat(outcome(registry, "applied")).isOne();
+    assertThat(outcome(registry, "blocked")).isOne();
+    assertThat(registry.timer(SettlementMetrics.DURATION, "flow", "revision").count()).isOne();
+  }
+
+  private static double outcome(SimpleMeterRegistry registry, String outcome) {
+    return registry
+        .counter(SettlementMetrics.OPERATIONS, "flow", "revision", "outcome", outcome)
+        .count();
   }
 
   private static RevisionPlan plan() {
