@@ -61,3 +61,9 @@ admin:
       issuer: ${ADMIN_JWT_ISSUER:}
     ip-allowlist: ${ADMIN_IP_ALLOWLIST:127.0.0.1/32,::1/128}
     trusted-proxy-cidrs: ${ADMIN_TRUSTED_PROXY_CIDRS:}
+  downstream:
+    credentials:
+      wallet-api-key: ${ADMIN_WALLET_API_KEY:}
+      risk-api-key: ${ADMIN_RISK_API_KEY:}
+      odds-feed-api-key: ${ADMIN_ODDS_FEED_API_KEY:}
+      settlement-api-key: ${ADMIN_SETTLEMENT_API_KEY:}
