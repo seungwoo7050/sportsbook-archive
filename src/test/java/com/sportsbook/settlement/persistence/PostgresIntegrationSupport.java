@@ -1,5 +1,9 @@
 package com.sportsbook.settlement.persistence;
 
+import com.sportsbook.settlement.correction.RevisionRecoveryScanner;
+import com.sportsbook.settlement.execution.SettlementAttemptRecovery;
+import com.sportsbook.settlement.lifecycle.LifecycleTombstoneScanner;
+import com.sportsbook.settlement.outbox.OutboxPublisher;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -8,6 +12,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -38,6 +43,10 @@ abstract class PostgresIntegrationSupport {
   }
 
   @Autowired protected JdbcTemplate jdbc;
+  @MockBean private OutboxPublisher outboxPublisher;
+  @MockBean private LifecycleTombstoneScanner lifecycleScanner;
+  @MockBean private SettlementAttemptRecovery attemptRecovery;
+  @MockBean private RevisionRecoveryScanner revisionRecovery;
 
   @BeforeEach
   void resetBusinessTables() {
