@@ -52,6 +52,9 @@ public class SettlementWorkerConfiguration {
     scheduler.setThreadNamePrefix(threadPrefix);
     scheduler.setWaitForTasksToCompleteOnShutdown(true);
     scheduler.setAwaitTerminationSeconds(10);
+    scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+    scheduler.setRemoveOnCancelPolicy(true);
     return scheduler;
   }
 }
