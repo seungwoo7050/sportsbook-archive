@@ -7,7 +7,6 @@ import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -85,7 +84,7 @@ public class WalletClient {
       UUID userId,
       Money previousPayout,
       Money newPayout) {
-    WalletAdjustmentProof proof =
+    var response =
         http.post()
             .uri(ADJUSTMENT_PATH)
             .header(IDEMPOTENCY_HEADER, "settlement:revision:" + revisionId)
@@ -95,11 +94,17 @@ public class WalletClient {
                     revisionId, betId, revisionNumber, userId, previousPayout, newPayout))
             .retrieve()
             .onStatus(
-                HttpStatusCode::isError,
+                status -> status.value() != 200 && status.value() != 202,
                 (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
-            .body(WalletAdjustmentProof.class);
-    if (proof == null || proof.revisionId() == null || proof.status() == null) {
-      throw WalletFailurePolicy.malformedSuccess();
+            .toEntity(WalletAdjustmentProof.class);
+    WalletAdjustmentProof proof = response.getBody();
+    int status = response.getStatusCode().value();
+    boolean coupled =
+        proof != null
+            && ((status == 200 && proof.status() == WalletAdjustmentProof.Status.APPLIED)
+                || (status == 202 && proof.status() == WalletAdjustmentProof.Status.BLOCKED));
+    if (!coupled || proof.revisionId() == null) {
+      throw WalletFailurePolicy.malformedResponse(status);
     }
     return proof;
   }
@@ -110,7 +115,7 @@ public class WalletClient {
             .uri(ADJUSTMENT_PATH + "/{revisionId}", revisionId)
             .retrieve()
             .onStatus(
-                HttpStatusCode::isError,
+                status -> status.value() != 200,
                 (request, httpResponse) -> WalletFailurePolicy.throwFor(httpResponse))
             .body(WalletAdjustmentProof.class);
     if (proof == null || !revisionId.equals(proof.revisionId()) || proof.status() == null) {
