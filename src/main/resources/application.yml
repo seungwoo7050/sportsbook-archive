@@ -1,0 +1,17 @@
+spring:
+  kafka:
+    consumer:
+      group-id: settlement-service
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        allow.auto.create.topics: false
+    listener:
+      ack-mode: manual_immediate
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
