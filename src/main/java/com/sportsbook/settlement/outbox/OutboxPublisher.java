@@ -3,6 +3,7 @@ package com.sportsbook.settlement.outbox;
 import com.sportsbook.settlement.config.RawKafkaProducerConfiguration;
 import com.sportsbook.settlement.config.SettlementRuntimeProperties;
 import com.sportsbook.settlement.config.SettlementWorkerConfiguration;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.concurrent.ExecutionException;
@@ -21,21 +22,26 @@ import org.springframework.transaction.annotation.Transactional;
 public class OutboxPublisher {
 
   private static final long SEND_TIMEOUT_SECONDS = 11;
+  public static final String PUBLISHED_METRIC = "settlement.outbox.published";
+  public static final String FAILURE_METRIC = "settlement.outbox.publish.failures";
 
   private final OutboxEventRepository repository;
   private final KafkaOperations<byte[], byte[]> kafka;
   private final SettlementRuntimeProperties runtime;
   private final Clock clock;
+  private final MeterRegistry meters;
 
   public OutboxPublisher(
       OutboxEventRepository repository,
       @Qualifier(RawKafkaProducerConfiguration.OPERATIONS) KafkaOperations<byte[], byte[]> kafka,
       SettlementRuntimeProperties runtime,
-      Clock clock) {
+      Clock clock,
+      MeterRegistry meters) {
     this.repository = repository;
     this.kafka = kafka;
     this.runtime = runtime;
     this.clock = clock;
+    this.meters = meters;
   }
 
   @Transactional
@@ -47,6 +53,7 @@ public class OutboxPublisher {
     for (OutboxEvent event : pending) {
       publish(event);
       event.markPublished(clock.instant());
+      meters.counter(PUBLISHED_METRIC, "topic", event.topic()).increment();
     }
     return pending.size();
   }
@@ -59,8 +66,10 @@ public class OutboxPublisher {
       kafka.send(record).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     } catch (InterruptedException exception) {
       Thread.currentThread().interrupt();
+      meters.counter(FAILURE_METRIC, "topic", event.topic()).increment();
       throw new KafkaException("Interrupted while publishing outbox event", exception);
     } catch (ExecutionException | TimeoutException exception) {
+      meters.counter(FAILURE_METRIC, "topic", event.topic()).increment();
       throw new KafkaException("Failed to publish outbox event", exception);
     }
   }
