@@ -17,7 +17,11 @@ import com.sportsbook.betting.error.OddsDriftException;
 import com.sportsbook.betting.error.RiskLimitException;
 import com.sportsbook.betting.error.ValidationFailedException;
 import com.sportsbook.betting.error.WalletRejectedException;
+import com.sportsbook.betting.outbox.BetEventFactory;
+import com.sportsbook.betting.outbox.OutboxEvent;
 import com.sportsbook.protocol.domain.BetStatus;
+import com.sportsbook.protocol.error.ErrorCode;
+import com.sportsbook.protocol.value.IdempotencyKey;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +38,8 @@ public class BetPlacementService {
   private final RiskClient risk;
   private final WalletClient wallet;
   private final SystemBetCalculator calculator;
+  private final BetEventFactory events;
+  private final IdempotencyCache idempotency;
   private final BetStore store;
   private final Clock clock;
 
@@ -42,12 +48,16 @@ public class BetPlacementService {
       RiskClient risk,
       WalletClient wallet,
       SystemBetCalculator calculator,
+      BetEventFactory events,
+      IdempotencyCache idempotency,
       BetStore store,
       Clock clock) {
     this.assembler = assembler;
     this.risk = risk;
     this.wallet = wallet;
     this.calculator = calculator;
+    this.events = events;
+    this.idempotency = idempotency;
     this.store = store;
     this.clock = clock;
   }
@@ -106,8 +116,9 @@ public class BetPlacementService {
         switch (current.placementPhase()) {
           case CREATED -> reserveRisk(current, surfaceRejection);
           case RISK_RESERVED -> confirmWallet(current, recovery);
-          default -> {
-            return current;
+          case WALLET_CONFIRMED -> commitRisk(current);
+          case RISK_COMMITTED -> {
+            return accept(current);
           }
         }
       } catch (DependencyUnavailableException unavailable) {
@@ -134,6 +145,31 @@ public class BetPlacementService {
       store.requireRiskRelease(
           bet.betId(), rejection.errorCode(), rejection.getMessage(), clock.instant());
     }
+  }
+
+  private void commitRisk(Bet bet) {
+    if (bet.riskCommitObserved()) {
+      store.commitRisk(bet.betId(), clock.instant());
+      return;
+    }
+    RiskClient.CommitResult result = risk.commit(bet.betId(), bet.riskReservationToken());
+    if (result == RiskClient.CommitResult.COMMITTED) {
+      store.commitRisk(bet.betId(), clock.instant());
+      return;
+    }
+    ErrorCode code =
+        result == RiskClient.CommitResult.CONFLICT
+            ? ErrorCode.DUPLICATE_BET
+            : ErrorCode.LIMIT_EXCEEDED;
+    store.requireWalletRefund(
+        bet.betId(), code, "Risk reservation commit failed: " + result, clock.instant());
+  }
+
+  private Bet accept(Bet bet) {
+    OutboxEvent event = events.placedRequested(bet, clock.instant());
+    Bet accepted = store.acceptAndEnqueue(bet.betId(), event, clock.instant());
+    idempotency.markProcessed(IdempotencyKey.of(accepted.idempotencyKey()), accepted.betId());
+    return accepted;
   }
 
   private void reserveRisk(Bet bet, boolean surfaceRejection) {
