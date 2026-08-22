@@ -194,6 +194,18 @@ public class ResultCandidateStore {
     return true;
   }
 
+  public boolean supersedeStale(UUID candidateId, java.time.Instant decidedAt) {
+    return jdbc.update(
+            """
+            update result_candidate set state = 'SUPERSEDED', decided_at = ?,
+                decision_reason = 'STALE_BASE'
+            where candidate_id = ? and state = 'PENDING'
+            """,
+            required(decidedAt),
+            candidateId)
+        == 1;
+  }
+
   private RecordOutcome find(UUID eventId, String fingerprint) {
     return jdbc
         .query(

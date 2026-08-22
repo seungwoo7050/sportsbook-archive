@@ -45,17 +45,23 @@ public class ResultCandidateIntake {
           : IntakeResult.NO_CHANGE;
     }
     if (accepted.isEmpty()) {
-      return store.acceptFirst(candidate.candidateId(), result.receivedAt())
-          ? IntakeResult.FIRST_ACCEPTED
+      if (store.acceptFirst(candidate.candidateId(), result.receivedAt())) {
+        return IntakeResult.FIRST_ACCEPTED;
+      }
+      return store.supersedeStale(candidate.candidateId(), result.receivedAt())
+          ? IntakeResult.CORRECTION_SUPERSEDED
           : IntakeResult.CORRECTION_PENDING;
     }
     ResultCandidateStore.AcceptedCandidate current = accepted.orElseThrow();
     if (result.receivedAt().isAfter(current.receivedAt().plus(runtime.correctionWindow()))) {
       return IntakeResult.LATE_HELD;
     }
-    return store.replaceAccepted(
-            candidate.candidateId(), current.candidateId(), result.receivedAt())
-        ? IntakeResult.AUTO_CORRECTION_ACCEPTED
+    if (store.replaceAccepted(
+        candidate.candidateId(), current.candidateId(), result.receivedAt())) {
+      return IntakeResult.AUTO_CORRECTION_ACCEPTED;
+    }
+    return store.supersedeStale(candidate.candidateId(), result.receivedAt())
+        ? IntakeResult.CORRECTION_SUPERSEDED
         : IntakeResult.CORRECTION_PENDING;
   }
 
@@ -65,6 +71,7 @@ public class ResultCandidateIntake {
     FIRST_ACCEPTED,
     AUTO_CORRECTION_ACCEPTED,
     LATE_HELD,
+    CORRECTION_SUPERSEDED,
     CORRECTION_PENDING
   }
 }
