@@ -12,11 +12,11 @@ import java.util.Objects;
 @Embeddable
 public class EmbeddedMoney {
 
-  @Column(nullable = false)
+  @Column(name = "stake_amount", nullable = false)
   private long amount;
 
   @Enumerated(EnumType.STRING)
-  @Column(nullable = false, length = 3)
+  @Column(name = "stake_currency", nullable = false, length = 3)
   private Currency currency;
 
   protected EmbeddedMoney() {}
