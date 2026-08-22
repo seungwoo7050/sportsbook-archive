@@ -20,18 +20,26 @@ public class AdminRevisionCommands {
   }
 
   public Receipt retry(UUID idempotencyKey, UUID revisionId) {
-    AdminRevisionRetry.Decision decision = retry.claim(idempotencyKey, revisionId);
-    AdminRevisionQueryRepository.View revision =
-        revisions
-            .find(revisionId)
-            .orElseThrow(() -> new IllegalStateException("Queued revision is missing"));
-    metrics.count("admin_retry", decision.replay() ? "replay" : "queued");
-    return new Receipt(
-        decision.action().idempotencyKey(),
-        decision.replay() ? "REPLAY" : "QUEUED",
-        revision.state(),
-        revision.attemptCount(),
-        revision.nextRetryAt());
+    var sample = metrics.start();
+    try {
+      AdminRevisionRetry.Decision decision = retry.claim(idempotencyKey, revisionId);
+      AdminRevisionQueryRepository.View revision =
+          revisions
+              .find(revisionId)
+              .orElseThrow(() -> new IllegalStateException("Queued revision is missing"));
+      metrics.count("admin_retry", decision.replay() ? "replay" : "queued");
+      return new Receipt(
+          decision.action().idempotencyKey(),
+          decision.replay() ? "REPLAY" : "QUEUED",
+          revision.state(),
+          revision.attemptCount(),
+          revision.nextRetryAt());
+    } catch (RuntimeException failure) {
+      metrics.count("admin_retry", "failed");
+      throw failure;
+    } finally {
+      metrics.stop(sample, "admin_retry");
+    }
   }
 
   public record Receipt(

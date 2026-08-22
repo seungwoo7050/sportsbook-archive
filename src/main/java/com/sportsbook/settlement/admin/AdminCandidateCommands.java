@@ -33,24 +33,45 @@ public class AdminCandidateCommands {
   }
 
   public Receipt approve(UUID idempotencyKey, UUID candidateId) {
-    AdminCandidateApproval.Decision decision = approvals.decide(idempotencyKey, candidateId);
-    var accepted =
-        acceptedResults
-            .findByEventId(decision.eventId())
-            .orElseThrow(() -> new IllegalStateException("Approved result projection is missing"));
-    baseFanout.fanOut(accepted);
-    correctionFanout.fanOut(accepted);
-    metrics.count("admin_action", decision.replay() ? "replay" : "approved");
-    return new Receipt(
-        decision.action().idempotencyKey(), decision.action().outcome().name(), decision.replay());
+    var sample = metrics.start();
+    try {
+      AdminCandidateApproval.Decision decision = approvals.decide(idempotencyKey, candidateId);
+      var accepted =
+          acceptedResults
+              .findByEventId(decision.eventId())
+              .orElseThrow(
+                  () -> new IllegalStateException("Approved result projection is missing"));
+      baseFanout.fanOut(accepted);
+      correctionFanout.fanOut(accepted);
+      metrics.count("admin_action", decision.replay() ? "replay" : "approved");
+      return new Receipt(
+          decision.action().idempotencyKey(),
+          decision.action().outcome().name(),
+          decision.replay());
+    } catch (RuntimeException failure) {
+      metrics.count("admin_action", "failed");
+      throw failure;
+    } finally {
+      metrics.stop(sample, "admin_action");
+    }
   }
 
   public Receipt reject(UUID idempotencyKey, UUID candidateId, String reason) {
-    AdminCandidateRejection.Decision decision =
-        rejections.decide(idempotencyKey, candidateId, reason);
-    metrics.count("admin_action", decision.replay() ? "replay" : "rejected");
-    return new Receipt(
-        decision.action().idempotencyKey(), decision.action().outcome().name(), decision.replay());
+    var sample = metrics.start();
+    try {
+      AdminCandidateRejection.Decision decision =
+          rejections.decide(idempotencyKey, candidateId, reason);
+      metrics.count("admin_action", decision.replay() ? "replay" : "rejected");
+      return new Receipt(
+          decision.action().idempotencyKey(),
+          decision.action().outcome().name(),
+          decision.replay());
+    } catch (RuntimeException failure) {
+      metrics.count("admin_action", "failed");
+      throw failure;
+    } finally {
+      metrics.stop(sample, "admin_action");
+    }
   }
 
   public record Receipt(UUID idempotencyKey, String outcome, boolean replay) {}
