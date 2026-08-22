@@ -19,6 +19,16 @@ class DownstreamClientConfiguration {
         builder, properties.walletBaseUrl().toString(), credentials.walletApiKey(), properties);
   }
 
+  @Bean
+  @Qualifier("riskRestClient")
+  RestClient riskRestClient(
+      RestClient.Builder builder,
+      DownstreamProperties properties,
+      DownstreamCredentials credentials) {
+    return internalClient(
+        builder, properties.riskBaseUrl().toString(), credentials.riskApiKey(), properties);
+  }
+
   private static RestClient internalClient(
       RestClient.Builder builder,
       String baseUrl,
