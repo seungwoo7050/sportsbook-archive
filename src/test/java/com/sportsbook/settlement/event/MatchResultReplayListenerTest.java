@@ -45,10 +45,11 @@ class MatchResultReplayListenerTest {
 
     listener.receive(MatchResultListenerTest.record(eventId), acknowledgment);
 
-    var order = inOrder(intake, acceptedResults, fanout, acknowledgment);
+    var order = inOrder(intake, acceptedResults, fanout, corrections, acknowledgment);
     order.verify(intake).ingest(any());
     order.verify(acceptedResults).findByEventId(eventId);
     order.verify(fanout).fanOut(accepted);
+    order.verify(corrections).fanOut(accepted);
     order.verify(acknowledgment).acknowledge();
   }
 }
