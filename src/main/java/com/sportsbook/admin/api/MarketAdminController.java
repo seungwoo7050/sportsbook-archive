@@ -43,6 +43,22 @@ public class MarketAdminController {
         eventId, marketId, MarketClient.Action.SUSPEND, body, context, servletRequest);
   }
 
+  @PostMapping("/close")
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  @PreAuthorize("hasAnyRole('ADMIN','TRADER')")
+  @Audited(
+      action = AdminAction.MARKET_CLOSE,
+      target = "#eventId + '/' + #marketId",
+      reason = "#body.reason()")
+  public void close(
+      @PathVariable UUID eventId,
+      @PathVariable UUID marketId,
+      @RequestBody MarketStatusPayload body,
+      AdminContext context,
+      HttpServletRequest servletRequest) {
+    changeStatus(eventId, marketId, MarketClient.Action.CLOSE, body, context, servletRequest);
+  }
+
   private void changeStatus(
       UUID eventId,
       UUID marketId,
