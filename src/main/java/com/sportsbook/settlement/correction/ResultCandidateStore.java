@@ -94,6 +94,7 @@ public class ResultCandidateStore {
                 event_id, mode, settled_at, received_at, accepted_candidate_id)
             select event_id, mode, settled_at, received_at, candidate_id
             from result_candidate where candidate_id = ? and state = 'PENDING'
+                and settled_at <= current_timestamp
             on conflict (event_id) do nothing
             """,
             candidateId);
@@ -193,6 +194,7 @@ public class ResultCandidateStore {
                 accepted_candidate_id = c.candidate_id
             from result_candidate c
             where c.candidate_id = ? and c.state = 'PENDING'
+              and c.settled_at <= current_timestamp
               and c.replaces_candidate_id = ?
               and c.candidate_sequence > (select candidate_sequence from result_candidate
                   where candidate_id = c.replaces_candidate_id)
