@@ -9,6 +9,7 @@ import com.sportsbook.settlement.domain.Bet;
 import com.sportsbook.settlement.domain.BetSelection;
 import com.sportsbook.settlement.domain.EmbeddedMoney;
 import com.sportsbook.settlement.domain.SlipKind;
+import com.sportsbook.settlement.result.AcceptedResult;
 import com.sportsbook.settlement.result.MatchOutcomeMode;
 import java.time.Instant;
 import java.util.List;
@@ -40,20 +41,9 @@ class ReplacementSnapshotProjectorTest {
         .outcome();
   }
 
-  private static ResultCandidate candidate(Fixture fixture, MatchOutcomeMode mode) {
-    return new ResultCandidate(
-        UUID.randomUUID(),
-        2L,
-        fixture.eventId(),
-        "a".repeat(64),
-        mode,
-        Map.of(),
-        Instant.EPOCH.plusSeconds(1),
-        Instant.EPOCH.plusSeconds(2),
-        ResultCandidateState.ACCEPTED,
-        UUID.randomUUID(),
-        Instant.EPOCH.plusSeconds(2),
-        "TEST");
+  private static AcceptedResult candidate(Fixture fixture, MatchOutcomeMode mode) {
+    return new AcceptedResult(
+        fixture.eventId(), UUID.randomUUID(), mode, Map.of(), Instant.EPOCH.plusSeconds(1));
   }
 
   private static Fixture settledFixture() {
