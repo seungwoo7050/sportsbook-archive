@@ -41,6 +41,12 @@ class MigrationContractTest {
         .isEqualTo("298993830f41a22825ae3c0a0ee1cd746520f97308515322d8ed496c4cf71a7d");
   }
 
+  @Test
+  void preservesCompensationVerdictSchema() {
+    assertThat(sha256("V6__placement_compensation_and_verdict.sql"))
+        .isEqualTo("1625d9d3140aa8f1888bd8b61dd9d2d00ba612d9c2c5ce35b8d15620368e8e67");
+  }
+
   private String sha256(String migration) {
     try (InputStream input = getClass().getResourceAsStream("/db/migration/" + migration)) {
       if (input == null) {
