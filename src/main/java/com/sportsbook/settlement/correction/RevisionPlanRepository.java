@@ -1,7 +1,7 @@
 package com.sportsbook.settlement.correction;
 
-import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 import static com.sportsbook.settlement.persistence.JdbcTimestamps.nullable;
+import static com.sportsbook.settlement.persistence.JdbcTimestamps.required;
 
 import com.sportsbook.settlement.client.WalletAdjustmentProof;
 import com.sportsbook.settlement.client.WalletFailurePolicy;
@@ -190,10 +190,7 @@ public class RevisionPlanRepository {
   }
 
   public boolean markApplied(
-      UUID revisionId,
-      RevisionLease lease,
-      WalletAdjustmentProof proof,
-      Instant now) {
+      UUID revisionId, RevisionLease lease, WalletAdjustmentProof proof, Instant now) {
     if (proof != null && proof.status() != WalletAdjustmentProof.Status.APPLIED) {
       throw new IllegalArgumentException("Revision finalization requires an applied Wallet proof");
     }
@@ -213,6 +210,28 @@ public class RevisionPlanRepository {
             nullable(proof == null ? null : proof.queuedAt()),
             nullable(proof == null ? null : proof.appliedAt()),
             required(now),
+            required(now),
+            revisionId,
+            lease.token())
+        == 1;
+  }
+
+  public boolean markRejected(
+      UUID revisionId, RevisionLease lease, WalletAdjustmentProof proof, Instant now) {
+    if (proof.status() != WalletAdjustmentProof.Status.REJECTED) {
+      throw new IllegalArgumentException("Only a rejected Wallet proof can reject a revision");
+    }
+    return jdbc.update(
+            """
+            update settlement_revision set state = 'REJECTED', lease_token = null,
+                lease_until = null, last_error_code = 'WALLET_REJECTED',
+                wallet_status = 'REJECTED', wallet_queue_sequence = null,
+                wallet_operation_group_id = null, wallet_queued_at = null,
+                wallet_applied_at = null, wallet_next_attempt_at = null, next_retry_at = null,
+                updated_at = ?
+            where revision_id = ? and state = 'PENDING' and lease_token = ?
+                and lease_until > current_timestamp
+            """,
             required(now),
             revisionId,
             lease.token())
