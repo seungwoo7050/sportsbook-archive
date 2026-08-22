@@ -39,20 +39,36 @@ class DownstreamClientConfiguration {
         builder, properties.oddsFeedBaseUrl().toString(), credentials.oddsFeedApiKey(), properties);
   }
 
-  private static RestClient internalClient(
+  @Bean
+  @Qualifier("settlementRestClient")
+  RestClient settlementRestClient(
       RestClient.Builder builder,
-      String baseUrl,
-      String apiKey,
-      DownstreamProperties properties) {
-    SimpleClientHttpRequestFactory requests = new SimpleClientHttpRequestFactory();
-    requests.setConnectTimeout(properties.connectTimeout());
-    requests.setReadTimeout(properties.readTimeout());
+      DownstreamProperties properties,
+      DownstreamCredentials credentials) {
+    return builder
+        .clone()
+        .baseUrl(properties.settlementBaseUrl().toString())
+        .requestFactory(requestFactory(properties))
+        .defaultHeader(DownstreamHeaders.SERVICE_NAME, DownstreamHeaders.ADMIN_API)
+        .defaultHeader(DownstreamHeaders.API_KEY, credentials.settlementApiKey())
+        .build();
+  }
+
+  private static RestClient internalClient(
+      RestClient.Builder builder, String baseUrl, String apiKey, DownstreamProperties properties) {
     return builder
         .clone()
         .baseUrl(baseUrl)
-        .requestFactory(requests)
+        .requestFactory(requestFactory(properties))
         .defaultHeader(DownstreamHeaders.INTERNAL_SERVICE, DownstreamHeaders.ADMIN_API)
         .defaultHeader(DownstreamHeaders.INTERNAL_API_KEY, apiKey)
         .build();
+  }
+
+  private static SimpleClientHttpRequestFactory requestFactory(DownstreamProperties properties) {
+    SimpleClientHttpRequestFactory requests = new SimpleClientHttpRequestFactory();
+    requests.setConnectTimeout(properties.connectTimeout());
+    requests.setReadTimeout(properties.readTimeout());
+    return requests;
   }
 }
