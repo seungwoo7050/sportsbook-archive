@@ -1,0 +1,23 @@
+spring:
+  kafka:
+    listener:
+      auto-startup: false
+  data:
+    redis:
+      timeout: 2s
+
+BETTING_GATEWAY_API_KEY: ${BETTING_GATEWAY_API_KEY:gggggggggggggggggggggggggggggggg}
+
+betting:
+  clients:
+    risk-base-url: http://risk.test
+    wallet-base-url: http://wallet.test
+    connect-timeout: 2s
+    read-timeout: 5s
+    risk-api-key: ${BETTING_RISK_API_KEY:rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr}
+    wallet-api-key: ${BETTING_WALLET_API_KEY:wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww}
+  outbox:
+    poll-interval-ms: 86400000
+  reconciliation:
+    poll-interval-ms: 86400000
+    pending-timeout: 0s
