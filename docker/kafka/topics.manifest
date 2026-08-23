@@ -1,0 +1,24 @@
+# topic|partitions|replication-factor|retention-ms
+wallet.debited.v1|3|1|-
+wallet.credited.v1|3|1|-
+wallet.debit-failed.v1|3|1|-
+risk.limit.violated|3|1|-
+risk.pattern.suspected|3|1|-
+odds.changed|3|1|-
+market.status.changed|3|1|-
+event.lifecycle|3|1|-
+match.result|3|1|-
+bet.placed.v1|3|1|-
+bet.settled.v1|3|1|-
+bet.voided.v1|3|1|-
+bet.resolution.revised.v1|3|1|-
+admin.action|3|1|-
+wallet.debited.v1.DLT|3|1|604800000
+wallet.debit-failed.v1.DLT|3|1|604800000
+odds.changed.DLT|3|1|604800000
+event.lifecycle.DLT|3|1|604800000
+match.result.DLT|3|1|604800000
+bet.placed.v1.DLT|3|1|604800000
+bet.settled.v1.DLT|3|1|604800000
+bet.voided.v1.DLT|3|1|604800000
+bet.resolution.revised.v1.DLT|3|1|604800000
