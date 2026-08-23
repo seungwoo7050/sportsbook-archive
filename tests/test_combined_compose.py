@@ -13,12 +13,7 @@ class CombinedComposeTest(ComposeContractFixture):
         self.environment.update(
             {
                 "GATEWAY_HOST_PORT": "18080",
-                "TOXIPROXY_HOST_PORT": "18474",
-                "PROMETHEUS_HOST_PORT": "19090",
-                "GRAFANA_HOST_PORT": "13000",
-                "LOKI_HOST_PORT": "13100",
                 "GRAFANA_ADMIN_PASSWORD": "grafana-contract-password",
-                "COMPOSE_PROJECT_NAME": self.project,
             }
         )
         result = subprocess.run(
@@ -61,11 +56,16 @@ class CombinedComposeTest(ComposeContractFixture):
             for name, service in services.items()
             if service.get("ports")
         }
-        self.assertEqual(
-            set(published), {"gateway", "toxiproxy", "prometheus", "grafana", "loki"}
-        )
+        self.assertEqual(set(published), {"gateway", "toxiproxy", "grafana"})
         for ports in published.values():
             self.assertTrue(all(port["host_ip"] == "127.0.0.1" for port in ports))
+        self.assertEqual(published["gateway"][0]["published"], "18080")
+        self.assertNotIn("published", published["toxiproxy"][0])
+        self.assertEqual(published["toxiproxy"][0]["target"], 8474)
+        self.assertNotIn("published", published["grafana"][0])
+        self.assertEqual(published["grafana"][0]["target"], 3000)
+        for name in ("prometheus", "loki", "promtail"):
+            self.assertNotIn("ports", services[name])
 
         self.assertEqual(
             set(rendered["volumes"]),
@@ -81,12 +81,15 @@ class CombinedComposeTest(ComposeContractFixture):
                 "grafana-data",
             },
         )
+        for logical, volume in rendered["volumes"].items():
+            self.assertEqual(volume["name"], f"{self.project}_{logical}")
         source = "\n".join(
             path.read_text()
             for path in (ROOT / "compose.toxiproxy.yaml", ROOT / "compose.observability.yaml")
         )
         self.assertNotIn("sportsbook_default", source)
         self.assertNotIn("external: true", source)
+        self.assertNotIn("${COMPOSE_PROJECT_NAME:-sportsbook}", source)
 
 
 if __name__ == "__main__":
