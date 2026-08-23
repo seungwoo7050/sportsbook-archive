@@ -15,11 +15,24 @@ def run(runtime: E2eRuntime) -> None:
     runtime.seed(fixture)
     token = runtime.user_token(fixture)
     placement = runtime.bets.place(fixture, token)
-    require_fields(
-        placement.__dict__,
-        {"http_status": 201, "status": "ACCEPTED"},
-        "authenticated placement",
-    )
+    if placement.status == "PENDING":
+        wait_fields(
+            "authenticated placement recovery",
+            lambda: runtime.base.betting(placement.bet_id),
+            {
+                "status": "ACCEPTED",
+                "placement_phase": "RISK_COMMITTED",
+                "risk_committed": "1",
+                "wallet_confirmed": "1",
+            },
+            terminal={"status": frozenset({"REJECTED", "VOIDED", "SETTLED"})},
+        )
+    else:
+        require_fields(
+            placement.__dict__,
+            {"http_status": 201, "status": "ACCEPTED"},
+            "authenticated placement",
+        )
     wait_fields(
         "Settlement placement projection",
         lambda: runtime.base.settlement(placement.bet_id),
