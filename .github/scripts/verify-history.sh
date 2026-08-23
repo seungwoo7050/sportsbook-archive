@@ -84,7 +84,7 @@ while read -r commit; do
 
   if grep -Eq '^(src/main/|pom\.xml$|config/|mvnw$|mvnw\.cmd$|\.mvn/wrapper/|\.github/(scripts|workflows)/)' <<<"$paths" \
     && [[ $subject != test\(* && $subject != docs\(* && $subject != "chore(release): release admin API 1.0.0" ]]; then
-    next=$(git rev-list --ancestry-path "$commit..HEAD" --reverse | head -1)
+    next=$(git rev-list --ancestry-path "$commit..HEAD" | tail -1)
     next_subject=$([[ -n $next ]] && git show -s --format=%s "$next" || true)
     [[ $next_subject == test\(* ]] || report "$short is not followed by its test commit"
   fi
