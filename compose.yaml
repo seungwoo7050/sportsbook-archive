@@ -46,6 +46,19 @@ services:
       retries: 40
     networks: [backend]
 
+  topic-init:
+    image: apache/kafka:3.8.0
+    entrypoint: ["/bin/sh", "/opt/sportsbook/init-topics.sh"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ./docker/kafka/init-topics.sh:/opt/sportsbook/init-topics.sh:ro
+      - ./docker/kafka/topics.manifest:/opt/sportsbook/topics.manifest:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks: [backend]
+
 volumes:
   postgres-data:
   kafka-data:
