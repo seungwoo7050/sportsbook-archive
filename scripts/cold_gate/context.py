@@ -5,6 +5,12 @@ import re
 import secrets
 from pathlib import Path
 
+from scripts.cold_gate.owned_path import (
+    ensure_directory,
+    require_directory,
+    require_regular_file,
+)
+
 
 PROJECT_PATTERN = re.compile(r"^sb-gate-[0-9a-f]{12}-[0-9a-f]{8}$")
 
@@ -31,40 +37,73 @@ class ColdGateContext:
         if not PROJECT_PATTERN.fullmatch(project):
             raise ValueError("generated project name is invalid")
 
+        require_directory(root)
         runtime_root = root / ".runtime"
-        runtime_root.mkdir(exist_ok=True)
+        runtime_parent = runtime_root / "cold-gate"
+        evidence_root = root / "evidence"
+        evidence_parent = evidence_root / "cold-gate"
         lock = runtime_root / "cold-gate.lock"
+        runtime = runtime_parent / project
+        evidence = evidence_parent / project
+        owned_directories: list[Path] = []
         try:
+            for parent in (runtime_root, runtime_parent, evidence_root, evidence_parent):
+                if ensure_directory(parent):
+                    owned_directories.append(parent)
+            if lock.exists() or lock.is_symlink():
+                raise RuntimeError("another cold gate owns this worktree")
             lock.mkdir()
-        except FileExistsError as exception:
-            raise RuntimeError("another cold gate owns this worktree") from exception
-
-        runtime = runtime_root / "cold-gate" / project
-        evidence = root / "evidence" / "cold-gate" / project
-        try:
-            if runtime.exists() or evidence.exists():
+            owned_directories.append(lock)
+            require_directory(lock)
+            if any(path.exists() or path.is_symlink() for path in (runtime, evidence)):
                 raise RuntimeError("cold gate run path already exists")
-            runtime.mkdir(parents=True)
-            evidence.mkdir(parents=True)
+            for path in (runtime, evidence):
+                path.mkdir()
+                owned_directories.append(path)
+                require_directory(path)
             marker = f"project={project}\nroot={root}\n"
             (runtime / ".owner").write_text(marker)
             (lock / "owner").write_text(marker)
         except BaseException:
-            lock.rmdir()
+            for marker_path in (runtime / ".owner", lock / "owner"):
+                marker_path.unlink(missing_ok=True)
+            for directory in reversed(owned_directories):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
             raise
         return cls(root, project, runtime, evidence, lock)
 
     def require_owned(self) -> None:
         if not PROJECT_PATTERN.fullmatch(self.project):
             raise RuntimeError("invalid cold gate project")
-        expected = f"project={self.project}\nroot={self.root}\n"
-        if (self.runtime / ".owner").read_text() != expected:
-            raise RuntimeError("runtime ownership marker mismatch")
-        if (self.lock / "owner").read_text() != expected:
-            raise RuntimeError("lock ownership marker mismatch")
-        for path, parent in (
-            (self.runtime, self.root / ".runtime" / "cold-gate"),
-            (self.evidence, self.root / "evidence" / "cold-gate"),
+        expected_runtime = self.root / ".runtime" / "cold-gate" / self.project
+        expected_evidence = self.root / "evidence" / "cold-gate" / self.project
+        expected_lock = self.root / ".runtime" / "cold-gate.lock"
+        if (self.runtime, self.evidence, self.lock) != (
+            expected_runtime,
+            expected_evidence,
+            expected_lock,
         ):
-            if path.is_symlink() or path.parent.resolve() != parent.resolve():
-                raise RuntimeError("cold gate path escaped its owned parent")
+            raise RuntimeError("cold gate paths do not match their project")
+        for directory in (
+            self.root,
+            self.root / ".runtime",
+            self.runtime.parent,
+            self.root / "evidence",
+            self.evidence.parent,
+            self.runtime,
+            self.evidence,
+            self.lock,
+        ):
+            require_directory(directory)
+        expected = f"project={self.project}\nroot={self.root}\n"
+        runtime_marker = self.runtime / ".owner"
+        lock_marker = self.lock / "owner"
+        require_regular_file(runtime_marker)
+        require_regular_file(lock_marker)
+        if runtime_marker.read_text() != expected:
+            raise RuntimeError("runtime ownership marker mismatch")
+        if lock_marker.read_text() != expected:
+            raise RuntimeError("lock ownership marker mismatch")
