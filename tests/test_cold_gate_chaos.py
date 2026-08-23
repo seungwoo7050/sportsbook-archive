@@ -1,19 +1,8 @@
 import json
-import subprocess
 import unittest
 from email.message import Message
 
 from scripts.cold_gate.chaos import ChaosClient, LOST_RESPONSE_TOXIC
-
-
-class FakeCompose:
-    def __init__(self, endpoint: str = "127.0.0.1:54321") -> None:
-        self.endpoint = endpoint
-        self.calls = []
-
-    def run(self, *arguments, **options):
-        self.calls.append((arguments, options))
-        return subprocess.CompletedProcess(arguments, 0, stdout=self.endpoint + "\n")
 
 
 class FakeResponse:
@@ -41,13 +30,11 @@ class ColdGateChaosTest(unittest.TestCase):
             status = 204 if request.method == "DELETE" else 200
             return FakeResponse(status, b"" if status == 204 else b'{"enabled":true}')
 
-        compose = FakeCompose()
-        client = ChaosClient(compose, opener)
+        client = ChaosClient(54321, opener)
         client.set_enabled("betting_to_risk", False)
         client.add_wallet_response_timeout()
         client.remove_wallet_response_timeout()
 
-        self.assertEqual(compose.calls[0][0], ("port", "toxiproxy", "8474"))
         self.assertEqual(json.loads(requests[0].data), {"enabled": False})
         self.assertEqual(
             json.loads(requests[1].data),
@@ -63,8 +50,8 @@ class ColdGateChaosTest(unittest.TestCase):
 
     def test_rejects_unscoped_proxy_names_and_non_loopback_publication(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "loopback"):
-            ChaosClient(FakeCompose("0.0.0.0:8474"))
-        client = ChaosClient(FakeCompose(), lambda *_args, **_options: None)
+            ChaosClient(0)
+        client = ChaosClient(54321, lambda *_args, **_options: None)
         with self.assertRaisesRegex(ValueError, "outside"):
             client.proxy("unrelated")
 

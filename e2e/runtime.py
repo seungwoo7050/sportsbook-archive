@@ -70,7 +70,7 @@ class E2eRuntime:
         self.kafka = KafkaAdmin(compose)
         self.fixtures = FixturePublisher(context, compose, artifacts.fixture_jar)
         self.probe = KafkaProbe(context, compose, artifacts.fixture_jar)
-        self.chaos = ChaosClient(compose)
+        self.chaos = ChaosClient(secrets.toxiproxy_port)
 
     def user_token(self, fixture: ScenarioIds) -> str:
         return self.signer.user(fixture.user, int(time.time()))
