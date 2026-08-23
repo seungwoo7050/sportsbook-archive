@@ -22,9 +22,18 @@ public interface BetRepository extends JpaRepository<Bet, UUID> {
   @EntityGraph(attributePaths = "legs")
   Optional<Bet> findWithLegsByBetId(UUID betId);
 
+  default Optional<Bet> findLockedByBetId(UUID betId) {
+    return findLockedRootByBetId(betId)
+        .map(
+            bet -> {
+              bet.legs().size();
+              return bet;
+            });
+  }
+
   @Lock(LockModeType.PESSIMISTIC_WRITE)
-  @EntityGraph(attributePaths = "legs")
-  Optional<Bet> findLockedByBetId(UUID betId);
+  @Query("select bet from Bet bet where bet.betId = :betId")
+  Optional<Bet> findLockedRootByBetId(@Param("betId") UUID betId);
 
   @Transactional
   @Query(
