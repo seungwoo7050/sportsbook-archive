@@ -1,3 +1,4 @@
+import decimal
 import pathlib
 import tempfile
 import unittest
@@ -80,18 +81,29 @@ class ReadinessEvidenceTest(unittest.TestCase):
                     ReadinessEvidence(compose, store, factory).capture()
                 self.assertEqual(list(context.evidence.iterdir()), [])
 
-    def test_requires_the_exact_wallet_service_label(self) -> None:
+    def test_reads_metrics_from_the_owned_wallet_label_variants(self) -> None:
         cases = (
             METRICS.replace(b'{service="wallet-service"}', b''),
             METRICS.replace(b'wallet-service', b'other-service'),
             METRICS.replace(b'} 0.0', b',region="test"} 0.0', 1),
-            METRICS + METRICS.splitlines(keepends=True)[0],
         )
         for metrics in cases:
             with self.subTest(metrics=metrics):
                 client = FakeClient("wallet", {}, metrics)
-                with self.assertRaisesRegex(RuntimeError, "wallet-service-labelled"):
-                    ReadinessEvidence._metrics(client)
+                self.assertEqual(
+                    ReadinessEvidence._metrics(client),
+                    (decimal.Decimal(0), decimal.Decimal(0), decimal.Decimal("1.777e9")),
+                )
+
+    def test_requires_one_sample_for_every_wallet_metric(self) -> None:
+        cases = (
+            b"\n".join(METRICS.splitlines()[1:]) + b"\n",
+            METRICS + METRICS.splitlines(keepends=True)[0],
+        )
+        for metrics in cases:
+            with self.subTest(metrics=metrics):
+                with self.assertRaisesRegex(RuntimeError, "expected one Wallet"):
+                    ReadinessEvidence._metrics(FakeClient("wallet", {}, metrics))
 
 
 if __name__ == "__main__":
