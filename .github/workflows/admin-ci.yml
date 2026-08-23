@@ -1,0 +1,47 @@
+name: admin API archive verify
+
+on:
+  push:
+    branches: [admin-api]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact admin revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: admin-api
+          fetch-depth: 0
+      - name: Checkout fixed shared protocol
+        uses: actions/checkout@v4
+        with:
+          ref: f9de6bc1e533761ab4bb1454d8d4ab8175cdf001
+          path: shared-protocol
+      - name: Use Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install fixed shared protocol
+        working-directory: shared-protocol
+        run: >-
+          ./mvnw -B
+          -Dmaven.repo.local=${{ runner.temp }}/admin-m2
+          -DskipTests install
+      - name: Verify archive history
+        working-directory: admin-api
+        run: bash .github/scripts/verify-history.sh
+      - name: Verify admin API once
+        working-directory: admin-api
+        run: >-
+          ./mvnw -B
+          -Dmaven.repo.local=${{ runner.temp }}/admin-m2
+          clean verify
