@@ -52,7 +52,7 @@ class HistoryGuardTest(unittest.TestCase):
             expression = f"import runpy; runpy.run_path({str(script)!r})"
             with self.subTest(name=name):
                 subprocess.run(
-                    [sys.executable, "-I", "-c", expression],
+                    [sys.executable, "-I", "-B", "-c", expression],
                     cwd=ROOT.parent,
                     env=environment,
                     text=True,
