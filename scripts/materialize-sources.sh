@@ -62,14 +62,19 @@ materialize() {
 
 cleanup() {
   local logical branch commit artifact path
+  local -a paths=()
   [[ -d $TARGET && ! -L $TARGET ]] || fail "cleanup target is not a directory"
   while IFS='|' read -r logical branch commit artifact; do
     path=$TARGET/$logical
     [[ -f $path/.git ]] || fail "unmanaged worktree: $path"
     [[ $(git -C "$path" rev-parse HEAD) == "$commit" ]] || fail "changed worktree: $path"
     ! git -C "$path" symbolic-ref -q HEAD >/dev/null || fail "attached worktree: $path"
-    git -C "$ROOT" worktree remove --force "$path"
+    [[ -z $(git -C "$path" status --porcelain) ]] || fail "dirty worktree: $path"
+    paths+=("$path")
   done < <(locked_entries)
+  for path in "${paths[@]}"; do
+    git -C "$ROOT" worktree remove --force "$path"
+  done
   rmdir "$TARGET"
 }
 
