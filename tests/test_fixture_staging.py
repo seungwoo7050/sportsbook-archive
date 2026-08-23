@@ -1,7 +1,7 @@
 import hashlib
 import zipfile
 
-from tests.fixture_staging_fixture import FixtureStagingFixture
+from tests.fixture_staging_fixture import BUILT, FixtureStagingFixture
 
 
 class FixtureStagingTest(FixtureStagingFixture):
@@ -9,6 +9,7 @@ class FixtureStagingTest(FixtureStagingFixture):
         result = self.stage()
 
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(BUILT.parent.exists())
         staged = self.output / "avro-fixture-publisher.jar"
         self.assertEqual([path.name for path in self.output.iterdir()], [staged.name])
         self.assertIn(hashlib.sha256(staged.read_bytes()).hexdigest(), result.stdout)

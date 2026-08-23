@@ -1,6 +1,6 @@
 import hashlib
 
-from tests.fixture_staging_fixture import FixtureStagingFixture
+from tests.fixture_staging_fixture import BUILT, FixtureStagingFixture
 
 
 class FixtureStagingAtomicityTest(FixtureStagingFixture):
@@ -13,6 +13,7 @@ class FixtureStagingAtomicityTest(FixtureStagingFixture):
         failed = self.stage(FAIL_FIXTURE="true")
 
         self.assertNotEqual(failed.returncode, 0)
+        self.assertFalse(BUILT.parent.exists())
         self.assertEqual(hashlib.sha256(staged.read_bytes()).hexdigest(), before)
         self.assertEqual([path.name for path in self.output.iterdir()], [staged.name])
 
