@@ -26,7 +26,9 @@ class FakeCompose:
 class FakeEvidence:
     def __init__(self, context) -> None:
         self.context = context
+        self.store = self
         self.calls = []
+        self.verifications = []
 
     def capture(self, sources, service_jars) -> None:
         self.context.require_owned()
@@ -34,6 +36,10 @@ class FakeEvidence:
         self.calls.append(
             (sources, service_jars, sources.exists(), (root / "docker/jars").exists())
         )
+
+    def verify(self, complete=False) -> None:
+        self.context.require_owned()
+        self.verifications.append(complete)
 
 
 class ScopedCleanupTest(unittest.TestCase):
@@ -76,6 +82,7 @@ class ScopedCleanupTest(unittest.TestCase):
             self.assertEqual(compose.absence_checks, 1)
             self.assertEqual(materializer_calls[0][1:], [str(sources), "cleanup"])
             self.assertEqual(evidence.calls, [(sources, generation, False, False)])
+            self.assertEqual(evidence.verifications, [True])
             self.assertFalse(context.runtime.exists())
             self.assertFalse(context.lock.exists())
             self.assertTrue(context.evidence.is_dir())
