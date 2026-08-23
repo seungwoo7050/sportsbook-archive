@@ -66,6 +66,9 @@ class SharedInstallTest(unittest.TestCase):
             java.parent.mkdir(parents=True)
             java.write_text('#!/bin/sh\nprintf \'openjdk version "17.0.0"\\n\' >&2\n')
             java.chmod(0o755)
+            javac = java.parent / "javac"
+            javac.write_text("#!/bin/sh\nprintf 'javac 17.0.0\\n' >&2\n")
+            javac.chmod(0o755)
             jar = java.parent / "jar"
             jar.write_text(
                 "#!/bin/sh\nprintf 'com/sportsbook/protocol/value/Money.class\\n'\n"
