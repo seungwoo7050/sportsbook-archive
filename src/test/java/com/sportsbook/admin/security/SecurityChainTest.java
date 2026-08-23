@@ -13,6 +13,7 @@ import com.sportsbook.admin.audit.AuditLogRepository;
 import com.sportsbook.admin.audit.AuditWriteRepository;
 import com.sportsbook.admin.context.AdminContext;
 import com.sportsbook.admin.context.AdminContextArgumentResolver;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
@@ -20,6 +21,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -110,6 +112,25 @@ class SecurityChainTest {
 
     assertThat(response.getContentAsString())
         .isEqualTo(response.getHeader(AdminContextArgumentResolver.ACTION_ID_HEADER));
+  }
+
+  @Test
+  void assignsAUuid7ActionIdBeforeMutationBodyBindingFails() throws Exception {
+    String actionId =
+        mvc.perform(
+                post("/admin/v1/wallet/018f0000-0000-7000-8000-000000000187/refund")
+                    .header(AUTHORIZATION, TestJwtKeys.bearer("cs-1", "CS"))
+                    .header("Idempotency-Key", "raw refund key")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"))
+            .andExpect(header().exists(AdminContextArgumentResolver.ACTION_ID_HEADER))
+            .andReturn()
+            .getResponse()
+            .getHeader(AdminContextArgumentResolver.ACTION_ID_HEADER);
+
+    assertThat(UUID.fromString(actionId).version()).isEqualTo(7);
   }
 
   @RestController
