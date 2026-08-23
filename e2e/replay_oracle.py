@@ -12,6 +12,18 @@ class ReplayOracle:
         self.database = database
         self.base = base
 
+    def wallet_receipt(self, bet_id: str) -> dict[str, str]:
+        bet = uuid_literal(bet_id)
+        return self.database.one(
+            "betting",
+            f"""
+            SELECT count(*)::text AS receipt_count,
+                   count(*) FILTER (WHERE processed_at IS NOT NULL)::text AS processed
+            FROM wallet_event_receipt
+            WHERE bet_id = {bet}
+            """,
+        )
+
     def snapshot(self, fixture: ScenarioIds, bet_id: str) -> str:
         bet = uuid_literal(bet_id)
         event = uuid_literal(fixture.event)

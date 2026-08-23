@@ -26,6 +26,11 @@ def run(runtime: E2eRuntime) -> None:
     original = runtime.fixtures.publish("MatchResult", payload)
     wait_consumed(runtime, "settlement-service", original)
     wait_base_settlement(runtime, fixture, placement.bet_id, "WON", 20_000, 110_000)
+    wait_fields(
+        "replay Wallet receipt",
+        lambda: runtime.replays.wallet_receipt(placement.bet_id),
+        {"receipt_count": "1", "processed": "1"},
+    )
     before = runtime.replays.snapshot(fixture, placement.bet_id)
 
     for _attempt in range(3):
