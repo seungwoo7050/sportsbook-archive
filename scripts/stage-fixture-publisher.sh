@@ -54,6 +54,7 @@ MANIFEST=$(unzip -p "$PENDING" META-INF/MANIFEST.MF) || fail "manifest is missin
 INVENTORY=$(jar tf "$PENDING") || fail "publisher JAR is unreadable"
 for entry in \
   com/sportsbook/orchestration/fixture/FixturePublisher.class \
+  com/sportsbook/orchestration/fixture/KafkaProbe.class \
   com/sportsbook/protocol/event/EventLifecycle.class \
   org/apache/kafka/clients/producer/KafkaProducer.class; do
   grep -qx "$entry" <<<"$INVENTORY" || fail "publisher dependency is missing: $entry"
