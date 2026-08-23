@@ -28,6 +28,12 @@ class HistoryVersionTest(unittest.TestCase):
             (root / "VERSION").write_text("1.0.0\n")
             verify_version(root, valid_release())
 
+            (root / "VERSION").unlink()
+            (root / "real-version").write_text("1.0.0\n")
+            (root / "VERSION").symlink_to("real-version")
+            with self.assertRaisesRegex(RuntimeError, "not exactly"):
+                verify_version(root, valid_release())
+
 
 if __name__ == "__main__":
     unittest.main()
