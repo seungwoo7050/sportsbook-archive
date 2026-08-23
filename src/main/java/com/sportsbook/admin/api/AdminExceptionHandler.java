@@ -1,8 +1,10 @@
 package com.sportsbook.admin.api;
 
+import com.sportsbook.admin.audit.AuditPersistenceException;
 import com.sportsbook.admin.client.DownstreamContractException;
 import com.sportsbook.admin.client.DownstreamStatusException;
 import com.sportsbook.admin.client.DownstreamUnavailableException;
+import com.sportsbook.admin.context.AdminContextArgumentResolver;
 import com.sportsbook.protocol.error.ProblemDetail;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public final class AdminExceptionHandler {
 
+  private static final URI AUDIT_UNAVAILABLE =
+      URI.create("https://sportsbook/errors/audit-unavailable");
   private static final URI BAD_GATEWAY = URI.create("https://sportsbook/errors/bad-gateway");
   private static final URI GATEWAY_TIMEOUT =
       URI.create("https://sportsbook/errors/gateway-timeout");
@@ -62,6 +66,34 @@ public final class AdminExceptionHandler {
         "DOWNSTREAM_CONTRACT_VIOLATION",
         "The downstream success response violated its contract",
         request);
+  }
+
+  @ExceptionHandler(AuditPersistenceException.class)
+  ResponseEntity<ProblemDetail> auditPersistence(
+      AuditPersistenceException failure, HttpServletRequest request) {
+    String code =
+        failure.phase() == AuditPersistenceException.Phase.BEGIN
+            ? "AUDIT_UNAVAILABLE"
+            : "AUDIT_FINALIZATION_FAILED";
+    String detail =
+        failure.phase() == AuditPersistenceException.Phase.BEGIN
+            ? "The audit trail could not be started"
+            : "The audit trail could not be finalized";
+    ProblemDetail body =
+        new ProblemDetail(
+            AUDIT_UNAVAILABLE,
+            "Service Unavailable",
+            HttpStatus.SERVICE_UNAVAILABLE.value(),
+            code,
+            detail,
+            URI.create(request.getRequestURI()),
+            MDC.get("traceId"));
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+    headers.setCacheControl("no-store");
+    headers.set(
+        AdminContextArgumentResolver.ACTION_ID_HEADER, failure.actionId().toString());
+    return new ResponseEntity<>(body, headers, HttpStatus.SERVICE_UNAVAILABLE);
   }
 
   private static ResponseEntity<ProblemDetail> problem(
