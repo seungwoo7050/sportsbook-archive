@@ -6,6 +6,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from scripts.cold_gate.cleanup_evidence import CleanupEvidence
 from scripts.cold_gate.compose import ComposeProject
 from scripts.cold_gate.context import ColdGateContext
 from scripts.cold_gate.owned_path import require_directory
@@ -27,8 +28,17 @@ class ScopedCleanup:
             raise RuntimeError("cleanup Compose project has different ownership")
         self.runner = runner
 
-    def run(self, sources: Path | None = None, service_jars: Path | None = None) -> None:
+    def run(
+        self,
+        sources: Path | None = None,
+        service_jars: Path | None = None,
+        evidence: CleanupEvidence | None = None,
+    ) -> None:
         self.context.require_owned()
+        if evidence is not None and (
+            evidence.context is not self.context or sources is None or service_jars is None
+        ):
+            raise RuntimeError("cleanup evidence targets have different ownership")
         if sources is not None:
             expected = self.context.runtime / "sources"
             if sources != expected or sources.is_symlink() or not sources.is_dir():
@@ -74,6 +84,8 @@ class ScopedCleanup:
             jars_link.unlink()
             shutil.rmtree(service_jars)
             service_jars.parent.rmdir()
+        if evidence is not None:
+            evidence.capture(sources, service_jars)
 
         self.context.require_owned()
         shutil.rmtree(self.context.runtime)
