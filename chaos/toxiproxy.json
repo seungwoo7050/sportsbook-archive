@@ -1,0 +1,20 @@
+[
+  {
+    "name": "betting_to_risk",
+    "listen": "0.0.0.0:18083",
+    "upstream": "risk:8083",
+    "enabled": true
+  },
+  {
+    "name": "betting_to_wallet",
+    "listen": "0.0.0.0:18081",
+    "upstream": "wallet:8081",
+    "enabled": true
+  },
+  {
+    "name": "settlement_to_wallet",
+    "listen": "0.0.0.0:28081",
+    "upstream": "wallet:8081",
+    "enabled": true
+  }
+]

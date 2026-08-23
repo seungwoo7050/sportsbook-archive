@@ -1,0 +1,32 @@
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes:
+      - ./chaos/toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - target: 8474
+        published: ${TOXIPROXY_HOST_PORT:-8474}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    healthcheck:
+      test: ["CMD", "/toxiproxy", "-version"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+
+  betting:
+    environment:
+      RISK_BASE_URL: http://toxiproxy:18083
+      WALLET_BASE_URL: http://toxiproxy:18081
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
+
+  settlement:
+    environment:
+      SETTLEMENT_WALLET_BASE_URL: http://toxiproxy:28081
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
