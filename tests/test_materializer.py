@@ -66,6 +66,30 @@ class MaterializerTest(unittest.TestCase):
             self.assertNotEqual(self.run_script(target, lock=bad_lock).returncode, 0)
             self.assertFalse(target.exists())
 
+    def test_preflights_every_worktree_before_cleanup_removes_any(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = pathlib.Path(temporary) / "sources"
+            self.assertEqual(self.run_script(target).returncode, 0)
+            entries = locked_entries()
+            last_name, _branch, last_commit, _artifact = entries[-1]
+            last_source = target / last_name
+            subprocess.run(
+                ["git", "checkout", "--quiet", "--detach", "HEAD^"],
+                cwd=last_source,
+                check=True,
+            )
+
+            failed = self.run_script(target, "cleanup")
+
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertTrue(all((target / entry[0]).is_dir() for entry in entries))
+            subprocess.run(
+                ["git", "checkout", "--quiet", "--detach", last_commit],
+                cwd=last_source,
+                check=True,
+            )
+            self.assertEqual(self.run_script(target, "cleanup").returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
