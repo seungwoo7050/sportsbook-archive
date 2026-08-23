@@ -47,7 +47,8 @@ class BetApi:
             response.header("Location") != "/api/v1/bets/" + bet_id
             or payload.get("userId") != fixture.user
             or payload.get("status") != expected_status
-            or payload.get("slipType") != {"type": "SINGLE"}
+            or payload.get("slipType")
+            != {"type": "SINGLE", "minWins": None, "totalSelections": None}
             or payload.get("stake") != {"amount": 10_000, "currency": "KRW"}
             or payload.get("maxPayout") != {"amount": 20_000, "currency": "KRW"}
             or payload.get("selections") != [expected_selection]
