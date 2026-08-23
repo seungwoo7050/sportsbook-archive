@@ -4,7 +4,9 @@ import java.net.SocketTimeoutException;
 import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
@@ -29,6 +31,12 @@ public final class DownstreamFailureMapper {
               ? DownstreamUnavailableException.Reason.TIMEOUT
               : DownstreamUnavailableException.Reason.TRANSPORT;
       throw new DownstreamUnavailableException(reason, null, transportFailure);
+    } catch (RestClientException clientFailure) {
+      if (hasCause(clientFailure, HttpMessageConversionException.class)) {
+        throw new DownstreamContractException("deserializable response body", clientFailure);
+      }
+      throw new DownstreamUnavailableException(
+          DownstreamUnavailableException.Reason.TRANSPORT, null, clientFailure);
     }
   }
 
