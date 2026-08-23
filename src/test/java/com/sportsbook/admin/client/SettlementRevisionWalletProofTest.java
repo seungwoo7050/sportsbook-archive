@@ -1,7 +1,11 @@
 package com.sportsbook.admin.client;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.Test;
 
 class SettlementRevisionWalletProofTest {
 
@@ -11,6 +15,41 @@ class SettlementRevisionWalletProofTest {
   private static final Instant QUEUED = CREATED.plusSeconds(1);
   private static final Instant DUE = CREATED.plusSeconds(2);
   private static final Instant UPDATED = CREATED.plusSeconds(3);
+
+  @Test
+  void acceptsBlockedAppliedRejectedAndExhaustedWalletProofs() {
+    List<SettlementRevisionView> valid =
+        List.of(
+            view(
+                SettlementRevisionView.State.BLOCKED,
+                SettlementRevisionView.WalletStatus.BLOCKED,
+                17L,
+                null,
+                QUEUED,
+                null,
+                DUE),
+            view(
+                SettlementRevisionView.State.APPLIED,
+                SettlementRevisionView.WalletStatus.APPLIED,
+                17L,
+                OPERATION,
+                QUEUED,
+                UPDATED,
+                null),
+            view(
+                SettlementRevisionView.State.REJECTED,
+                SettlementRevisionView.WalletStatus.REJECTED,
+                null,
+                null,
+                null,
+                null,
+                null),
+            view(SettlementRevisionView.State.EXHAUSTED, null, null, null, null, null, null));
+
+    valid.forEach(
+        evidence ->
+            assertThat(SettlementRevisionProof.verify(REVISION, evidence)).isSameAs(evidence));
+  }
 
   private static SettlementRevisionView view(
       SettlementRevisionView.State state,
