@@ -63,7 +63,9 @@ class MaterializerTest(unittest.TestCase):
                 + "risk|risk-service|0000000000000000000000000000000000000000|risk-service-1.0.0.jar\n"
             )
 
-            self.assertNotEqual(self.run_script(target, lock=bad_lock).returncode, 0)
+            failed = self.run_script(target, lock=bad_lock)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("invalid services lock", failed.stderr)
             self.assertFalse(target.exists())
 
     def test_preflights_every_worktree_before_cleanup_removes_any(self) -> None:
