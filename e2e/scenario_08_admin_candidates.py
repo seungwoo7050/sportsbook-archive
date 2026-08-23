@@ -5,6 +5,7 @@ import time
 from e2e.assertions import require_fields, wait_fields
 from e2e.model import ScenarioIds
 from e2e.runtime import E2eRuntime
+from scripts.cold_gate.database import uuid_literal
 from scripts.cold_gate.polling import poll_until
 
 
@@ -21,13 +22,7 @@ def run(runtime: E2eRuntime) -> None:
         "MatchResult", approved_fixture.match_result("WON", approved_at)
     )
     approved_candidate = _pending_candidate(runtime, approved_fixture.event)
-    poll_until(
-        "candidate approval eligibility",
-        lambda: int(time.time() * 1000),
-        lambda now: now >= approved_at + 100,
-        timeout=APPROVAL_ELIGIBILITY_TIMEOUT_SECONDS,
-        interval=0.1,
-    )
+    _wait_until_eligible(runtime, approved_candidate["candidate_id"])
     approval = runtime.settlement_admin.approve(
         approved_candidate["candidate_id"],
         token,
@@ -90,6 +85,23 @@ def _pending_candidate(runtime: E2eRuntime, event_id: str) -> dict[str, str]:
         "pending result candidate",
     )
     return candidate
+
+
+def _wait_until_eligible(runtime: E2eRuntime, candidate_id: str) -> None:
+    poll_until(
+        "candidate approval eligibility",
+        lambda: runtime.database.one(
+            "settlement",
+            f"""
+            SELECT (settled_at <= CURRENT_TIMESTAMP)::int::text AS eligible
+            FROM result_candidate
+            WHERE candidate_id = {uuid_literal(candidate_id)}
+            """,
+        ),
+        lambda row: row.get("eligible") == "1",
+        timeout=APPROVAL_ELIGIBILITY_TIMEOUT_SECONDS,
+        interval=0.1,
+    )
 
 
 def _single_candidate(runtime: E2eRuntime, event_id: str) -> dict[str, str] | None:
