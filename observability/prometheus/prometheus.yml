@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 5s
+  scrape_timeout: 3s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: sportsbook-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["gateway:8080"]
+        labels: {service: gateway}
+      - targets: ["wallet:8081"]
+        labels: {service: wallet}
+      - targets: ["betting:8082"]
+        labels: {service: betting}
+      - targets: ["risk:8083"]
+        labels: {service: risk}
+      - targets: ["settlement:8084"]
+        labels: {service: settlement}
+      - targets: ["odds:8085"]
+        labels: {service: odds}
+      - targets: ["admin:8090"]
+        labels: {service: admin}
