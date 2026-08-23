@@ -91,12 +91,18 @@ services:
     volumes:
       - redis-wallet-data:/data
 
+  redis-gateway:
+    <<: *redis-service
+    volumes:
+      - redis-gateway-data:/data
+
 volumes:
   postgres-data:
   kafka-data:
   redis-risk-data:
   redis-odds-data:
   redis-wallet-data:
+  redis-gateway-data:
 
 networks:
   backend:
