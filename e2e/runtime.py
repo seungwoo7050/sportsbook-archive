@@ -7,6 +7,7 @@ from e2e.bet_api import BetApi
 from e2e.correction_oracles import CorrectionOracles
 from e2e.model import ScenarioIds
 from e2e.placement_oracles import PlacementOracles
+from e2e.replay_oracle import ReplayOracle
 from e2e.settlement_admin_api import SettlementAdminApi
 from e2e.wallet_api import WalletApi
 from scripts.cold_gate.build import ReleaseArtifacts
@@ -60,6 +61,7 @@ class E2eRuntime:
         self.base = BaseOracles(database)
         self.placements = PlacementOracles(database)
         self.corrections = CorrectionOracles(database)
+        self.replays = ReplayOracle(database, self.base)
         self.odds = RedisClient(compose, "redis-odds")
         self.risk = RedisClient(compose, "redis-risk")
         self.kafka = KafkaAdmin(compose)
