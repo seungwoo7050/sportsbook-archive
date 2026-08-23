@@ -6,6 +6,7 @@ import unittest
 
 from scripts.cold_gate.build import ReleaseBuilder
 from scripts.cold_gate.context import ColdGateContext
+from tests.test_release_artifact_identity import write_release
 
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -30,8 +31,7 @@ class ReleaseBuilderTest(unittest.TestCase):
                 docker = pathlib.Path(options["env"]["DOCKER_OUTPUT_ROOT"])
                 generation = docker / ".jars/generation.test"
                 generation.mkdir(parents=True)
-                for service in SERVICES:
-                    (generation / f"{service}.jar").write_bytes(service.encode())
+                write_release(generation)
                 (docker / "jars").symlink_to(".jars/generation.test")
             elif name == "stage-fixture-publisher.sh":
                 pathlib.Path(command[3], "avro-fixture-publisher.jar").write_bytes(
@@ -72,6 +72,28 @@ class ReleaseBuilderTest(unittest.TestCase):
                 ReleaseBuilder(context, os.environ.copy(), calls.append).build()
 
             self.assertEqual(calls, [])
+
+    def test_rejects_unverified_service_artifacts(self) -> None:
+        def runner(command, **options):
+            name = pathlib.Path(command[0]).name
+            if name == "stage-release-jars.sh":
+                docker = pathlib.Path(options["env"]["DOCKER_OUTPUT_ROOT"])
+                generation = docker / ".jars/generation.test"
+                generation.mkdir(parents=True)
+                for service in SERVICES:
+                    (generation / f"{service}.jar").write_bytes(b"invalid")
+                (generation / "SHA256SUMS").write_text("")
+                (docker / "jars").symlink_to(".jars/generation.test")
+            elif name == "stage-fixture-publisher.sh":
+                pathlib.Path(command[3], "avro-fixture-publisher.jar").write_bytes(b"fixture")
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            context = self.context(root)
+
+            with self.assertRaisesRegex(RuntimeError, "checksum inventory"):
+                ReleaseBuilder(context, {"JAVA_HOME": "/jdk17"}, runner).build()
 
 
 if __name__ == "__main__":
