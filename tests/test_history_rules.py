@@ -2,6 +2,7 @@ import unittest
 
 from scripts.cold_gate.history_repository import Change
 from scripts.cold_gate.history_rules import (
+    SUBJECT,
     forbidden_path,
     is_documentation,
     is_large_exception,
@@ -10,6 +11,10 @@ from scripts.cold_gate.history_rules import (
 
 
 class HistoryRulesTest(unittest.TestCase):
+    def test_accepts_the_established_conventional_types(self):
+        types = "build chore ci docs feat fix perf refactor style test".split()
+        self.assertTrue(all(SUBJECT.fullmatch(f"{kind}(scope): bounded change") for kind in types))
+
     def test_classifies_only_owned_test_boundaries(self):
         accepted = (
             "tests/test_gate.py",
