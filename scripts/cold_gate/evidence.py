@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 from scripts.cold_gate.context import ColdGateContext
+from scripts.cold_gate.inventory import SERVICES
 from scripts.cold_gate.owned_path import (
     ensure_directory,
     require_directory,
@@ -29,14 +30,7 @@ REQUIRED_FILES = frozenset(
         "cleanup.tsv",
     }
 )
-LOG_SERVICES = frozenset(
-    {
-        "postgres", "kafka", "topic-init", "secret-preflight",
-        "redis-risk", "redis-odds", "redis-wallet", "redis-gateway",
-        "wallet", "risk", "odds", "betting", "gateway", "settlement", "admin",
-        "consumer-assignment", "toxiproxy", "prometheus", "loki", "grafana", "promtail",
-    }
-)
+LOG_SERVICES = frozenset(SERVICES)
 LOG_PATTERN = re.compile(r"logs/([a-z0-9][a-z0-9-]*)\.log")
 
 
