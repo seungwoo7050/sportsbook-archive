@@ -96,10 +96,13 @@ def parse_curl_response(raw: bytes) -> HttpResponse:
         raise RuntimeError("container HTTP status is invalid") from error
     if status < 100 or status > 599:
         raise RuntimeError("container HTTP status is out of range")
-    head, separator, body = message.partition(b"\r\n\r\n")
+    normalized = message.replace(b"\r\n", b"\n")
+    if b"\r" in normalized:
+        raise RuntimeError("container HTTP line endings are invalid")
+    head, separator, body = normalized.partition(b"\n\n")
     if not separator:
         raise RuntimeError("container HTTP headers are incomplete")
-    lines = head.split(b"\r\n")
+    lines = head.split(b"\n")
     if not lines or not lines[0].startswith(b"HTTP/"):
         raise RuntimeError("container HTTP status line is missing")
     headers = []
