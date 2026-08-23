@@ -16,6 +16,7 @@ import com.sportsbook.admin.context.AdminContextArgumentResolver;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -63,6 +64,9 @@ class SecurityChainTest {
 
   @MockBean private AuditWriteRepository auditWrites;
 
+  @MockBean(name = "db")
+  private HealthIndicator databaseHealth;
+
   @Test
   void rejectsAnonymousRequestsWithAnRfc7807Response() throws Exception {
     mvc.perform(get(ADMIN_ONLY))
@@ -92,12 +96,9 @@ class SecurityChainTest {
         .andExpect(content().contentTypeCompatibleWith("text/plain"));
 
     mvc.perform(
-            get("/actuator/metrics")
-                .header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
+            get("/actuator/metrics").header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
         .andExpect(status().isForbidden());
-    mvc.perform(
-            get("/actuator/env")
-                .header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
+    mvc.perform(get("/actuator/env").header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
         .andExpect(status().isForbidden());
   }
 
