@@ -33,7 +33,7 @@ import org.springframework.test.web.servlet.ResultActions;
     properties = {
       "spring.kafka.bootstrap-servers=127.0.0.1:1",
       "admin.audit.stale-scan-interval=PT1H",
-      "admin.downstream.read-timeout=750ms",
+      "admin.downstream.read-timeout=5s",
       "admin.downstream.credentials.wallet-api-key=wallet-admin-http-key-000000000001",
       "admin.downstream.credentials.risk-api-key=risk-admin-http-key-00000000000002",
       "admin.downstream.credentials.odds-feed-api-key=odds-admin-http-key-00000000000003",
@@ -70,7 +70,7 @@ class AuditHttpIntegrationTest {
 
   @Test
   void exposesStartedBeforeCompletingAnExactSuccess() throws Exception {
-    stubOdds(202, null, 400);
+    stubOdds(202, null, 2_000);
     CompletableFuture<ResultActions> request =
         CompletableFuture.supplyAsync(
             () -> {
@@ -82,6 +82,7 @@ class AuditHttpIntegrationTest {
             });
 
     AuditLogEntity started = awaitStarted();
+    assertThat(request.isDone()).isFalse();
     assertThat(started.getActorId()).isEqualTo("operator-17");
     assertThat(started.getActorRole()).isEqualTo(com.sportsbook.admin.security.AdminRole.TRADER);
     assertThat(started.getAction()).isEqualTo("MARKET_SUSPEND");
@@ -99,6 +100,14 @@ class AuditHttpIntegrationTest {
             .getResponse()
             .getHeader("X-Admin-Action-Id");
     assertThat(actionHeader).isEqualTo(started.getActionId().toString());
+    AuditHttpTestEnvironment.DOWNSTREAM.verify(
+        WireMock.postRequestedFor(WireMock.urlEqualTo(PATH))
+            .withHeader("X-Internal-Service", WireMock.equalTo("admin-api"))
+            .withHeader(
+                "X-Internal-Api-Key", WireMock.equalTo("odds-admin-http-key-00000000000003"))
+            .withHeader("Idempotency-Key", WireMock.equalTo("e292ac36-1c66-4c17-9027-d6aa63df1ae9"))
+            .withHeader("X-Admin-Action-Id", WireMock.equalTo(actionHeader))
+            .withRequestBody(WireMock.equalToJson("{\"reason\":\"feed investigation\"}")));
     AuditLogEntity terminal = auditLogs.findById(started.getActionId()).orElseThrow();
     assertThat(terminal.getOutcome()).isEqualTo(AuditOutcome.SUCCESS);
     assertThat(terminal.getHttpStatus()).isEqualTo(202);
@@ -118,8 +127,7 @@ class AuditHttpIntegrationTest {
 
     assertThat(terminal.getOutcome()).isEqualTo(AuditOutcome.FAILED);
     assertThat(terminal.getHttpStatus()).isEqualTo(409);
-    assertThat(response.andReturn().getResponse().getHeader("Cache-Control"))
-        .isEqualTo("no-store");
+    assertThat(response.andReturn().getResponse().getHeader("Cache-Control")).isEqualTo("no-store");
   }
 
   @Test
@@ -137,7 +145,7 @@ class AuditHttpIntegrationTest {
 
   @Test
   void recordsDownstreamTimeoutsAsUnknown() throws Exception {
-    stubOdds(202, null, 1_200);
+    stubOdds(202, null, 6_000);
 
     AuditLogEntity terminal = terminalFrom(suspend().andExpect(status().isGatewayTimeout()));
 
@@ -156,7 +164,7 @@ class AuditHttpIntegrationTest {
   }
 
   private AuditLogEntity awaitStarted() throws InterruptedException {
-    Instant deadline = Instant.now().plus(Duration.ofSeconds(2));
+    Instant deadline = Instant.now().plus(Duration.ofSeconds(4));
     while (Instant.now().isBefore(deadline)) {
       var rows = auditLogs.findAll();
       if (rows.size() == 1 && rows.get(0).getOutcome() == AuditOutcome.STARTED) {
