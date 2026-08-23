@@ -6,6 +6,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from scripts.cold_gate.artifacts import verify_release_artifacts
 from scripts.cold_gate.context import ColdGateContext
 from scripts.cold_gate.owned_path import ensure_directory
 
@@ -76,4 +77,5 @@ class ReleaseBuilder:
         service_jars = (root / "docker" / os.readlink(jars_link)).resolve(strict=True)
         if len(list(service_jars.glob("*.jar"))) != 7:
             raise RuntimeError("service JAR generation is incomplete")
+        verify_release_artifacts(service_jars)
         return ReleaseArtifacts(sources, repository, service_jars, fixture)
