@@ -27,10 +27,11 @@ def poll_until(
         try:
             last_value = probe()
             last_error = None
-            if accepted(last_value):
-                return last_value
         except Exception as error:  # Transient dependencies may not be ready yet.
             last_error = error
+        else:
+            if accepted(last_value):
+                return last_value
         remaining = deadline - clock()
         if remaining <= 0:
             detail = f"; last error: {last_error}" if last_error else f"; last value: {last_value!r}"
