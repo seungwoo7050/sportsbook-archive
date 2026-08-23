@@ -3,7 +3,9 @@ package com.sportsbook.admin.audit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.sportsbook.admin.context.AdminContext;
@@ -16,8 +18,7 @@ import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 
 class AuditAspectTest {
 
-  private static final UUID ACTION_ID =
-      UUID.fromString("018f0000-0000-7000-8000-000000000061");
+  private static final UUID ACTION_ID = UUID.fromString("018f0000-0000-7000-8000-000000000061");
   private static final AdminContext CONTEXT =
       new AdminContext("operator-1", AdminRole.ADMIN, ACTION_ID, "trace-1");
 
@@ -56,9 +57,28 @@ class AuditAspectTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("invalid command");
 
-    verify(audits)
-        .begin(CONTEXT, AdminAction.WALLET_REFUND.name(), "user-2", "operator request");
+    verify(audits).begin(CONTEXT, AdminAction.WALLET_REFUND.name(), "user-2", "operator request");
     verify(audits).complete(ACTION_ID, AuditOutcome.FAILED, 400);
+  }
+
+  @Test
+  void neverInvokesDownstreamOrCompletionWhenStartedCannotPersist() {
+    List<String> events = new ArrayList<>();
+    AuditService audits = mock(AuditService.class);
+    doThrow(
+            new AuditPersistenceException(
+                ACTION_ID,
+                AuditPersistenceException.Phase.BEGIN,
+                new IllegalStateException("db down")))
+        .when(audits)
+        .begin(CONTEXT, AdminAction.WALLET_REFUND.name(), "user-3", "operator request");
+    AuditedOperations operations = proxy(audits, events);
+
+    assertThatThrownBy(() -> operations.success("user-3", CONTEXT))
+        .isInstanceOf(AuditPersistenceException.class);
+
+    assertThat(events).isEmpty();
+    verify(audits, never()).complete(ACTION_ID, AuditOutcome.SUCCESS, 200);
   }
 
   private static AuditedOperations proxy(AuditService audits, List<String> events) {
@@ -75,19 +95,13 @@ class AuditAspectTest {
       this.events = events;
     }
 
-    @Audited(
-        action = AdminAction.WALLET_REFUND,
-        target = "#p0",
-        reason = "'operator request'")
+    @Audited(action = AdminAction.WALLET_REFUND, target = "#p0", reason = "'operator request'")
     public String success(String userId, AdminContext context) {
       events.add("downstream");
       return "ok";
     }
 
-    @Audited(
-        action = AdminAction.WALLET_REFUND,
-        target = "#p0",
-        reason = "'operator request'")
+    @Audited(action = AdminAction.WALLET_REFUND, target = "#p0", reason = "'operator request'")
     public String fail(String userId, AdminContext context) {
       events.add("downstream");
       throw new IllegalArgumentException("invalid command");
