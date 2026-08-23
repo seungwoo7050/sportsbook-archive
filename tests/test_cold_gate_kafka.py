@@ -89,6 +89,16 @@ settlement-service event.lifecycle 2 0 0 0 consumer /172.1 client
                 "betting-resolution", "bet.settled.v1"
             )
 
+    def test_reads_one_uppercase_dlt_end_offset(self) -> None:
+        admin = KafkaAdmin(FakeCompose("match.result.DLT:2:17\n"))
+
+        self.assertEqual(admin.end_offset("match.result.DLT", 2), 17)
+
+        with self.assertRaisesRegex(RuntimeError, "receipt"):
+            KafkaAdmin(FakeCompose("other:2:17\n")).end_offset("match.result.DLT", 2)
+        with self.assertRaisesRegex(ValueError, "outside"):
+            admin.end_offset("INVALID", 2)
+
 
 if __name__ == "__main__":
     unittest.main()
