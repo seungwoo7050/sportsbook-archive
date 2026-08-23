@@ -8,7 +8,10 @@ from scripts.cold_gate.history_repository import Change
 ROOT_SUBJECT = "docs(project): establish orchestration ownership"
 RELEASE_SUBJECT = "build(release): release orchestration 1.0.0"
 DOCS_SUBJECT = "docs(project): document full-stack operations"
-SUBJECT = re.compile(r"^(build|chore|ci|docs|feat|fix|test)\([a-z0-9-]+\): \S(?:.*\S)?$")
+SUBJECT = re.compile(
+    r"^(build|chore|ci|docs|feat|fix|perf|refactor|style|test)"
+    r"\([a-z0-9-]+\): \S(?:.*\S)?$"
+)
 BANNED_TERMS = ("fixup", "squash", "reconstruct", "provenance", "devlog", "changelog")
 GENERATED_DIRECTORIES = frozenset(
     {".runtime", "target", "build", "evidence", "results", "reports", "__pycache__"}
