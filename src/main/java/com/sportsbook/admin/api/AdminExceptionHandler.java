@@ -5,6 +5,7 @@ import com.sportsbook.admin.client.DownstreamContractException;
 import com.sportsbook.admin.client.DownstreamStatusException;
 import com.sportsbook.admin.client.DownstreamUnavailableException;
 import com.sportsbook.admin.context.AdminContextArgumentResolver;
+import com.sportsbook.protocol.error.ErrorCode;
 import com.sportsbook.protocol.error.ProblemDetail;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -13,8 +14,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public final class AdminExceptionHandler {
@@ -31,9 +36,7 @@ public final class AdminExceptionHandler {
   ResponseEntity<byte[]> relayDownstream(DownstreamStatusException failure) {
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(
-        failure.contentType() == null
-            ? MediaType.APPLICATION_PROBLEM_JSON
-            : failure.contentType());
+        failure.contentType() == null ? MediaType.APPLICATION_PROBLEM_JSON : failure.contentType());
     headers.setCacheControl("no-store");
     return new ResponseEntity<>(failure.body(), headers, failure.status());
   }
@@ -68,6 +71,25 @@ public final class AdminExceptionHandler {
         request);
   }
 
+  @ExceptionHandler({
+    AdminRequestException.class,
+    MethodArgumentNotValidException.class,
+    HttpMessageNotReadableException.class,
+    MethodArgumentTypeMismatchException.class,
+    ServletRequestBindingException.class
+  })
+  ResponseEntity<ProblemDetail> invalidRequest(Exception failure, HttpServletRequest request) {
+    ProblemDetail body =
+        ErrorCode.VALIDATION_FAILED.toProblemDetail(
+            "The admin request is invalid",
+            URI.create(request.getRequestURI()),
+            MDC.get("traceId"));
+    return ResponseEntity.badRequest()
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .cacheControl(org.springframework.http.CacheControl.noStore())
+        .body(body);
+  }
+
   @ExceptionHandler(AuditPersistenceException.class)
   ResponseEntity<ProblemDetail> auditPersistence(
       AuditPersistenceException failure, HttpServletRequest request) {
@@ -91,17 +113,12 @@ public final class AdminExceptionHandler {
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_PROBLEM_JSON);
     headers.setCacheControl("no-store");
-    headers.set(
-        AdminContextArgumentResolver.ACTION_ID_HEADER, failure.actionId().toString());
+    headers.set(AdminContextArgumentResolver.ACTION_ID_HEADER, failure.actionId().toString());
     return new ResponseEntity<>(body, headers, HttpStatus.SERVICE_UNAVAILABLE);
   }
 
   private static ResponseEntity<ProblemDetail> problem(
-      HttpStatus status,
-      URI type,
-      String code,
-      String detail,
-      HttpServletRequest request) {
+      HttpStatus status, URI type, String code, String detail, HttpServletRequest request) {
     ProblemDetail body =
         new ProblemDetail(
             type,
