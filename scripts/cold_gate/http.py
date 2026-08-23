@@ -83,3 +83,32 @@ class HostHttpClient:
 
 def _response(status: int, headers, body: bytes) -> HttpResponse:
     return HttpResponse(status, tuple((str(key), str(value)) for key, value in headers), body)
+
+
+def parse_curl_response(raw: bytes) -> HttpResponse:
+    marker = b"\n__E2E_STATUS__:"
+    if raw.count(marker) != 1 or not raw.endswith(b"\n"):
+        raise RuntimeError("container HTTP response framing is invalid")
+    message, status_line = raw.rsplit(marker, 1)
+    try:
+        status = int(status_line.strip())
+    except ValueError as error:
+        raise RuntimeError("container HTTP status is invalid") from error
+    if status < 100 or status > 599:
+        raise RuntimeError("container HTTP status is out of range")
+    head, separator, body = message.partition(b"\r\n\r\n")
+    if not separator:
+        raise RuntimeError("container HTTP headers are incomplete")
+    lines = head.split(b"\r\n")
+    if not lines or not lines[0].startswith(b"HTTP/"):
+        raise RuntimeError("container HTTP status line is missing")
+    headers = []
+    for line in lines[1:]:
+        name, delimiter, value = line.partition(b":")
+        if not delimiter or not name:
+            raise RuntimeError("container HTTP header is malformed")
+        try:
+            headers.append((name.decode("ascii"), value.strip().decode("utf-8")))
+        except UnicodeDecodeError as error:
+            raise RuntimeError("container HTTP header encoding is invalid") from error
+    return HttpResponse(status, tuple(headers), body)
