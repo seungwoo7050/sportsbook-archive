@@ -22,6 +22,7 @@ class RepositoryPolicyTest(unittest.TestCase):
             "docker/.jars/generation/service.jar",
             "docker/jars/service.jar",
             "evidence/release.json",
+            "fixtures/avro-publisher/target/classes/Fixture.class",
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.ignored(path))
