@@ -7,3 +7,4 @@ build/
 docker/.jars/
 docker/jars
 evidence/
+fixtures/**/target/
