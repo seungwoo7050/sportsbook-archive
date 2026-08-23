@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts.cold_gate.build import ReleaseBuilder
+from scripts.cold_gate.build import RESERVED_BUILD_ENVIRONMENT, ReleaseBuilder
 from scripts.cold_gate.context import ColdGateContext
 from tests.test_release_artifact_identity import write_release
 
@@ -72,6 +72,23 @@ class ReleaseBuilderTest(unittest.TestCase):
                 ReleaseBuilder(context, os.environ.copy(), calls.append).build()
 
             self.assertEqual(calls, [])
+
+    def test_rejects_reserved_environment_before_running_commands(self) -> None:
+        for name in sorted(RESERVED_BUILD_ENVIRONMENT):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary).resolve()
+                context = self.context(root)
+                calls = []
+
+                with self.assertRaisesRegex(RuntimeError, name):
+                    ReleaseBuilder(
+                        context,
+                        {"JAVA_HOME": "/jdk17", name: "external"},
+                        calls.append,
+                    ).build()
+
+                self.assertEqual(calls, [])
+                self.assertFalse((context.runtime / "m2").exists())
 
     def test_rejects_unverified_service_artifacts(self) -> None:
         def runner(command, **options):
