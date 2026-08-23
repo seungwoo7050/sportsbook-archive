@@ -4,7 +4,7 @@ import dataclasses
 import uuid
 
 from e2e.model import ScenarioIds
-from scripts.cold_gate.http import HostHttpClient
+from scripts.cold_gate.container_http import ContainerHttpClient
 
 
 @dataclasses.dataclass(frozen=True)
@@ -15,7 +15,7 @@ class PlacementReceipt:
 
 
 class BetApi:
-    def __init__(self, client: HostHttpClient) -> None:
+    def __init__(self, client: ContainerHttpClient) -> None:
         self.client = client
 
     def place(self, fixture: ScenarioIds, token: str) -> PlacementReceipt:

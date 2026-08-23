@@ -18,7 +18,6 @@ from scripts.cold_gate.container_http import ContainerHttpClient
 from scripts.cold_gate.context import ColdGateContext
 from scripts.cold_gate.database import PostgresClient
 from scripts.cold_gate.fixtures import FixturePublisher
-from scripts.cold_gate.http import HostHttpClient
 from scripts.cold_gate.jwt import JwtSigner
 from scripts.cold_gate.kafka import KafkaAdmin
 from scripts.cold_gate.polling import poll_until
@@ -44,7 +43,6 @@ class E2eRuntime:
     ) -> None:
         if compose.context is not context:
             raise RuntimeError("E2E runtime ownership mismatch")
-        gateway_port = secrets.gateway_port
         database = PostgresClient(compose)
         self.context = context
         self.compose = compose
@@ -52,7 +50,7 @@ class E2eRuntime:
         self.artifacts = artifacts
         self.database = database
         self.signer = JwtSigner(context, secrets.private_key)
-        self.bets = BetApi(HostHttpClient(f"http://127.0.0.1:{gateway_port}"))
+        self.bets = BetApi(ContainerHttpClient(compose, "gateway"))
         self.wallet_api = WalletApi(
             ContainerHttpClient(compose, "wallet"),
             secrets.environment["WALLET_PLATFORM_API_KEY"],
