@@ -135,6 +135,16 @@ class AuditHttpIntegrationTest {
         .doesNotContain("unavailable");
   }
 
+  @Test
+  void recordsDownstreamTimeoutsAsUnknown() throws Exception {
+    stubOdds(202, null, 1_200);
+
+    AuditLogEntity terminal = terminalFrom(suspend().andExpect(status().isGatewayTimeout()));
+
+    assertThat(terminal.getOutcome()).isEqualTo(AuditOutcome.UNKNOWN);
+    assertThat(terminal.getHttpStatus()).isEqualTo(504);
+  }
+
   private AuditLogEntity awaitStarted() throws InterruptedException {
     Instant deadline = Instant.now().plus(Duration.ofSeconds(2));
     while (Instant.now().isBefore(deadline)) {
