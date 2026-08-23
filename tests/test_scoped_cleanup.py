@@ -37,9 +37,13 @@ class ScopedCleanupTest(unittest.TestCase):
             context = ColdGateContext.create(root, SHA, "00000001")
             sources = context.runtime / "sources"
             sources.mkdir()
+            generation = root / "docker/.jars/generation.test"
+            generation.mkdir(parents=True)
+            (generation / "wallet.jar").write_bytes(b"jar")
+            (root / "docker/jars").symlink_to(".jars/generation.test")
             compose = FakeCompose(context)
 
-            ScopedCleanup(context, compose, runner).run(sources)
+            ScopedCleanup(context, compose, runner).run(sources, generation)
 
             self.assertEqual(
                 compose.calls,
@@ -60,6 +64,8 @@ class ScopedCleanupTest(unittest.TestCase):
             self.assertFalse(context.runtime.exists())
             self.assertFalse(context.lock.exists())
             self.assertTrue(context.evidence.is_dir())
+            self.assertFalse((root / "docker/jars").exists())
+            self.assertFalse((root / "docker/.jars").exists())
 
     def test_rejects_foreign_or_symlinked_source_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
