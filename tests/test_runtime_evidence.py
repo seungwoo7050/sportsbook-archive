@@ -86,6 +86,25 @@ class RuntimeEvidenceTest(unittest.TestCase):
                 evidence.capture()
             self.assertEqual(list(context.evidence.iterdir()), [])
 
+    def test_records_a_completed_container_that_vanished_after_success(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            context, evidence = self.fixture(pathlib.Path(temporary).resolve())
+            original = evidence.runner
+            topic_init_id = f"{SERVICES.index('topic-init') + 1:064x}"
+
+            def runner(command, **options):
+                if command[-1] == topic_init_id:
+                    raise subprocess.CalledProcessError(1, command)
+                return original(command, **options)
+
+            evidence.runner = runner
+            evidence.capture()
+
+            states = json.loads((context.evidence / "compose-ps.json").read_text())
+            topic_init = next(row for row in states if row["service"] == "topic-init")
+            self.assertEqual(topic_init["state"], "completed")
+            self.assertEqual(topic_init["exit_code"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
