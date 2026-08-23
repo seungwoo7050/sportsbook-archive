@@ -11,9 +11,9 @@ from scripts.cold_gate.redaction import EvidenceRedactor
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 METRICS = (
-    b"wallet_integrity_total_drift 0.0\n"
-    b"wallet_integrity_scan_failed 0.0\n"
-    b"wallet_integrity_last_checked_epoch_seconds 1.777e9\n"
+    b'wallet_integrity_total_drift{service="wallet-service"} 0.0\n'
+    b'wallet_integrity_scan_failed{service="wallet-service"} 0.0\n'
+    b'wallet_integrity_last_checked_epoch_seconds{service="wallet-service"} 1.777e9\n'
 )
 
 
@@ -67,7 +67,7 @@ class ReadinessEvidenceTest(unittest.TestCase):
     def test_rejects_non_up_service_or_integrity_drift_before_writing(self) -> None:
         cases = (
             ({"admin": "DOWN"}, METRICS, "admin readiness"),
-            ({}, METRICS.replace(b"total_drift 0.0", b"total_drift 1.0"), "not clean"),
+            ({}, METRICS.replace(b'} 0.0', b'} 1.0', 1), "not clean"),
         )
         for overrides, metrics, message in cases:
             with self.subTest(message=message), tempfile.TemporaryDirectory() as temporary:
@@ -79,6 +79,19 @@ class ReadinessEvidenceTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     ReadinessEvidence(compose, store, factory).capture()
                 self.assertEqual(list(context.evidence.iterdir()), [])
+
+    def test_requires_the_exact_wallet_service_label(self) -> None:
+        cases = (
+            METRICS.replace(b'{service="wallet-service"}', b''),
+            METRICS.replace(b'wallet-service', b'other-service'),
+            METRICS.replace(b'} 0.0', b',region="test"} 0.0', 1),
+            METRICS + METRICS.splitlines(keepends=True)[0],
+        )
+        for metrics in cases:
+            with self.subTest(metrics=metrics):
+                client = FakeClient("wallet", {}, metrics)
+                with self.assertRaisesRegex(RuntimeError, "wallet-service-labelled"):
+                    ReadinessEvidence._metrics(client)
 
 
 if __name__ == "__main__":

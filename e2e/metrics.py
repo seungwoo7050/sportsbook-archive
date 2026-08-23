@@ -7,6 +7,8 @@ from scripts.cold_gate.container_http import ContainerHttpClient
 
 
 METRIC_NAME = re.compile(r"^[a-z][a-z0-9_]+$")
+BETTING_SERVICE_LABEL = '{service="betting-service"}'
+NUMBER = r"[-+]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
 
 
 def metric_value(client: ContainerHttpClient, name: str) -> decimal.Decimal:
@@ -17,10 +19,13 @@ def metric_value(client: ContainerHttpClient, name: str) -> decimal.Decimal:
         text = response.body.decode("utf-8")
     except UnicodeDecodeError as error:
         raise RuntimeError("Prometheus response is not UTF-8") from error
-    pattern = re.compile(rf"^{re.escape(name)}\s+([-+]?[0-9]+(?:\.[0-9]+)?)$", re.MULTILINE)
+    pattern = re.compile(
+        rf"^{re.escape(name)}{re.escape(BETTING_SERVICE_LABEL)}\s+({NUMBER})$",
+        re.MULTILINE,
+    )
     values = pattern.findall(text)
     if len(values) != 1:
-        raise RuntimeError(f"expected one unlabelled {name} metric")
+        raise RuntimeError(f"expected one betting-service-labelled {name} metric")
     try:
         return decimal.Decimal(values[0])
     except decimal.InvalidOperation as error:
