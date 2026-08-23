@@ -1,6 +1,7 @@
 package com.sportsbook.admin.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.List;
@@ -49,6 +50,57 @@ class SettlementRevisionWalletProofTest {
     valid.forEach(
         evidence ->
             assertThat(SettlementRevisionProof.verify(REVISION, evidence)).isSameAs(evidence));
+  }
+
+  @Test
+  void rejectsIncompleteAndContradictoryWalletProofs() {
+    List<SettlementRevisionView> invalid =
+        List.of(
+            view(
+                SettlementRevisionView.State.BLOCKED,
+                SettlementRevisionView.WalletStatus.BLOCKED,
+                17L,
+                OPERATION,
+                QUEUED,
+                null,
+                DUE),
+            view(
+                SettlementRevisionView.State.BLOCKED,
+                SettlementRevisionView.WalletStatus.BLOCKED,
+                0L,
+                null,
+                QUEUED,
+                null,
+                DUE),
+            view(
+                SettlementRevisionView.State.APPLIED,
+                SettlementRevisionView.WalletStatus.APPLIED,
+                null,
+                null,
+                null,
+                UPDATED,
+                null),
+            view(
+                SettlementRevisionView.State.REJECTED,
+                SettlementRevisionView.WalletStatus.REJECTED,
+                17L,
+                null,
+                QUEUED,
+                null,
+                null),
+            view(
+                SettlementRevisionView.State.EXHAUSTED,
+                SettlementRevisionView.WalletStatus.BLOCKED,
+                17L,
+                null,
+                QUEUED,
+                null,
+                DUE));
+
+    invalid.forEach(
+        evidence ->
+            assertThatThrownBy(() -> SettlementRevisionProof.verify(REVISION, evidence))
+                .isInstanceOf(DownstreamContractException.class));
   }
 
   private static SettlementRevisionView view(
