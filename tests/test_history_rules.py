@@ -26,6 +26,8 @@ class HistoryRulesTest(unittest.TestCase):
 
     def test_detects_documentation_and_generated_or_process_files(self):
         self.assertTrue(is_documentation("README.md"))
+        self.assertTrue(is_documentation("docs/operations"))
+        self.assertTrue(is_documentation("handoffs/wave4/integration"))
         self.assertFalse(is_documentation("config/required-secrets.txt"))
         forbidden = (
             ".runtime/run/owner",
@@ -34,6 +36,8 @@ class HistoryRulesTest(unittest.TestCase):
             "docker/.jars/generation/app.jar",
             "docker/jars",
             "notes/devlog.md",
+            "notes/fixup.txt",
+            "notes/squash-plan.txt",
             "src/App.class",
             "logs/runtime.log",
         )
