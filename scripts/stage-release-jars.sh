@@ -9,6 +9,7 @@ LOCK=${SERVICES_LOCK:-$ROOT/services.lock}
 DOCKER_DIR=${DOCKER_OUTPUT_ROOT:-$ROOT/docker}
 STAGING=
 LINK_TMP=
+GENERATIONS_CREATED=
 
 fail() {
   printf 'jar-stage: %s\n' "$1" >&2
@@ -19,6 +20,9 @@ cleanup() {
   local status=$?
   [[ -z $LINK_TMP || ! -L $LINK_TMP ]] || rm -f "$LINK_TMP"
   [[ -z $STAGING || ! -d $STAGING ]] || rm -rf -- "$STAGING"
+  [[ -z $GENERATIONS_CREATED || ! -d $GENERATIONS_CREATED ]] \
+    || rmdir -- "$GENERATIONS_CREATED" 2>/dev/null \
+    || true
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -41,7 +45,10 @@ JAVA_MAJOR=$($JAVA_BIN -version 2>&1 | awk -F'[."]' '/version/ {print $2; exit}'
 JAVAC_MAJOR=$($JAVAC_BIN -version 2>&1 | awk '{print $2; exit}' | cut -d. -f1)
 [[ $JAVA_MAJOR == 17 && $JAVAC_MAJOR == 17 ]] || fail "Java 17 JDK is required"
 [[ ! -L $GENERATIONS ]] || fail "generation root must not be a symlink"
-mkdir -p "$GENERATIONS"
+if [[ ! -d $GENERATIONS ]]; then
+  mkdir -p "$GENERATIONS"
+  GENERATIONS_CREATED=$GENERATIONS
+fi
 STAGING=$(mktemp -d "$GENERATIONS/generation.XXXXXX")
 ENTRIES=$(awk -F'|' '
   NF && $1 !~ /^#/ { if (NF != 4) exit 2; print; count++ }
