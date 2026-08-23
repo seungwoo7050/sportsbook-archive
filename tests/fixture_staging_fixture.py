@@ -69,6 +69,7 @@ class FixtureStagingFixture(unittest.TestCase):
                     archive.writestr("META-INF/MANIFEST.MF", "Main-Class: com.sportsbook.orchestration.fixture.FixturePublisher\\n")
                     archive.writestr("META-INF/maven/com.sportsbook/shared-protocol/pom.properties", "version=1.0.0\\n")
                     archive.writestr("com/sportsbook/orchestration/fixture/FixturePublisher.class", b"class")
+                    archive.writestr("com/sportsbook/orchestration/fixture/KafkaProbe.class", b"probe")
                     archive.writestr("com/sportsbook/protocol/event/EventLifecycle.class", b"shared")
                     archive.writestr("org/apache/kafka/clients/producer/KafkaProducer.class", b"kafka")
                 """
@@ -78,7 +79,7 @@ class FixtureStagingFixture(unittest.TestCase):
         binaries = {
             "java": 'openjdk version "17.0.0"',
             "javac": "javac 17.0.0",
-            "jar": "com/sportsbook/orchestration/fixture/FixturePublisher.class\\ncom/sportsbook/protocol/event/EventLifecycle.class\\norg/apache/kafka/clients/producer/KafkaProducer.class",
+            "jar": "com/sportsbook/orchestration/fixture/FixturePublisher.class\\ncom/sportsbook/orchestration/fixture/KafkaProbe.class\\ncom/sportsbook/protocol/event/EventLifecycle.class\\norg/apache/kafka/clients/producer/KafkaProducer.class",
             "javap": "  major version: 61",
         }
         (self.base / "jdk/bin").mkdir(parents=True)

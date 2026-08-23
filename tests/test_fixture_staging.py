@@ -17,6 +17,7 @@ class FixtureStagingTest(FixtureStagingFixture):
             self.assertIn(
                 "com/sportsbook/orchestration/fixture/FixturePublisher.class", names
             )
+            self.assertIn("com/sportsbook/orchestration/fixture/KafkaProbe.class", names)
             self.assertIn(
                 "com/sportsbook/protocol/event/EventLifecycle.class", names
             )
