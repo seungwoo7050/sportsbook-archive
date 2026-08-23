@@ -17,6 +17,7 @@ class SettlementWiringTest(ComposeContractFixture):
             environment["SETTLEMENT_WALLET_BASE_URL"], "http://wallet:8081"
         )
         self.assertEqual(environment["SETTLEMENT_WORKERS_ENABLED"], "true")
+        self.assertEqual(environment["SETTLEMENT_OUTBOX_INTERVAL"], "PT0.5S")
         for obsolete in ("SETTLEMENT_DB_URL", "SETTLEMENT_KAFKA_BOOTSTRAP", "WALLET_BASE_URL"):
             self.assertNotIn(obsolete, environment)
         self.assertEqual(
