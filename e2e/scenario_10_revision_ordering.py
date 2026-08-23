@@ -30,6 +30,11 @@ def run(runtime: E2eRuntime) -> None:
         lambda: runtime.base.wallet(state.fixture.user),
         {"available": "110000", "locked": "0", "debt": "0", "frozen": "0"},
     )
+    wait_fields(
+        "late base Settlement outbox",
+        lambda: runtime.placements.settlement_outbox(state.fixture.event, "BetSettled"),
+        {"event_count": "1", "topic": "bet.settled.v1", "published": "1"},
+    )
     poll_until(
         "late base Betting consumption",
         lambda: runtime.kafka.topic_lag("betting-resolution", "bet.settled.v1"),
