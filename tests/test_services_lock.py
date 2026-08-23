@@ -22,6 +22,20 @@ def entries() -> list[tuple[str, str, str, str]]:
     return [tuple(line.split("|")) for line in lines if line and not line.startswith("#")]
 
 
+def branch_tip(branch: str) -> str:
+    for namespace in ("refs/heads", "refs/remotes/origin"):
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{namespace}/{branch}^{{commit}}"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    raise AssertionError(f"{branch} ref is unavailable")
+
+
 class ServicesLockTest(unittest.TestCase):
     def test_pins_every_release_branch_to_a_full_commit(self) -> None:
         locked = entries()
@@ -36,10 +50,7 @@ class ServicesLockTest(unittest.TestCase):
                     ["git", "cat-file", "-t", commit], cwd=ROOT, text=True
                 ).strip()
                 self.assertEqual(object_type, "commit")
-                branch_tip = subprocess.check_output(
-                    ["git", "rev-parse", f"refs/heads/{branch}"], cwd=ROOT, text=True
-                ).strip()
-                self.assertEqual(branch_tip, commit)
+                self.assertEqual(branch_tip(branch), commit)
 
     def test_does_not_create_an_orchestration_lock_cycle(self) -> None:
         self.assertNotIn("orchestration", {entry[0] for entry in entries()})
