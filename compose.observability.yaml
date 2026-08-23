@@ -62,7 +62,6 @@ services:
     volumes:
       - ./observability/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
-      - ${DOCKER_LOG_ROOT:-/var/lib/docker/containers}:/var/lib/docker/containers:ro
     depends_on:
       loki: {condition: service_healthy}
     healthcheck:
