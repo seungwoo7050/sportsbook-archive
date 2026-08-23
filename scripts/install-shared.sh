@@ -28,8 +28,10 @@ SOURCE=$SOURCE_ROOT/shared
 [[ -z $(git -C "$SOURCE" status --porcelain) ]] || fail "shared source is dirty"
 
 JAVA_BIN=${JAVA_HOME:+$JAVA_HOME/bin/}java
+JAVAC_BIN=${JAVA_HOME:+$JAVA_HOME/bin/}javac
 JAVA_MAJOR=$($JAVA_BIN -version 2>&1 | awk -F'[."]' '/version/ {print $2; exit}')
-[[ $JAVA_MAJOR == 17 ]] || fail "Java 17 is required"
+JAVAC_MAJOR=$($JAVAC_BIN -version 2>&1 | awk '{print $2; exit}' | cut -d. -f1)
+[[ $JAVA_MAJOR == 17 && $JAVAC_MAJOR == 17 ]] || fail "Java 17 JDK is required"
 
 mkdir -p "$MAVEN_REPO"
 MAVEN_REPO=$(cd "$MAVEN_REPO" && pwd -P)
