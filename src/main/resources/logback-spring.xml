@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="service" source="spring.application.name"
+                    defaultValue="admin-api"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp/>
+                <logLevel/>
+                <loggerName/>
+                <provider class="com.sportsbook.admin.logging.RedactedEventJsonProvider"/>
+                <mdc>
+                    <includeMdcKeyName>traceId</includeMdcKeyName>
+                    <includeMdcKeyName>spanId</includeMdcKeyName>
+                    <includeMdcKeyName>adminActionId</includeMdcKeyName>
+                </mdc>
+                <pattern>
+                    <pattern>{"service":"${service}"}</pattern>
+                </pattern>
+            </providers>
+        </encoder>
+    </appender>
+
+    <logger name="com.sportsbook.admin" level="INFO"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
