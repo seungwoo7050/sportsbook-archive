@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import re
 import urllib.request
 from collections.abc import Callable
 
-from scripts.cold_gate.compose import ComposeProject
 from scripts.cold_gate.http import HostHttpClient, HttpResponse
 
 
@@ -15,15 +13,12 @@ LOST_RESPONSE_TOXIC = "e2e_wallet_response_timeout"
 class ChaosClient:
     def __init__(
         self,
-        compose: ComposeProject,
+        port: int,
         opener: Callable[..., object] = urllib.request.urlopen,
     ) -> None:
-        result = compose.run("port", "toxiproxy", "8474", capture_output=True)
-        endpoint = result.stdout.strip()
-        match = re.fullmatch(r"127\.0\.0\.1:([1-9][0-9]{0,4})", endpoint)
-        if match is None or int(match.group(1)) > 65535:
+        if not 0 < port <= 65535:
             raise RuntimeError("Toxiproxy did not publish one loopback port")
-        self.http = HostHttpClient(f"http://{endpoint}", opener)
+        self.http = HostHttpClient(f"http://127.0.0.1:{port}", opener)
 
     def proxy(self, name: str) -> dict[str, object]:
         return self._json("GET", self._proxy_path(name), expected=(200,))
