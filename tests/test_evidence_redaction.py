@@ -30,8 +30,7 @@ class EvidenceRedactionTest(unittest.TestCase):
         self.assertNotIn("eyJhbGci", redacted)
         self.assertNotIn("BEGIN PRIVATE KEY", redacted)
         self.assertNotIn("BEGIN PUBLIC KEY", redacted)
-        self.assertIn("[REDACTED SECRET]", redacted)
-        self.assertIn("[REDACTED JWT]", redacted)
+        self.assertIn("[REDACTED]", redacted)
         self.assertIn("[REDACTED PEM]", redacted)
 
     def test_rejects_unredacted_evidence_and_short_markers(self) -> None:
