@@ -6,7 +6,6 @@ services:
       - ./chaos/toxiproxy.json:/config/toxiproxy.json:ro
     ports:
       - target: 8474
-        published: ${TOXIPROXY_HOST_PORT:-8474}
         host_ip: 127.0.0.1
         protocol: tcp
     healthcheck:
