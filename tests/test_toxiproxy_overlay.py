@@ -50,7 +50,7 @@ class ToxiproxyOverlayTest(ComposeContractFixture):
         admin_port = services["toxiproxy"]["ports"][0]
         self.assertEqual(admin_port["host_ip"], "127.0.0.1")
         self.assertEqual(admin_port["target"], 8474)
-        self.assertNotIn("published", admin_port)
+        self.assertEqual(admin_port["published"], "8474")
         self.assertEqual(set(services["toxiproxy"]["networks"]), {"backend"})
         self.assertEqual(
             services["betting"]["depends_on"]["toxiproxy"]["condition"],

@@ -36,6 +36,8 @@ class RuntimeSecretsTest(unittest.TestCase):
             self.assertEqual(generated.environment["COMPOSE_PROJECT_NAME"], context.project)
             gateway_port = generated.gateway_port
             self.assertTrue(0 < gateway_port <= 65535)
+            self.assertTrue(0 < generated.toxiproxy_port <= 65535)
+            self.assertNotEqual(gateway_port, generated.toxiproxy_port)
             self.assertEqual(
                 stat.S_IMODE(generated.private_key.stat().st_mode), 0o600
             )
