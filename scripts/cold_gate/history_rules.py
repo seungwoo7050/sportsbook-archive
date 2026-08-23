@@ -14,7 +14,10 @@ SUBJECT = re.compile(
 )
 BANNED_TERMS = ("fixup", "squash", "reconstruct", "provenance", "devlog", "changelog")
 GENERATED_DIRECTORIES = frozenset(
-    {".runtime", "target", "build", "evidence", "results", "reports", "__pycache__"}
+    {
+        ".runtime", "target", "build", "evidence", "results", "reports",
+        "logs", "classes", "__pycache__",
+    }
 )
 GENERATED_SUFFIXES = (".class", ".jar", ".log", ".pyc")
 LARGE_EXCEPTIONS = (
@@ -38,7 +41,7 @@ def is_documentation(path: str) -> bool:
     basename = lower.rsplit("/", 1)[-1]
     return (
         lower.startswith(("docs/", "handoffs/"))
-        or lower.endswith((".md", ".adoc", ".rst"))
+        or lower.endswith((".md", ".mdx", ".adoc", ".rst"))
         or basename.startswith(("readme", "changelog", "devlog"))
     )
 
@@ -58,6 +61,6 @@ def forbidden_path(path: str) -> bool:
 
 
 def is_large_exception(changes: tuple[Change, ...]) -> bool:
-    return len(changes) == 1 and any(
+    return len(changes) == 1 and not is_test_path(changes[0].path) and any(
         pattern.search(changes[0].path) for pattern in LARGE_EXCEPTIONS
     )
