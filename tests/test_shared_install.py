@@ -19,6 +19,7 @@ class SharedInstallTest(unittest.TestCase):
             source = source_root / "shared"
             repository = temporary_path / "m2"
             runner = temporary_path / "fake-maven"
+            java = temporary_path / "jdk/bin/java"
             source_root.mkdir()
             subprocess.run(
                 ["git", "worktree", "add", "--quiet", "--detach", str(source), SHARED_SHA],
@@ -62,13 +63,22 @@ class SharedInstallTest(unittest.TestCase):
                 )
             )
             runner.chmod(0o755)
+            java.parent.mkdir(parents=True)
+            java.write_text('#!/bin/sh\nprintf \'openjdk version "17.0.0"\\n\' >&2\n')
+            java.chmod(0o755)
+            jar = java.parent / "jar"
+            jar.write_text(
+                "#!/bin/sh\nprintf 'com/sportsbook/protocol/value/Money.class\\n'\n"
+            )
+            jar.chmod(0o755)
             environment = os.environ.copy()
-            environment["JAVA_HOME"] = "/opt/homebrew/opt/openjdk@17"
-            environment["MAVEN_RUNNER"] = str(runner)
+            environment["JAVA_HOME"] = str(java.parents[1])
+            environment["MAVEN_RUNNER"] = runner.name
+            environment["PATH"] = f"{java.parent}:{environment['PATH']}"
 
             result = subprocess.run(
-                [str(SCRIPT), str(source_root), str(repository)],
-                cwd=ROOT,
+                [str(SCRIPT), source_root.name, repository.name],
+                cwd=temporary_path,
                 env=environment,
                 text=True,
                 capture_output=True,
