@@ -30,7 +30,10 @@ validate_target() {
 }
 
 locked_entries() {
-  awk -F'|' 'NF && $1 !~ /^#/ { if (NF != 4) exit 2; print }' "$LOCK"
+  awk -F'|' '
+    NF && $1 !~ /^#/ { if (NF != 4) exit 2; print; count++ }
+    END { if (count != 8) exit 2 }
+  ' "$LOCK"
 }
 
 cleanup_created() {
@@ -56,7 +59,7 @@ materialize() {
     CREATED+=("$path")
     [[ $(git -C "$path" rev-parse HEAD) == "$commit" ]] || fail "$logical checkout mismatch"
     ! git -C "$path" symbolic-ref -q HEAD >/dev/null || fail "$logical is not detached"
-  done < <(locked_entries)
+  done <<<"$ENTRIES"
   trap - EXIT ERR INT TERM
 }
 
@@ -71,7 +74,7 @@ cleanup() {
     ! git -C "$path" symbolic-ref -q HEAD >/dev/null || fail "attached worktree: $path"
     [[ -z $(git -C "$path" status --porcelain) ]] || fail "dirty worktree: $path"
     paths+=("$path")
-  done < <(locked_entries)
+  done <<<"$ENTRIES"
   for path in "${paths[@]}"; do
     git -C "$ROOT" worktree remove --force "$path"
   done
@@ -79,6 +82,7 @@ cleanup() {
 }
 
 validate_target
+ENTRIES=$(locked_entries) || fail "invalid services lock"
 case "$MODE" in
   materialize) materialize ;;
   cleanup) cleanup ;;

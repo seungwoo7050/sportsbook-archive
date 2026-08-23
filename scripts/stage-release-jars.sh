@@ -43,6 +43,10 @@ JAVAC_MAJOR=$($JAVAC_BIN -version 2>&1 | awk '{print $2; exit}' | cut -d. -f1)
 [[ ! -L $GENERATIONS ]] || fail "generation root must not be a symlink"
 mkdir -p "$GENERATIONS"
 STAGING=$(mktemp -d "$GENERATIONS/generation.XXXXXX")
+ENTRIES=$(awk -F'|' '
+  NF && $1 !~ /^#/ { if (NF != 4) exit 2; print; count++ }
+  END { if (count != 8) exit 2 }
+' "$LOCK") || fail "invalid services lock"
 
 count=0
 while IFS='|' read -r logical branch commit artifact; do
@@ -65,7 +69,7 @@ while IFS='|' read -r logical branch commit artifact; do
   hash=$(shasum -a 256 "$STAGING/$logical.jar" | awk '{print $1}')
   printf '%s  %s.jar\n' "$hash" "$logical" >>"$STAGING/SHA256SUMS"
   count=$((count + 1))
-done < <(awk -F'|' 'NF && $1 !~ /^#/ { if (NF != 4) exit 2; print }' "$LOCK")
+done <<<"$ENTRIES"
 [[ $count == 7 && $(wc -l <"$STAGING/SHA256SUMS" | tr -d ' ') == 7 ]] \
   || fail "release JAR set is incomplete"
 
