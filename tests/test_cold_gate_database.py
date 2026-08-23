@@ -39,6 +39,13 @@ class ColdGateDatabaseTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "one PostgreSQL column"):
             PostgresClient(FakeCompose("a,b\n1,2\n")).scalar("wallet", "SELECT 1, 2")
 
+    def test_ignores_the_psql_tag_after_update_returning(self) -> None:
+        client = PostgresClient(FakeCompose("revision_id\nfixture\nUPDATE 1\n"))
+
+        row = client.one("settlement", "UPDATE revision SET state = 'READY' RETURNING revision_id")
+
+        self.assertEqual(row, {"revision_id": "fixture"})
+
     def test_rejects_unowned_or_multi_statement_queries(self) -> None:
         client = PostgresClient(FakeCompose("value\n1\n"))
         with self.assertRaisesRegex(ValueError, "outside the release"):
