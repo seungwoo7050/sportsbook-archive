@@ -73,6 +73,22 @@ settlement-service event.lifecycle 2 0 0 0 consumer /172.1 client
                 FakeCompose("betting-resolution bet.resolution.revised.v1 2 - 0 0 c h id\n")
             ).committed_offset("betting-resolution", "bet.resolution.revised.v1", 2)
 
+    def test_sums_one_complete_three_partition_lag_inventory(self) -> None:
+        output = "\n".join(
+            f"betting-resolution bet.settled.v1 {partition} 4 5 {partition} c h id"
+            for partition in range(3)
+        )
+        self.assertEqual(
+            KafkaAdmin(FakeCompose(output)).topic_lag(
+                "betting-resolution", "bet.settled.v1"
+            ),
+            3,
+        )
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            KafkaAdmin(FakeCompose(output.splitlines()[0])).topic_lag(
+                "betting-resolution", "bet.settled.v1"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
