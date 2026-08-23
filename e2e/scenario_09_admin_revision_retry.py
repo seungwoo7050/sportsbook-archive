@@ -8,6 +8,7 @@ from scripts.cold_gate.database import uuid_literal
 
 
 NAME = "admin-revision-retry"
+RETRY_HOLD_SECONDS = 60
 
 
 def run(runtime: E2eRuntime) -> None:
@@ -22,6 +23,8 @@ def run(runtime: E2eRuntime) -> None:
             UPDATE settlement_revision
             SET attempt_count = 12,
                 next_retry_at = NULL,
+                wallet_next_attempt_at = CURRENT_TIMESTAMP
+                    + {RETRY_HOLD_SECONDS} * INTERVAL '1 second',
                 last_error_code = 'WALLET_RETRY_EXHAUSTED',
                 updated_at = CURRENT_TIMESTAMP
             WHERE revision_id = {uuid_literal(blocked.revision_id)}
@@ -73,6 +76,7 @@ def run(runtime: E2eRuntime) -> None:
         )
         if not mutation.payload.get("nextRetryAt"):
             raise RuntimeError("operator retry receipt has no next attempt")
+        _release_retry(runtime, blocked.revision_id)
         applied = wait_applied_decrease(runtime, blocked.bet_id)
         if applied["revision_id"] != blocked.revision_id:
             raise RuntimeError("operator retry changed revision identity")
@@ -95,3 +99,25 @@ def run(runtime: E2eRuntime) -> None:
     finally:
         if settlement_stopped:
             runtime.start_settlement()
+
+
+def _release_retry(runtime: E2eRuntime, revision_id: str) -> None:
+    updated = runtime.database.one(
+        "settlement",
+        f"""
+        UPDATE settlement_revision
+        SET wallet_next_attempt_at = CURRENT_TIMESTAMP,
+            next_retry_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE revision_id = {uuid_literal(revision_id)}
+          AND state = 'BLOCKED'
+          AND wallet_status = 'BLOCKED'
+          AND attempt_count = 0
+          AND lease_token IS NULL
+          AND wallet_next_attempt_at > CURRENT_TIMESTAMP
+          AND next_retry_at > CURRENT_TIMESTAMP
+        RETURNING revision_id::text AS revision_id
+        """,
+    )
+    if updated["revision_id"] != revision_id:
+        raise RuntimeError("operator retry release changed identity")
