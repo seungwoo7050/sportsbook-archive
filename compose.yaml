@@ -96,6 +96,51 @@ services:
     volumes:
       - redis-gateway-data:/data
 
+  wallet:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.jvm
+      args:
+        JAR: wallet.jar
+    environment:
+      WALLET_DB_URL: jdbc:postgresql://postgres:5432/wallet
+      WALLET_DB_USER: sportsbook
+      WALLET_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      WALLET_KAFKA_BOOTSTRAP: kafka:9092
+      WALLET_REDIS_HOST: redis-wallet
+      WALLET_REDIS_PORT: "6379"
+      WALLET_HTTP_PORT: "8081"
+      WALLET_PLATFORM_API_KEY: ${WALLET_PLATFORM_API_KEY:-}
+      WALLET_GATEWAY_API_KEY: ${GATEWAY_WALLET_API_KEY:-}
+      WALLET_BETTING_SERVICE_API_KEY: ${BETTING_WALLET_API_KEY:-}
+      WALLET_SETTLEMENT_SERVICE_API_KEY: ${SETTLEMENT_WALLET_API_KEY:-}
+      WALLET_ADMIN_API_KEY: ${ADMIN_WALLET_API_KEY:-}
+      WALLET_OUTBOX_ENABLED: "true"
+      WALLET_INTEGRITY_ENABLED: "true"
+      WALLET_INTEGRITY_POLL_INTERVAL: PT1S
+      WALLET_RECOVERY_ENABLED: "true"
+      WALLET_RECOVERY_POLL_INTERVAL: PT1S
+      WALLET_RECOVERY_RETRY_BASE: PT1S
+      WALLET_RECOVERY_RETRY_CAP: PT5S
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis-wallet:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8081/actuator/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    expose: ["8081"]
+    networks: [backend]
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
