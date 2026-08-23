@@ -3,7 +3,7 @@ shared|shared-protocol|f9de6bc1e533761ab4bb1454d8d4ab8175cdf001|shared-protocol-
 wallet|wallet-service|c9a05f4d652f24ac97d3e1cd753f69cef2725ff3|wallet-service-1.0.0.jar
 risk|risk-service|c64f67dbc437a18640dc4984dea4d8194fb5b164|risk-service-1.0.0.jar
 odds|odds-feed-service|574e83d2862f086ae07ff56fd95a8336f78a72da|odds-feed-service-1.0.0.jar
-betting|betting-service|f712bdf389ee3fb63d8cdc84c49e2b84a346edde|betting-service-1.0.0.jar
+betting|betting-service|40f040e2eff9638d7d6ff1983d86584b02cfebbc|betting-service-1.0.0.jar
 gateway|gateway|8248a3233f0fce7ca36a503ee71b7a8a0802d733|gateway-1.0.0.jar
 settlement|settlement-service|e935873660aad4ceb28788521f7657289f97bc15|settlement-service-1.0.0.jar
 admin|admin-api|2fb55910475b31084e6489bf01c34cc970c96874|admin-api-1.0.0.jar
