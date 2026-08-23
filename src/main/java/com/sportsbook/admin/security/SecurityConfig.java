@@ -1,5 +1,6 @@
 package com.sportsbook.admin.security;
 
+import com.sportsbook.admin.context.AdminMutationContextFilter;
 import com.sportsbook.admin.error.Rfc7807Writer;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -77,6 +78,7 @@ class SecurityConfig {
                                 "UNAUTHORIZED",
                                 "Authentication is required")))
         .addFilterBefore(ipAllowlist, BearerTokenAuthenticationFilter.class)
+        .addFilterAfter(new AdminMutationContextFilter(), BearerTokenAuthenticationFilter.class)
         .build();
   }
 
@@ -85,7 +87,8 @@ class SecurityConfig {
     converter.setJwtGrantedAuthoritiesConverter(
         jwt ->
             AdminRole.fromClaim(jwt.getClaims().get("role"))
-                .map(role -> List.<GrantedAuthority>of(new SimpleGrantedAuthority(role.authority())))
+                .map(
+                    role -> List.<GrantedAuthority>of(new SimpleGrantedAuthority(role.authority())))
                 .orElseGet(List::of));
     return converter;
   }
