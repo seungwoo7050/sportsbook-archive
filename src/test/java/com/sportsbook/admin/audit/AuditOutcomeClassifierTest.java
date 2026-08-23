@@ -3,6 +3,7 @@ package com.sportsbook.admin.audit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.sportsbook.admin.api.AdminRequestException;
 import com.sportsbook.admin.client.DownstreamContract;
 import com.sportsbook.admin.client.DownstreamFailureMapper;
 import java.net.SocketTimeoutException;
@@ -37,30 +38,27 @@ class AuditOutcomeClassifierTest {
 
   @Test
   void treatsOnlyExplicit4xxAndLocalDenialsAsFailed() {
-    Throwable downstream4xx =
-        mapped(new HttpClientErrorException(HttpStatus.CONFLICT));
+    Throwable downstream4xx = mapped(new HttpClientErrorException(HttpStatus.CONFLICT));
 
     assertThat(classifier.failure(downstream4xx).outcome()).isEqualTo(AuditOutcome.FAILED);
     assertThat(classifier.failure(new AccessDeniedException("denied")).outcome())
         .isEqualTo(AuditOutcome.FAILED);
     assertThat(classifier.failure(new IllegalArgumentException("invalid")).httpStatus())
         .isEqualTo(400);
+    assertThat(classifier.failure(new AdminRequestException("invalid header")))
+        .isEqualTo(new AuditOutcomeClassifier.AuditDecision(AuditOutcome.FAILED, 400));
   }
 
   @Test
   void treatsAmbiguousAndMalformedMutationOutcomesAsUnknown() {
-    Throwable serverError =
-        mapped(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+    Throwable serverError = mapped(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
     Throwable timeout =
         mapped(new ResourceAccessException("timeout", new SocketTimeoutException()));
     Throwable malformed =
         catchThrowable(
             () ->
                 DownstreamContract.requireBody(
-                    ResponseEntity.ok().build(),
-                    HttpStatus.OK,
-                    value -> true,
-                    "missing receipt"));
+                    ResponseEntity.ok().build(), HttpStatus.OK, value -> true, "missing receipt"));
 
     assertThat(classifier.failure(serverError).outcome()).isEqualTo(AuditOutcome.UNKNOWN);
     assertThat(classifier.failure(timeout).httpStatus()).isEqualTo(504);
