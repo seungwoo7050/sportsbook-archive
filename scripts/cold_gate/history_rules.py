@@ -9,7 +9,7 @@ ROOT_SUBJECT = "docs(project): establish orchestration ownership"
 RELEASE_SUBJECT = "build(release): release orchestration 1.0.0"
 DOCS_SUBJECT = "docs(project): document full-stack operations"
 SUBJECT = re.compile(r"^(build|chore|ci|docs|feat|fix|test)\([a-z0-9-]+\): \S(?:.*\S)?$")
-BANNED_TERMS = ("fixup!", "squash!", "reconstruct", "provenance", "devlog", "changelog")
+BANNED_TERMS = ("fixup", "squash", "reconstruct", "provenance", "devlog", "changelog")
 GENERATED_DIRECTORIES = frozenset(
     {".runtime", "target", "build", "evidence", "results", "reports", "__pycache__"}
 )
@@ -31,7 +31,13 @@ def is_test_path(path: str) -> bool:
 
 
 def is_documentation(path: str) -> bool:
-    return path.lower().endswith((".md", ".adoc", ".rst"))
+    lower = path.lower()
+    basename = lower.rsplit("/", 1)[-1]
+    return (
+        lower.startswith(("docs/", "handoffs/"))
+        or lower.endswith((".md", ".adoc", ".rst"))
+        or basename.startswith(("readme", "changelog", "devlog"))
+    )
 
 
 def forbidden_path(path: str) -> bool:
