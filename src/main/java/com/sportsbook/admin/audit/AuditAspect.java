@@ -49,7 +49,9 @@ public final class AuditAspect {
     }
 
     AuditOutcomeClassifier.AuditDecision decision =
-        originalFailure == null ? outcomes.result(result) : outcomes.failure(originalFailure);
+        originalFailure == null
+            ? outcomes.result(result, method)
+            : outcomes.failure(originalFailure);
     try {
       audits.complete(context.actionId(), decision.outcome(), decision.httpStatus());
     } catch (AuditPersistenceException finalizationFailure) {

@@ -3,15 +3,25 @@ package com.sportsbook.admin.audit;
 import com.sportsbook.admin.client.DownstreamContractException;
 import com.sportsbook.admin.client.DownstreamStatusException;
 import com.sportsbook.admin.client.DownstreamUnavailableException;
+import java.lang.reflect.Method;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.ResponseStatus;
 
 final class AuditOutcomeClassifier {
 
   AuditDecision result(Object result) {
-    int status = result instanceof ResponseEntity<?> response ? response.getStatusCode().value() : 200;
+    return result(result, null);
+  }
+
+  AuditDecision result(Object result, Method method) {
+    int status =
+        result instanceof ResponseEntity<?> response
+            ? response.getStatusCode().value()
+            : declaredStatus(method);
     if (HttpStatusCode.valueOf(status).is2xxSuccessful()) {
       return new AuditDecision(AuditOutcome.SUCCESS, status);
     }
@@ -19,6 +29,14 @@ final class AuditOutcomeClassifier {
       return new AuditDecision(AuditOutcome.FAILED, status);
     }
     return new AuditDecision(AuditOutcome.UNKNOWN, status);
+  }
+
+  private static int declaredStatus(Method method) {
+    ResponseStatus responseStatus =
+        method == null
+            ? null
+            : AnnotatedElementUtils.findMergedAnnotation(method, ResponseStatus.class);
+    return responseStatus == null ? HttpStatus.OK.value() : responseStatus.code().value();
   }
 
   AuditDecision failure(Throwable failure) {
