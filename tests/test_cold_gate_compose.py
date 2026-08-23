@@ -90,6 +90,32 @@ class ColdGateComposeTest(unittest.TestCase):
 
         self.assertEqual(captured, [{}])
 
+    def test_binds_one_owned_environment_for_later_commands(self) -> None:
+        captured = []
+
+        def runner(command, **options):
+            captured.append(options["env"])
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            context = self.context(root)
+            compose = ComposeProject(context, runner)
+            environment = {
+                "COMPOSE_PROJECT_NAME": context.project,
+                "GRAFANA_ADMIN_PASSWORD": "runtime-secret",
+            }
+            compose.bind_environment(environment)
+            environment["GRAFANA_ADMIN_PASSWORD"] = "mutated"
+            compose.run("ps", "--all")
+
+            self.assertEqual(captured[0]["GRAFANA_ADMIN_PASSWORD"], "runtime-secret")
+            with self.assertRaisesRegex(RuntimeError, "already bound"):
+                compose.bind_environment(environment | {"COMPOSE_PROJECT_NAME": context.project})
+            foreign = ComposeProject(context, runner)
+            with self.assertRaisesRegex(RuntimeError, "another cold project"):
+                foreign.bind_environment({"COMPOSE_PROJECT_NAME": "foreign"})
+
     def test_rejects_symlinked_compose_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary).resolve()

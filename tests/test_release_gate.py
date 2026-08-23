@@ -12,7 +12,7 @@ COMMIT = "0" * 40
 class ReleaseGateTest(unittest.TestCase):
     def fixture(self):
         context = types.SimpleNamespace(evidence=pathlib.Path("/evidence"))
-        compose = object()
+        compose = mock.Mock()
         secrets = types.SimpleNamespace(environment={"KEY": "value"}, secret_values=("secret",))
         artifacts = types.SimpleNamespace(sources=pathlib.Path("/sources"),
                                           service_jars=pathlib.Path("/jars"))
@@ -46,6 +46,7 @@ class ReleaseGateTest(unittest.TestCase):
             evidence = subject.run_release_gate(root, COMMIT)
 
         self.assertEqual(evidence, context.evidence)
+        compose.bind_environment.assert_called_once_with(secrets.environment)
         replacements["ReleaseBuilder"].assert_called_once_with(context, secrets.environment)
         replacements["ReleaseChecks"].assert_called_once_with(
             context, compose, artifacts, secrets, store
