@@ -23,7 +23,7 @@ class MaterializerTest(unittest.TestCase):
             environment["SERVICES_LOCK"] = str(lock)
         return subprocess.run(
             [str(SCRIPT), str(target), mode],
-            cwd=ROOT,
+            cwd=target.parent,
             env=environment,
             text=True,
             capture_output=True,
