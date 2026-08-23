@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import urllib.request
-from collections.abc import Callable
-
-from scripts.cold_gate.http import HostHttpClient, HttpResponse
+from scripts.cold_gate.container_http import ContainerHttpClient
+from scripts.cold_gate.http import HttpResponse
 
 
 PROXIES = frozenset({"betting_to_risk", "betting_to_wallet", "settlement_to_wallet"})
@@ -11,14 +9,10 @@ LOST_RESPONSE_TOXIC = "e2e_wallet_response_timeout"
 
 
 class ChaosClient:
-    def __init__(
-        self,
-        port: int,
-        opener: Callable[..., object] = urllib.request.urlopen,
-    ) -> None:
-        if not 0 < port <= 65535:
-            raise RuntimeError("Toxiproxy did not publish one loopback port")
-        self.http = HostHttpClient(f"http://127.0.0.1:{port}", opener)
+    def __init__(self, http: ContainerHttpClient) -> None:
+        if http.service != "toxiproxy":
+            raise RuntimeError("chaos control must use the owned Toxiproxy container")
+        self.http = http
 
     def proxy(self, name: str) -> dict[str, object]:
         return self._json("GET", self._proxy_path(name), expected=(200,))

@@ -17,6 +17,7 @@ SERVICE_PORTS = {
     "odds": 8085,
     "gateway": 8080,
     "admin": 8090,
+    "toxiproxy": 8474,
 }
 HEADER_NAME = re.compile(r"^[A-Za-z0-9-]+$")
 
@@ -24,7 +25,7 @@ HEADER_NAME = re.compile(r"^[A-Za-z0-9-]+$")
 class ContainerHttpClient:
     def __init__(self, compose: ComposeProject, service: str) -> None:
         if service not in SERVICE_PORTS:
-            raise ValueError("container HTTP service is not an application")
+            raise ValueError("container HTTP service is not supported")
         self.compose = compose
         self.service = service
 
