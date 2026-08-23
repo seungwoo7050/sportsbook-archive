@@ -9,6 +9,34 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class CombinedComposeTest(ComposeContractFixture):
+    def test_renders_secret_independent_canonical_config(self) -> None:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--project-name",
+                self.project,
+                "--file",
+                str(ROOT / "compose.yaml"),
+                "--file",
+                str(ROOT / "compose.toxiproxy.yaml"),
+                "--file",
+                str(ROOT / "compose.observability.yaml"),
+                "config",
+                "--no-interpolate",
+                "--format",
+                "json",
+            ],
+            cwd=ROOT,
+            env=self.environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["name"], self.project)
+
     def test_combines_chaos_and_observability_inside_the_unique_project(self) -> None:
         self.environment.update(
             {
