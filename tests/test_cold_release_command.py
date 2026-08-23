@@ -1,6 +1,7 @@
 import io
 import pathlib
 import subprocess
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -24,10 +25,17 @@ class ColdReleaseCommandTest(unittest.TestCase):
 
         self.assertEqual(observed, SHA)
         self.assertEqual(runner.call_count, 2)
-        self.assertEqual(runner.call_args_list[1].args[0][-2:], ["--porcelain", "--untracked-files=no"])
+        self.assertEqual(
+            runner.call_args_list[1].args[0][-2:],
+            ["--porcelain", "--untracked-files=all"],
+        )
 
     def test_rejects_dirty_or_malformed_checkout(self):
-        for head, dirty in ((SHA, " M compose.yaml\n"), ("short", "")):
+        for head, dirty in (
+            (SHA, " M compose.yaml\n"),
+            (SHA, "?? fixtures/rogue.java\n"),
+            ("short", ""),
+        ):
             with self.subTest(head=head), mock.patch.object(
                 subject.subprocess,
                 "run",
@@ -38,6 +46,50 @@ class ColdReleaseCommandTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "clean exact HEAD"):
                     subject.clean_head(pathlib.Path("/release"))
+
+    def test_allows_ignored_gate_outputs_but_rejects_untracked_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / ".gitignore").write_text(".runtime/\nevidence/\n")
+            (root / "tracked.txt").write_text("release\n")
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "add", ".gitignore", "tracked.txt"], cwd=root, check=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Release Test",
+                    "-c",
+                    "user.email=release@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "release",
+                ],
+                cwd=root,
+                check=True,
+            )
+            (root / ".runtime").mkdir()
+            (root / ".runtime/output").write_text("ignored\n")
+            (root / "evidence").mkdir()
+            (root / "evidence/result").write_text("ignored\n")
+
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(subject.clean_head(root), head)
+
+            rogue = root / "fixtures/source/Rogue.java"
+            rogue.parent.mkdir(parents=True)
+            rogue.write_text("class Rogue {}\n")
+            with self.assertRaisesRegex(RuntimeError, "clean exact HEAD"):
+                subject.clean_head(root)
 
     def test_runs_gate_for_script_root_and_prints_evidence_path(self):
         output = io.StringIO()

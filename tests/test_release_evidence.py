@@ -42,11 +42,17 @@ class ReleaseEvidenceTest(unittest.TestCase):
         store = EvidenceStore(context, EvidenceRedactor(["redaction-secret-value"]))
         return context, artifacts, store, commits
 
-    def runner(self, root: pathlib.Path, commits: dict[str, str], mismatch: str | None = None):
+    def runner(
+        self,
+        root: pathlib.Path,
+        commits: dict[str, str],
+        mismatch: str | None = None,
+        status: str = "",
+    ):
         def run(command, **_options):
             target = pathlib.Path(command[max(index for index, value in enumerate(command) if value == "-C") + 1])
             if "status" in command:
-                output = ""
+                output = status
             elif target == root:
                 output = ORCHESTRATION_SHA + "\n"
             else:
@@ -84,6 +90,20 @@ class ReleaseEvidenceTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "wallet materialized"):
                 ReleaseEvidence(
                     context, artifacts, store, self.runner(root, commits, "wallet")
+                ).capture(ORCHESTRATION_SHA)
+            self.assertEqual(list(context.evidence.iterdir()), [])
+
+    def test_rejects_untracked_input_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            context, artifacts, store, commits = self.fixture(root)
+
+            with self.assertRaisesRegex(RuntimeError, "clean requested SHA"):
+                ReleaseEvidence(
+                    context,
+                    artifacts,
+                    store,
+                    self.runner(root, commits, status="?? fixtures/source/Rogue.java\n"),
                 ).capture(ORCHESTRATION_SHA)
             self.assertEqual(list(context.evidence.iterdir()), [])
 
