@@ -17,6 +17,22 @@ class KafkaFixture(ComposeFixture):
     def initialize_topics(self):
         return self.compose("run", "--rm", "--no-deps", "topic-init")
 
+    def create_topic(self, topic: str, partitions: int, retention: int | None = None):
+        arguments = [
+            "--bootstrap-server",
+            "localhost:9092",
+            "--create",
+            "--topic",
+            topic,
+            "--partitions",
+            str(partitions),
+            "--replication-factor",
+            "1",
+        ]
+        if retention is not None:
+            arguments.extend(["--config", f"retention.ms={retention}"])
+        return self.kafka("kafka-topics.sh", *arguments)
+
     def topic_state(self) -> dict[str, tuple[int, int, int | None]]:
         listed = self.kafka(
             "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"
