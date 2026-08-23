@@ -24,6 +24,8 @@ def metric_value(client: ContainerHttpClient, name: str) -> decimal.Decimal:
         re.MULTILINE,
     )
     values = pattern.findall(text)
+    if not values and not re.search(rf"^{re.escape(name)}(?:\{{|\s)", text, re.MULTILINE):
+        return decimal.Decimal(0)
     if len(values) != 1:
         raise RuntimeError(f"expected one betting-service-labelled {name} metric")
     try:

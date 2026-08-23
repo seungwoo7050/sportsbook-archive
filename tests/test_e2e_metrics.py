@@ -25,6 +25,9 @@ class E2eMetricsTest(unittest.TestCase):
 
         self.assertEqual(metric_value(client, NAME), decimal.Decimal("125"))
 
+    def test_treats_an_unregistered_counter_as_zero(self) -> None:
+        self.assertEqual(metric_value(FakeClient(b"# no samples\n"), NAME), 0)
+
     def test_rejects_missing_wrong_extra_or_duplicate_labels(self) -> None:
         valid = f"{NAME}{LABEL} 1\n"
         cases = (
