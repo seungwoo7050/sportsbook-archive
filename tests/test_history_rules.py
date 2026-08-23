@@ -31,6 +31,7 @@ class HistoryRulesTest(unittest.TestCase):
 
     def test_detects_documentation_and_generated_or_process_files(self):
         self.assertTrue(is_documentation("README.md"))
+        self.assertTrue(is_documentation("guide.mdx"))
         self.assertTrue(is_documentation("docs/operations"))
         self.assertTrue(is_documentation("handoffs/wave4/integration"))
         self.assertFalse(is_documentation("config/required-secrets.txt"))
@@ -45,6 +46,8 @@ class HistoryRulesTest(unittest.TestCase):
             "notes/squash-plan.txt",
             "src/App.class",
             "logs/runtime.log",
+            "logs/index.txt",
+            "classes/index.bin",
         )
         self.assertTrue(all(forbidden_path(path) for path in forbidden))
         self.assertFalse(forbidden_path("scripts/cold_gate/log_evidence.py"))
@@ -65,6 +68,7 @@ class HistoryRulesTest(unittest.TestCase):
             )
         )
         self.assertFalse(is_large_exception((Change("src/App.java", 101, 0),)))
+        self.assertFalse(is_large_exception((Change("tests/schema.avsc", 500, 0),)))
 
 
 if __name__ == "__main__":
