@@ -47,3 +47,25 @@ class KafkaAdmin:
                 raise RuntimeError("Kafka assignment is duplicated")
             assignments.add(pair)
         return frozenset(assignments)
+
+    def committed_offset(self, group: str, topic: str, partition: int) -> int:
+        if group not in GROUPS or TOPIC.fullmatch(topic) is None or partition not in range(3):
+            raise ValueError("consumer offset target is outside the release inventory")
+        try:
+            result = self.compose.run(
+                "exec", "-T", "kafka", "/opt/kafka/bin/kafka-consumer-groups.sh",
+                "--bootstrap-server", "kafka:9092", "--describe", "--group", group,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(f"Kafka offset query failed for {group}") from error
+        offsets = []
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) >= 4 and fields[:3] == [group, topic, str(partition)]:
+                if not fields[3].isdigit():
+                    raise RuntimeError("Kafka committed offset is unavailable")
+                offsets.append(int(fields[3]))
+        if len(offsets) != 1:
+            raise RuntimeError("Kafka committed offset row is not unique")
+        return offsets[0]
