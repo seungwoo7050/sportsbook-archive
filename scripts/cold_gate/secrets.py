@@ -3,10 +3,17 @@ from __future__ import annotations
 import dataclasses
 import os
 import secrets
+import socket
 import subprocess
 from pathlib import Path
 
 from scripts.cold_gate.context import ColdGateContext
+
+
+def _available_loopback_port() -> str:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
+        candidate.bind(("127.0.0.1", 0))
+        return str(candidate.getsockname()[1])
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,7 +75,7 @@ class RuntimeSecrets:
                 "GATEWAY_JWT_PUBLIC_KEY": public_pem,
                 "ADMIN_JWT_PUBLIC_KEY": public_pem,
                 "ADMIN_JWT_ISSUER": "sportsbook-admin-e2e",
-                "GATEWAY_HOST_PORT": "0",
+                "GATEWAY_HOST_PORT": _available_loopback_port(),
                 "COMPOSE_PROJECT_NAME": context.project,
             }
         )
