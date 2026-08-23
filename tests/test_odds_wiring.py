@@ -29,6 +29,7 @@ class OddsWiringTest(ComposeContractFixture):
                 "kafka": "service_healthy",
                 "redis-odds": "service_healthy",
                 "topic-init": "service_completed_successfully",
+                "secret-preflight": "service_completed_successfully",
             },
         )
 

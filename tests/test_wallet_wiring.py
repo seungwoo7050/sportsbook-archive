@@ -43,6 +43,7 @@ class WalletWiringTest(ComposeContractFixture):
                 "kafka": "service_healthy",
                 "redis-wallet": "service_healthy",
                 "topic-init": "service_completed_successfully",
+                "secret-preflight": "service_completed_successfully",
             },
         )
 

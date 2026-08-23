@@ -52,6 +52,7 @@ class SettlementWiringTest(ComposeContractFixture):
                 "kafka": "service_healthy",
                 "topic-init": "service_completed_successfully",
                 "wallet": "service_healthy",
+                "consumer-assignment": "service_completed_successfully",
             },
         )
         self.assertIn(
