@@ -54,7 +54,7 @@ class EvidenceCaptureTest(unittest.TestCase):
             target = store.context.evidence / "run.tsv"
             target.symlink_to(foreign)
 
-            with self.assertRaisesRegex(RuntimeError, "symlink"):
+            with self.assertRaisesRegex(RuntimeError, "write-once"):
                 store.write("run.tsv", "run\n")
             target.unlink()
             (store.context.evidence / "unexpected.txt").write_text("unexpected\n")
