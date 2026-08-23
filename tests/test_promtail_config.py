@@ -35,7 +35,11 @@ class PromtailConfigTest(unittest.TestCase):
         self.assertIn("regex: ${COMPOSE_PROJECT_NAME}", config)
         self.assertIn("target_label: project", config)
         self.assertIn("target_label: service", config)
-        self.assertIn("/var/lib/docker/containers/$1/*-json.log", config)
+        self.assertIn(
+            "com.docker.compose.project=${COMPOSE_PROJECT_NAME}", config
+        )
+        self.assertNotIn("target_label: __path__", config)
+        self.assertNotIn("/var/lib/docker/containers", config)
         self.assertNotIn("regex: sportsbook", config)
         self.assertNotIn("- template:", config)
 

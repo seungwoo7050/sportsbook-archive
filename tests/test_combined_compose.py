@@ -78,6 +78,12 @@ class CombinedComposeTest(ComposeContractFixture):
             services["promtail"]["healthcheck"]["test"],
             ["CMD", "wget", "--quiet", "--spider", "http://localhost:9080/ready"],
         )
+        promtail_mounts = services["promtail"]["volumes"]
+        self.assertEqual(
+            {mount["target"] for mount in promtail_mounts},
+            {"/etc/promtail/promtail.yml", "/var/run/docker.sock"},
+        )
+        self.assertTrue(all(mount["read_only"] for mount in promtail_mounts))
 
         self.assertEqual(
             set(rendered["volumes"]),
