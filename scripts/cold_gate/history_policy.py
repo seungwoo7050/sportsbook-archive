@@ -72,6 +72,8 @@ def _verify_documentation(commit: Commit, index: int, count: int) -> None:
 
 def _verify_development_boundary(commits: tuple[Commit, ...], index: int) -> None:
     commit = commits[index]
+    if "(release):" in commit.subject:
+        raise RuntimeError(f"{commit.sha[:12]} uses the reserved release scope")
     if commit.subject.startswith("docs("):
         raise RuntimeError(f"{commit.sha[:12]} is an intermediate documentation commit")
     tests = tuple(change for change in commit.changes if is_test_path(change.path))
