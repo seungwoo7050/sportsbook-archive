@@ -44,6 +44,14 @@ class ServicesLockTest(unittest.TestCase):
     def test_does_not_create_an_orchestration_lock_cycle(self) -> None:
         self.assertNotIn("orchestration", {entry[0] for entry in entries()})
 
+    def test_settlement_release_declares_executable_packaging(self) -> None:
+        commit = next(entry[2] for entry in entries() if entry[0] == "settlement")
+        pom = subprocess.check_output(
+            ["git", "show", f"{commit}:pom.xml"], cwd=ROOT, text=True
+        )
+
+        self.assertIn("<artifactId>spring-boot-maven-plugin</artifactId>", pom)
+
 
 if __name__ == "__main__":
     unittest.main()
