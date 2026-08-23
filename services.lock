@@ -5,5 +5,5 @@ risk|risk-service|c64f67dbc437a18640dc4984dea4d8194fb5b164|risk-service-1.0.0.ja
 odds|odds-feed-service|574e83d2862f086ae07ff56fd95a8336f78a72da|odds-feed-service-1.0.0.jar
 betting|betting-service|f712bdf389ee3fb63d8cdc84c49e2b84a346edde|betting-service-1.0.0.jar
 gateway|gateway|8248a3233f0fce7ca36a503ee71b7a8a0802d733|gateway-1.0.0.jar
-settlement|settlement-service|fc53ee8bfbb99b083f504d414d84ae5a994e4b57|settlement-service-1.0.0.jar
+settlement|settlement-service|e935873660aad4ceb28788521f7657289f97bc15|settlement-service-1.0.0.jar
 admin|admin-api|2fb55910475b31084e6489bf01c34cc970c96874|admin-api-1.0.0.jar
