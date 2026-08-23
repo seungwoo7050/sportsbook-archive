@@ -8,7 +8,7 @@ from scripts.cold_gate.database import uuid_literal
 
 
 NAME = "admin-revision-retry"
-RETRY_HOLD_SECONDS = 60
+RETRY_HOLD_SECONDS = 120
 
 
 def run(runtime: E2eRuntime) -> None:
@@ -57,6 +57,7 @@ def run(runtime: E2eRuntime) -> None:
             terminal={"status": frozenset({"REJECTED"})},
             timeout=60,
         )
+        _arm_retry_hold(runtime, blocked.revision_id)
         runtime.start_settlement()
         settlement_stopped = False
 
@@ -121,3 +122,24 @@ def _release_retry(runtime: E2eRuntime, revision_id: str) -> None:
     )
     if updated["revision_id"] != revision_id:
         raise RuntimeError("operator retry release changed identity")
+
+
+def _arm_retry_hold(runtime: E2eRuntime, revision_id: str) -> None:
+    updated = runtime.database.one(
+        "settlement",
+        f"""
+        UPDATE settlement_revision
+        SET wallet_next_attempt_at = CURRENT_TIMESTAMP
+                + {RETRY_HOLD_SECONDS} * INTERVAL '1 second',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE revision_id = {uuid_literal(revision_id)}
+          AND state = 'BLOCKED'
+          AND wallet_status = 'BLOCKED'
+          AND attempt_count = 12
+          AND next_retry_at IS NULL
+          AND lease_token IS NULL
+        RETURNING revision_id::text AS revision_id
+        """,
+    )
+    if updated["revision_id"] != revision_id:
+        raise RuntimeError("operator retry hold changed identity")

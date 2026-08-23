@@ -17,7 +17,18 @@ class FakeDatabase:
 
 class AdminRevisionScenarioTest(unittest.TestCase):
     def test_holds_the_queued_receipt_outside_the_scanner_window(self) -> None:
-        self.assertGreaterEqual(subject.RETRY_HOLD_SECONDS, 60)
+        self.assertGreaterEqual(subject.RETRY_HOLD_SECONDS, 120)
+
+    def test_rearms_the_hold_before_settlement_restarts(self) -> None:
+        database = FakeDatabase()
+        runtime = type("Runtime", (), {"database": database})()
+
+        subject._arm_retry_hold(runtime, REVISION)
+
+        statement = database.calls[0][1]
+        self.assertIn("wallet_next_attempt_at = CURRENT_TIMESTAMP", statement)
+        self.assertIn("attempt_count = 12", statement)
+        self.assertIn("next_retry_at IS NULL", statement)
 
     def test_releases_both_retry_clocks_atomically(self) -> None:
         database = FakeDatabase()
