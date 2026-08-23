@@ -36,13 +36,13 @@ jobs:
           python-version: "3.12"
 
       - name: Verify the archive history
-        run: python3 scripts/history_guard.py
+        run: python3 -B scripts/history_guard.py
 
       - name: Verify static contracts
-        run: python3 -m unittest discover -s tests
+        run: python3 -B -m unittest discover -s tests
 
       - name: Run the one cold release gate
-        run: python3 scripts/cold_release_gate.py
+        run: python3 -I -B scripts/cold_release_gate.py
 
       - name: Upload redacted release evidence
         if: always()
