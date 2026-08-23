@@ -1,11 +1,16 @@
 package com.sportsbook.admin.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.sportsbook.admin.context.AdminContext;
+import com.sportsbook.admin.context.AdminContextArgumentResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
@@ -17,6 +22,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootTest(
@@ -39,6 +45,7 @@ import org.springframework.web.bind.annotation.RestController;
 class SecurityChainTest {
 
   private static final String ADMIN_ONLY = "/admin/v1/test/admin-only";
+  private static final String MUTATION = "/admin/v1/test/mutation";
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -85,6 +92,19 @@ class SecurityChainTest {
         .andExpect(status().isForbidden());
   }
 
+  @Test
+  void initializesOneMutationIdentityAfterJwtAuthentication() throws Exception {
+    var response =
+        mvc.perform(post(MUTATION).header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
+            .andExpect(status().isOk())
+            .andExpect(header().exists(AdminContextArgumentResolver.ACTION_ID_HEADER))
+            .andReturn()
+            .getResponse();
+
+    assertThat(response.getContentAsString())
+        .isEqualTo(response.getHeader(AdminContextArgumentResolver.ACTION_ID_HEADER));
+  }
+
   @RestController
   static class RoleProbeController {
 
@@ -92,6 +112,12 @@ class SecurityChainTest {
     @PreAuthorize("hasRole('ADMIN')")
     String adminOnly() {
       return "ok";
+    }
+
+    @PostMapping(MUTATION)
+    @PreAuthorize("hasRole('ADMIN')")
+    String mutate(AdminContext context) {
+      return context.actionId().toString();
     }
   }
 }
