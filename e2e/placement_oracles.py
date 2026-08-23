@@ -8,7 +8,7 @@ class PlacementOracles:
         self.database = database
 
     def wallet_debit(self, bet_id: str) -> dict[str, str]:
-        key = uuid_literal(bet_id)
+        key = uuid_literal(bet_id) + "::text"
         return self.database.one(
             "wallet",
             f"""
