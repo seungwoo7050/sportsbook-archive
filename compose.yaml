@@ -251,6 +251,54 @@ services:
     networks: [backend]
     restart: unless-stopped
 
+  gateway:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.jvm
+      args:
+        JAR: gateway.jar
+    environment:
+      GATEWAY_HTTP_PORT: "8080"
+      GATEWAY_REDIS_HOST: redis-gateway
+      GATEWAY_REDIS_PORT: "6379"
+      GATEWAY_REDIS_DATABASE: "0"
+      GATEWAY_REDIS_SSL: "false"
+      GATEWAY_KAFKA_BOOTSTRAP: kafka:9092
+      GATEWAY_BETTING_URI: http://betting:8082
+      GATEWAY_WALLET_URI: http://wallet:8081
+      GATEWAY_ODDS_FEED_URI: http://odds:8085
+      GATEWAY_BETTING_API_KEY: ${GATEWAY_BETTING_API_KEY:-}
+      GATEWAY_WALLET_API_KEY: ${GATEWAY_WALLET_API_KEY:-}
+      GATEWAY_JWT_PUBLIC_KEY: ${GATEWAY_JWT_PUBLIC_KEY:-}
+      GATEWAY_TOPIC_ODDS_CHANGED: odds.changed
+      GATEWAY_TOPIC_BET_SETTLED: bet.settled.v1
+      GATEWAY_TOPIC_BET_VOIDED: bet.voided.v1
+      GATEWAY_TOPIC_BET_RESOLUTION_REVISED: bet.resolution.revised.v1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis-gateway:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      wallet:
+        condition: service_healthy
+      odds:
+        condition: service_healthy
+      betting:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8080/actuator/health/readiness >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    expose: ["8080"]
+    deploy:
+      replicas: 1
+    networks: [backend]
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
