@@ -32,7 +32,7 @@ def verify_history(commits: tuple[Commit, ...], minimum: int = 240) -> None:
         lower_subject = commit.subject.lower()
         if any(term in lower_subject for term in BANNED_TERMS):
             raise RuntimeError(f"{label} subject records forbidden process metadata")
-        if not commit.changes or len(_paths(commit)) != len(commit.changes):
+        if not commit.changes or len(set(_paths(commit))) != len(commit.changes):
             raise RuntimeError(f"{label} has an empty or duplicate change set")
         if any(forbidden_path(path) for path in _paths(commit)):
             raise RuntimeError(f"{label} tracks generated or process artifacts")
