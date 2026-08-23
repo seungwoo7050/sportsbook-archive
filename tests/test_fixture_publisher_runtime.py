@@ -35,6 +35,22 @@ class FakeCompose:
         return subprocess.CompletedProcess(arguments, 0, stdout=stdout)
 
 
+class PoisonCompose(FakeCompose):
+    def run(self, *arguments, **options):
+        self.calls.append((arguments, options))
+        stdout = (
+            f"topic=match.result\tkey={EVENT}\tpartition=2\toffset=9"
+            "\tsha256=76be8b528d0075f7aae98d6fa57a6d3c83ae480a8469e668d7b0af968995ac71"
+            "\tfingerprint=malformed\n"
+        )
+        return subprocess.CompletedProcess(arguments, 0, stdout=stdout)
+
+
+class FailureCompose(FakeCompose):
+    def run(self, *arguments, **options):
+        raise subprocess.CalledProcessError(1, arguments, stderr="sensitive")
+
+
 class FixturePublisherRuntimeTest(unittest.TestCase):
     def fixture(self, root: pathlib.Path):
         context = ColdGateContext.create(root, SHA, "00000001")
@@ -71,6 +87,27 @@ class FixturePublisherRuntimeTest(unittest.TestCase):
             self.assertEqual(receipt.partition, 1)
             with self.assertRaisesRegex(ValueError, "schema contract"):
                 publisher.publish("Unknown", {"eventId": EVENT})
+
+    def test_publishes_only_the_fixed_partition_two_poison_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            context, _compose, jar = self.fixture(pathlib.Path(temporary).resolve())
+            compose = PoisonCompose(context)
+
+            receipt = FixturePublisher(context, compose, jar).poison_match_result(EVENT)
+
+            self.assertEqual(receipt.partition, 2)
+            self.assertEqual(compose.calls[0][0][-3:], ("poison", "kafka:9092", EVENT))
+            self.assertFalse(any("fixture.json" in value for value in compose.calls[0][0]))
+
+    def test_removes_payload_after_a_failed_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            context, _compose, jar = self.fixture(pathlib.Path(temporary).resolve())
+            with self.assertRaisesRegex(RuntimeError, "publication failed") as captured:
+                FixturePublisher(context, FailureCompose(context), jar).publish(
+                    "MatchResult", {"eventId": EVENT}
+                )
+            self.assertNotIn("sensitive", str(captured.exception))
+            self.assertEqual(list((context.runtime / "fixture-inputs").iterdir()), [])
 
 
 if __name__ == "__main__":
