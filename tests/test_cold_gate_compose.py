@@ -14,6 +14,7 @@ class ColdGateComposeTest(unittest.TestCase):
     def context(self, root: pathlib.Path) -> ColdGateContext:
         (root / "compose.yaml").write_text("services: {}\n")
         (root / "compose.toxiproxy.yaml").write_text("services: {}\n")
+        (root / "compose.observability.yaml").write_text("services: {}\n")
         return ColdGateContext.create(root, SHA, "89abcdef")
 
     def test_scopes_commands_to_exact_project_directory_and_files(self) -> None:
@@ -26,9 +27,7 @@ class ColdGateComposeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary).resolve()
             context = self.context(root)
-            compose = ComposeProject(
-                context, (root / "compose.toxiproxy.yaml",), runner
-            )
+            compose = ComposeProject(context, runner)
 
             compose.run("config", "--quiet")
             compose.require_absent()
@@ -49,6 +48,8 @@ class ColdGateComposeTest(unittest.TestCase):
                 str(root / "compose.yaml"),
                 "--file",
                 str(root / "compose.toxiproxy.yaml"),
+                "--file",
+                str(root / "compose.observability.yaml"),
                 "config",
                 "--quiet",
             ],
@@ -73,6 +74,34 @@ class ColdGateComposeTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "already owns"):
                 compose.require_absent()
+
+    def test_preserves_an_explicitly_empty_environment(self) -> None:
+        captured = []
+
+        def runner(command, **options):
+            captured.append(options["env"])
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            ComposeProject(self.context(root), runner).run(
+                "config", "--quiet", environment={}
+            )
+
+        self.assertEqual(captured, [{}])
+
+    def test_rejects_symlinked_compose_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            context = self.context(root)
+            observability = root / "compose.observability.yaml"
+            target = root / "foreign.yaml"
+            target.write_text("services: {}\n")
+            observability.unlink()
+            observability.symlink_to(target)
+
+            with self.assertRaisesRegex(RuntimeError, "regular file"):
+                ComposeProject(context)
 
 
 if __name__ == "__main__":
