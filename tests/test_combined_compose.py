@@ -88,7 +88,7 @@ class CombinedComposeTest(ComposeContractFixture):
         for ports in published.values():
             self.assertTrue(all(port["host_ip"] == "127.0.0.1" for port in ports))
         self.assertEqual(published["gateway"][0]["published"], "18080")
-        self.assertNotIn("published", published["toxiproxy"][0])
+        self.assertEqual(published["toxiproxy"][0]["published"], "8474")
         self.assertEqual(published["toxiproxy"][0]["target"], 8474)
         self.assertNotIn("published", published["grafana"][0])
         self.assertEqual(published["grafana"][0]["target"], 3000)
