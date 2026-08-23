@@ -32,25 +32,25 @@ def run_release_gate(root: Path, commit: str) -> Path:
         ScopedCleanup(context, compose).run(
             artifacts.sources, artifacts.service_jars, cleanup_evidence
         )
-    except Exception as error:
+    except BaseException as error:
         failures = [error]
         if checks is not None:
             try:
                 checks.capture_logs()
-            except Exception as log_error:
+            except BaseException as log_error:
                 failures.append(log_error)
         if compose_bound:
             try:
                 sources, service_jars = discover_cleanup_targets(context)
                 ScopedCleanup(context, compose).run(sources, service_jars)
-            except Exception as cleanup_error:
+            except BaseException as cleanup_error:
                 failures.append(cleanup_error)
         else:
             try:
                 remove_owned_context(context)
-            except Exception as cleanup_error:
+            except BaseException as cleanup_error:
                 failures.append(cleanup_error)
         if len(failures) > 1:
-            raise ExceptionGroup("cold release gate and cleanup failed", failures)
+            raise BaseExceptionGroup("cold release gate and cleanup failed", failures)
         raise
     return context.evidence
