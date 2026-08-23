@@ -8,7 +8,7 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     healthcheck:
-      test: ["CMD", "promtool", "query", "instant", "http://localhost:9090", "up"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:9090/-/ready"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -22,7 +22,7 @@ services:
       - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
       - loki-data:/loki
     healthcheck:
-      test: ["CMD", "/usr/bin/loki", "-version"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3100/ready"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -65,6 +65,11 @@ services:
       - ${DOCKER_LOG_ROOT:-/var/lib/docker/containers}:/var/lib/docker/containers:ro
     depends_on:
       loki: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:9080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
     networks: [backend]
     restart: unless-stopped
 
