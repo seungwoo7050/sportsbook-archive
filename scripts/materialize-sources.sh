@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(git rev-parse --show-toplevel)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 LOCK=${SERVICES_LOCK:-$ROOT/services.lock}
 TARGET=${1:-$ROOT/.runtime/sources}
 MODE=${2:-materialize}
