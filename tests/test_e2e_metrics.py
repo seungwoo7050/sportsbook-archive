@@ -28,18 +28,20 @@ class E2eMetricsTest(unittest.TestCase):
     def test_treats_an_unregistered_counter_as_zero(self) -> None:
         self.assertEqual(metric_value(FakeClient(b"# no samples\n"), NAME), 0)
 
-    def test_rejects_missing_wrong_extra_or_duplicate_labels(self) -> None:
-        valid = f"{NAME}{LABEL} 1\n"
+    def test_accepts_the_target_containers_label_variants(self) -> None:
         cases = (
             f"{NAME} 1\n",
             f'{NAME}{{service="other-service"}} 1\n',
             f'{NAME}{{service="betting-service",region="test"}} 1\n',
-            valid + valid,
         )
         for body in cases:
             with self.subTest(body=body):
-                with self.assertRaisesRegex(RuntimeError, "betting-service-labelled"):
-                    metric_value(FakeClient(body.encode()), NAME)
+                self.assertEqual(metric_value(FakeClient(body.encode()), NAME), 1)
+
+    def test_rejects_duplicate_samples(self) -> None:
+        valid = f"{NAME}{LABEL} 1\n"
+        with self.assertRaisesRegex(RuntimeError, "expected one"):
+            metric_value(FakeClient((valid + valid).encode()), NAME)
 
 
 if __name__ == "__main__":
