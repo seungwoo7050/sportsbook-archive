@@ -6,6 +6,9 @@ from scripts.cold_gate.kafka_record import KafkaRecord
 from scripts.cold_gate.polling import poll_until
 
 
+MAX_ADMIN_SCAN_RECORDS = 32
+
+
 def admin_topic_offsets(runtime: E2eRuntime) -> tuple[int, int, int]:
     return tuple(runtime.kafka.end_offset("admin.action", partition) for partition in range(3))
 
@@ -13,29 +16,43 @@ def admin_topic_offsets(runtime: E2eRuntime) -> tuple[int, int, int]:
 def wait_admin_record(
     runtime: E2eRuntime,
     before: tuple[int, int, int],
+    action_id: str,
 ) -> KafkaRecord:
-    def appended(after: tuple[int, int, int]) -> bool:
-        deltas = tuple(current - prior for current, prior in zip(after, before, strict=True))
-        if any(delta < 0 for delta in deltas) or sum(deltas) > 1:
-            raise RuntimeError("Admin action topic changed by more than one record")
-        return sorted(deltas) == [0, 0, 1]
+    schema = (
+        runtime.artifacts.sources
+        / "admin/src/main/avro/com/sportsbook/admin/event/AdminActionRecorded.avsc"
+    )
 
-    after = poll_until(
+    found: KafkaRecord | None = None
+
+    def appended(after: tuple[int, int, int]) -> bool:
+        nonlocal found
+        deltas = tuple(current - prior for current, prior in zip(after, before, strict=True))
+        if any(delta < 0 for delta in deltas) or sum(deltas) > MAX_ADMIN_SCAN_RECORDS:
+            raise RuntimeError("Admin action scan crossed its bounded window")
+        matches = []
+        for partition, (start, stop) in enumerate(zip(before, after, strict=True)):
+            for offset in range(start, stop):
+                record = runtime.probe.read("admin.action", partition, offset, schema)
+                if record.avro is None:
+                    raise RuntimeError("Admin action record is not typed Avro")
+                if record.avro.get("actionId") == action_id:
+                    matches.append(record)
+        if len(matches) > 1:
+            raise RuntimeError("Admin action ID was published more than once")
+        found = matches[0] if matches else None
+        return found is not None
+
+    poll_until(
         "Admin action publication",
         lambda: admin_topic_offsets(runtime),
         appended,
         timeout=60,
         interval=0.5,
     )
-    partition = next(
-        index for index, (current, prior) in enumerate(zip(after, before, strict=True))
-        if current == prior + 1
-    )
-    schema = (
-        runtime.artifacts.sources
-        / "admin/src/main/avro/com/sportsbook/admin/event/AdminActionRecorded.avsc"
-    )
-    return runtime.probe.read("admin.action", partition, before[partition], schema)
+    if found is None:
+        raise RuntimeError("Admin action publication lost its matched record")
+    return found
 
 
 def require_odds_correlation(

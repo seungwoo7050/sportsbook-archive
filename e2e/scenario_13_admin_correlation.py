@@ -51,7 +51,7 @@ def run(runtime: E2eRuntime) -> None:
     if not audit.get("startedAt") or not audit.get("completedAt"):
         raise RuntimeError("Admin audit lifecycle timestamps are incomplete")
 
-    record = wait_admin_record(runtime, before)
+    record = wait_admin_record(runtime, before, action_id)
     if record.key != "e2e-admin" or record.avro is None:
         raise RuntimeError("Admin action Kafka identity drifted")
     require_fields(record.avro, expected, "Admin action Kafka record")
