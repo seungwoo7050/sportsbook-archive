@@ -31,7 +31,7 @@ class ReleaseEvidence:
         if not SHA.fullmatch(orchestration_sha) or orchestration_sha[:12] not in self.context.project:
             raise RuntimeError("orchestration identity does not own this cold run")
         head = self._git("rev-parse", "HEAD")
-        dirty = self._git("status", "--porcelain", "--untracked-files=no")
+        dirty = self._git("status", "--porcelain", "--untracked-files=all")
         if head != orchestration_sha or dirty:
             raise RuntimeError("orchestration checkout is not the clean requested SHA")
 

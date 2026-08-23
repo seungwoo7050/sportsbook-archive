@@ -21,7 +21,7 @@ def clean_head(root: Path) -> str:
         check=True,
     ).stdout.strip()
     dirty = subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
         text=True,
         capture_output=True,
         check=True,
