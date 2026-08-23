@@ -205,6 +205,52 @@ services:
     networks: [backend]
     restart: unless-stopped
 
+  betting:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.jvm
+      args:
+        JAR: betting.jar
+    environment:
+      BETTING_DB_URL: jdbc:postgresql://postgres:5432/betting
+      BETTING_DB_USER: sportsbook
+      BETTING_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      BETTING_KAFKA_BOOTSTRAP: kafka:9092
+      BETTING_REDIS_HOST: redis-odds
+      BETTING_REDIS_PORT: "6379"
+      BETTING_HTTP_PORT: "8082"
+      RISK_BASE_URL: http://risk:8083
+      WALLET_BASE_URL: http://wallet:8081
+      BETTING_GATEWAY_API_KEY: ${GATEWAY_BETTING_API_KEY:-}
+      BETTING_RISK_API_KEY: ${BETTING_RISK_API_KEY:-}
+      BETTING_WALLET_API_KEY: ${BETTING_WALLET_API_KEY:-}
+      BETTING_RECONCILIATION_POLL_INTERVAL_MS: "500"
+      BETTING_RECONCILIATION_PENDING_TIMEOUT: PT1S
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis-odds:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      wallet:
+        condition: service_healthy
+      risk:
+        condition: service_healthy
+      odds:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8082/actuator/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    expose: ["8082"]
+    networks: [backend]
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
