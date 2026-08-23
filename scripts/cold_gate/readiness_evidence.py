@@ -24,7 +24,6 @@ INTEGRITY_METRICS = (
     "wallet_integrity_scan_failed",
     "wallet_integrity_last_checked_epoch_seconds",
 )
-WALLET_SERVICE_LABEL = '{service="wallet-service"}'
 NUMBER = r"[-+]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
 ClientFactory = Callable[[ComposeProject, str], ContainerHttpClient]
 
@@ -79,12 +78,12 @@ class ReadinessEvidence:
         values = []
         for name in INTEGRITY_METRICS:
             matches = re.findall(
-                rf"^{name}{re.escape(WALLET_SERVICE_LABEL)}\s+({NUMBER})$",
+                rf"^{name}(?:\{{[^}}\r\n]*\}})?\s+({NUMBER})$",
                 body,
                 re.MULTILINE,
             )
             if len(matches) != 1:
-                raise RuntimeError(f"expected one wallet-service-labelled {name} metric")
+                raise RuntimeError(f"expected one Wallet {name} metric")
             values.append(decimal.Decimal(matches[0]))
         return tuple(values)
 
