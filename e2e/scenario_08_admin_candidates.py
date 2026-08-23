@@ -9,12 +9,14 @@ from scripts.cold_gate.polling import poll_until
 
 
 NAME = "admin-candidate-approve-reject"
+APPROVAL_HORIZON_MILLIS = 60_000
+APPROVAL_ELIGIBILITY_TIMEOUT_SECONDS = 75
 
 
 def run(runtime: E2eRuntime) -> None:
     token = runtime.admin_token()
     approved_fixture = ScenarioIds.create(81)
-    approved_at = int(time.time() * 1000) + 3_000
+    approved_at = int(time.time() * 1000) + APPROVAL_HORIZON_MILLIS
     runtime.fixtures.publish(
         "MatchResult", approved_fixture.match_result("WON", approved_at)
     )
@@ -23,7 +25,7 @@ def run(runtime: E2eRuntime) -> None:
         "candidate approval eligibility",
         lambda: int(time.time() * 1000),
         lambda now: now >= approved_at + 100,
-        timeout=10,
+        timeout=APPROVAL_ELIGIBILITY_TIMEOUT_SECONDS,
         interval=0.1,
     )
     approval = runtime.settlement_admin.approve(
@@ -46,7 +48,9 @@ def run(runtime: E2eRuntime) -> None:
     rejected_fixture = ScenarioIds.create(82)
     runtime.fixtures.publish(
         "MatchResult",
-        rejected_fixture.match_result("LOST", int(time.time() * 1000) + 60_000),
+        rejected_fixture.match_result(
+            "LOST", int(time.time() * 1000) + APPROVAL_HORIZON_MILLIS
+        ),
     )
     rejected_candidate = _pending_candidate(runtime, rejected_fixture.event)
     rejection = runtime.settlement_admin.reject(
@@ -82,7 +86,7 @@ def _pending_candidate(runtime: E2eRuntime, event_id: str) -> dict[str, str]:
     )
     require_fields(
         candidate,
-        {"state": "PENDING", "decision_reason": "", "decided": "0"},
+        {"state": "PENDING", "decision_reason": "FUTURE_HELD", "decided": "0"},
         "pending result candidate",
     )
     return candidate
