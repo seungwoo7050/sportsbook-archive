@@ -11,7 +11,6 @@ OVERLAY = ROOT / "compose.toxiproxy.yaml"
 
 class ToxiproxyOverlayTest(ComposeContractFixture):
     def test_overrides_only_three_canonical_http_dependencies(self) -> None:
-        self.environment["TOXIPROXY_HOST_PORT"] = "18474"
         result = subprocess.run(
             [
                 "docker",
@@ -48,11 +47,15 @@ class ToxiproxyOverlayTest(ComposeContractFixture):
             settlement["SETTLEMENT_WALLET_BASE_URL"], "http://toxiproxy:28081"
         )
         self.assertNotIn("WALLET_BASE_URL", settlement)
-        self.assertEqual(
-            services["toxiproxy"]["ports"][0]["host_ip"], "127.0.0.1"
-        )
-        self.assertEqual(services["toxiproxy"]["ports"][0]["published"], "18474")
+        admin_port = services["toxiproxy"]["ports"][0]
+        self.assertEqual(admin_port["host_ip"], "127.0.0.1")
+        self.assertEqual(admin_port["target"], 8474)
+        self.assertNotIn("published", admin_port)
         self.assertEqual(set(services["toxiproxy"]["networks"]), {"backend"})
+        self.assertEqual(
+            services["betting"]["depends_on"]["toxiproxy"]["condition"],
+            "service_healthy",
+        )
         self.assertEqual(
             services["settlement"]["depends_on"]["toxiproxy"]["condition"],
             "service_healthy",
@@ -67,6 +70,7 @@ class ToxiproxyOverlayTest(ComposeContractFixture):
                 ("settlement_to_wallet", "0.0.0.0:28081", "wallet:8081"),
             },
         )
+        self.assertTrue(all(proxy["enabled"] for proxy in proxies))
         self.assertNotIn("kafka", json.dumps(proxies).lower())
 
 
