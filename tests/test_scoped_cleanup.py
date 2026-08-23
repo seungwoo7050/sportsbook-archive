@@ -23,6 +23,19 @@ class FakeCompose:
         self.absence_checks += 1
 
 
+class FakeEvidence:
+    def __init__(self, context) -> None:
+        self.context = context
+        self.calls = []
+
+    def capture(self, sources, service_jars) -> None:
+        self.context.require_owned()
+        root = self.context.root
+        self.calls.append(
+            (sources, service_jars, sources.exists(), (root / "docker/jars").exists())
+        )
+
+
 class ScopedCleanupTest(unittest.TestCase):
     def test_removes_only_owned_runtime_and_preserves_evidence(self) -> None:
         materializer_calls = []
@@ -42,8 +55,9 @@ class ScopedCleanupTest(unittest.TestCase):
             (generation / "wallet.jar").write_bytes(b"jar")
             (root / "docker/jars").symlink_to(".jars/generation.test")
             compose = FakeCompose(context)
+            evidence = FakeEvidence(context)
 
-            ScopedCleanup(context, compose, runner).run(sources, generation)
+            ScopedCleanup(context, compose, runner).run(sources, generation, evidence)
 
             self.assertEqual(
                 compose.calls,
@@ -61,6 +75,7 @@ class ScopedCleanupTest(unittest.TestCase):
             )
             self.assertEqual(compose.absence_checks, 1)
             self.assertEqual(materializer_calls[0][1:], [str(sources), "cleanup"])
+            self.assertEqual(evidence.calls, [(sources, generation, False, False)])
             self.assertFalse(context.runtime.exists())
             self.assertFalse(context.lock.exists())
             self.assertTrue(context.evidence.is_dir())

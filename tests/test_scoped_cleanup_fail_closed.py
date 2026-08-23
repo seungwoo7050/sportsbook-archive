@@ -5,7 +5,7 @@ import unittest
 
 from scripts.cold_gate.cleanup import ScopedCleanup
 from scripts.cold_gate.context import ColdGateContext
-from tests.test_scoped_cleanup import FakeCompose
+from tests.test_scoped_cleanup import FakeCompose, FakeEvidence
 
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -58,6 +58,17 @@ class ScopedCleanupFailClosedTest(unittest.TestCase):
 
             context.require_owned()
             self.assertTrue(context.evidence.is_dir())
+
+    def test_rejects_incomplete_or_foreign_evidence_targets_before_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as left, tempfile.TemporaryDirectory() as right:
+            context = ColdGateContext.create(pathlib.Path(left), SHA, "00000001")
+            foreign = ColdGateContext.create(pathlib.Path(right), SHA, "00000002")
+            compose = FakeCompose(context)
+            with self.assertRaisesRegex(RuntimeError, "different ownership"):
+                ScopedCleanup(context, compose).run(evidence=FakeEvidence(foreign))
+            with self.assertRaisesRegex(RuntimeError, "different ownership"):
+                ScopedCleanup(context, compose).run(evidence=FakeEvidence(context))
+            self.assertEqual(compose.calls, [])
 
 
 if __name__ == "__main__":
