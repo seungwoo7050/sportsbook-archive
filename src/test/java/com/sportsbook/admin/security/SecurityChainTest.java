@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -33,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
       "admin.downstream.credentials.settlement-api-key=settlement-admin-test-key-000000004"
     })
 @AutoConfigureMockMvc
+@AutoConfigureObservability
 @Import(SecurityChainTest.RoleProbeController.class)
 class SecurityChainTest {
 
@@ -65,6 +67,22 @@ class SecurityChainTest {
     mvc.perform(get(ADMIN_ONLY).header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
         .andExpect(status().isOk())
         .andExpect(content().string("ok"));
+  }
+
+  @Test
+  void exposesOnlyThePrometheusScrapeEndpointOutsideHealth() throws Exception {
+    mvc.perform(get("/actuator/prometheus"))
+        .andExpect(status().isOk())
+        .andExpect(content().contentTypeCompatibleWith("text/plain"));
+
+    mvc.perform(
+            get("/actuator/metrics")
+                .header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            get("/actuator/env")
+                .header(AUTHORIZATION, TestJwtKeys.bearer("admin-1", "ADMIN")))
+        .andExpect(status().isForbidden());
   }
 
   @RestController
