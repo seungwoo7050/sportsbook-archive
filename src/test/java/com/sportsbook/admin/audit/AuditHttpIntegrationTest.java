@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
@@ -104,6 +105,23 @@ class AuditHttpIntegrationTest {
     assertThat(terminal.getCompletedAt()).isAfterOrEqualTo(terminal.getStartedAt());
   }
 
+  @Test
+  void recordsExplicitDownstreamRejectionsAsFailed() throws Exception {
+    String problem =
+        "{\"type\":\"https://odds/errors/rejected\",\"title\":\"Conflict\","
+            + "\"status\":409,\"code\":\"MARKET_REJECTED\",\"detail\":\"rejected\"}";
+    stubOdds(409, problem, 0);
+
+    ResultActions response =
+        suspend().andExpect(status().isConflict()).andExpect(content().json(problem));
+    AuditLogEntity terminal = terminalFrom(response);
+
+    assertThat(terminal.getOutcome()).isEqualTo(AuditOutcome.FAILED);
+    assertThat(terminal.getHttpStatus()).isEqualTo(409);
+    assertThat(response.andReturn().getResponse().getHeader("Cache-Control"))
+        .isEqualTo("no-store");
+  }
+
   private AuditLogEntity awaitStarted() throws InterruptedException {
     Instant deadline = Instant.now().plus(Duration.ofSeconds(2));
     while (Instant.now().isBefore(deadline)) {
@@ -114,6 +132,12 @@ class AuditHttpIntegrationTest {
       Thread.sleep(20);
     }
     throw new AssertionError("Audit STARTED row was not externally visible");
+  }
+
+  private AuditLogEntity terminalFrom(ResultActions response) throws Exception {
+    String actionId = response.andReturn().getResponse().getHeader("X-Admin-Action-Id");
+    assertThat(actionId).isNotBlank();
+    return auditLogs.findById(UUID.fromString(actionId)).orElseThrow();
   }
 
   private ResultActions suspend() throws Exception {
