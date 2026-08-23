@@ -122,6 +122,19 @@ class AuditHttpIntegrationTest {
         .isEqualTo("no-store");
   }
 
+  @Test
+  void recordsDownstreamServerErrorsAsUnknown() throws Exception {
+    stubOdds(503, "{\"detail\":\"unavailable\"}", 0);
+
+    ResultActions response = suspend().andExpect(status().isBadGateway());
+    AuditLogEntity terminal = terminalFrom(response);
+
+    assertThat(terminal.getOutcome()).isEqualTo(AuditOutcome.UNKNOWN);
+    assertThat(terminal.getHttpStatus()).isEqualTo(502);
+    assertThat(response.andReturn().getResponse().getContentAsString())
+        .doesNotContain("unavailable");
+  }
+
   private AuditLogEntity awaitStarted() throws InterruptedException {
     Instant deadline = Instant.now().plus(Duration.ofSeconds(2));
     while (Instant.now().isBefore(deadline)) {
