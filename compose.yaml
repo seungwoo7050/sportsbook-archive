@@ -172,6 +172,39 @@ services:
     networks: [backend]
     restart: unless-stopped
 
+  odds:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.jvm
+      args:
+        JAR: odds.jar
+    environment:
+      SERVER_PORT: "8085"
+      SPRING_PROFILES_ACTIVE: mock
+      REDIS_HOST: redis-odds
+      REDIS_PORT: "6379"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ADMIN_API_INTERNAL_KEY: ${ADMIN_ODDS_FEED_API_KEY:-}
+      HOSTNAME: odds
+      ODDSFEED_MOCK_MINUTES_PER_SECOND: "0.01"
+      ODDSFEED_MOCK_SCENARIOS_AUTO_ROTATE: "false"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis-odds:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8085/actuator/health/readiness >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    expose: ["8085"]
+    networks: [backend]
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
