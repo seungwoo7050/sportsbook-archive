@@ -5,6 +5,7 @@ import time
 from e2e.base_oracles import BaseOracles
 from e2e.bet_api import BetApi
 from e2e.correction_oracles import CorrectionOracles
+from e2e.market_admin_api import MarketAdminApi
 from e2e.model import ScenarioIds
 from e2e.placement_oracles import PlacementOracles
 from e2e.replay_oracle import ReplayOracle
@@ -49,6 +50,7 @@ class E2eRuntime:
         self.context = context
         self.compose = compose
         self.environment = secrets.environment
+        self.artifacts = artifacts
         self.database = database
         self.signer = JwtSigner(context, secrets.private_key)
         self.bets = BetApi(HostHttpClient(f"http://127.0.0.1:{gateway_port}"))
@@ -57,6 +59,7 @@ class E2eRuntime:
             secrets.environment["WALLET_PLATFORM_API_KEY"],
         )
         self.settlement_admin = SettlementAdminApi(ContainerHttpClient(compose, "admin"))
+        self.market_admin = MarketAdminApi(ContainerHttpClient(compose, "admin"))
         self.settlement_http = ContainerHttpClient(compose, "settlement")
         self.betting_http = ContainerHttpClient(compose, "betting")
         self.base = BaseOracles(database)
