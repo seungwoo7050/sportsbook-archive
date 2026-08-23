@@ -344,6 +344,55 @@ services:
     networks: [backend]
     restart: unless-stopped
 
+  admin:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.jvm
+      args:
+        JAR: admin.jar
+    environment:
+      ADMIN_HTTP_PORT: "8090"
+      ADMIN_DB_URL: jdbc:postgresql://postgres:5432/admin
+      ADMIN_DB_USER: sportsbook
+      ADMIN_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      ADMIN_KAFKA_BOOTSTRAP: kafka:9092
+      ADMIN_WALLET_BASE_URL: http://wallet:8081
+      ADMIN_RISK_BASE_URL: http://risk:8083
+      ADMIN_ODDS_FEED_BASE_URL: http://odds:8085
+      ADMIN_SETTLEMENT_BASE_URL: http://settlement:8084
+      ADMIN_WALLET_API_KEY: ${ADMIN_WALLET_API_KEY:-}
+      ADMIN_RISK_API_KEY: ${ADMIN_RISK_API_KEY:-}
+      ADMIN_ODDS_FEED_API_KEY: ${ADMIN_ODDS_FEED_API_KEY:-}
+      ADMIN_SETTLEMENT_API_KEY: ${ADMIN_SETTLEMENT_API_KEY:-}
+      ADMIN_JWT_PUBLIC_KEY: ${ADMIN_JWT_PUBLIC_KEY:-}
+      ADMIN_JWT_ISSUER: ${ADMIN_JWT_ISSUER:-}
+      ADMIN_IP_ALLOWLIST: 127.0.0.1/32,::1/128
+      ADMIN_TRUSTED_PROXY_CIDRS: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      wallet:
+        condition: service_healthy
+      risk:
+        condition: service_healthy
+      odds:
+        condition: service_healthy
+      settlement:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8090/actuator/health/readiness >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    expose: ["8090"]
+    networks: [backend]
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
