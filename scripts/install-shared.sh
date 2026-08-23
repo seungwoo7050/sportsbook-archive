@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(git rev-parse --show-toplevel)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 SOURCE_ROOT=${1:-$ROOT/.runtime/sources}
 MAVEN_REPO=${2:-$ROOT/.runtime/m2/repository}
 LOCK=${SERVICES_LOCK:-$ROOT/services.lock}
@@ -18,6 +19,8 @@ IFS='|' read -r logical branch commit artifact < <(
 [[ $logical == shared && $artifact == shared-protocol-1.0.0.jar ]] \
   || fail "invalid shared lock entry"
 
+[[ -d $SOURCE_ROOT && ! -L $SOURCE_ROOT ]] || fail "source root is not materialized"
+SOURCE_ROOT=$(cd "$SOURCE_ROOT" && pwd -P)
 SOURCE=$SOURCE_ROOT/shared
 [[ -f $SOURCE/.git && ! -L $SOURCE ]] || fail "shared source is not a detached worktree"
 [[ $(git -C "$SOURCE" rev-parse HEAD) == "$commit" ]] || fail "shared source SHA mismatch"
@@ -33,7 +36,12 @@ MAVEN_REPO=$(cd "$MAVEN_REPO" && pwd -P)
 [[ $MAVEN_REPO != / && $MAVEN_REPO != "$ROOT" ]] || fail "unsafe Maven repository"
 [[ ! -L $MAVEN_REPO ]] || fail "Maven repository must not be a symlink"
 
-[[ -n $RUNNER ]] || RUNNER=$SOURCE/mvnw
+if [[ -n $RUNNER ]]; then
+  [[ -x $RUNNER ]] || fail "Maven runner is not executable"
+  RUNNER=$(cd "$(dirname "$RUNNER")" && pwd -P)/$(basename "$RUNNER")
+else
+  RUNNER=$SOURCE/mvnw
+fi
 [[ -x $RUNNER ]] || fail "Maven runner is not executable"
 (
   cd "$SOURCE"
