@@ -1,43 +1,32 @@
-import json
 import unittest
-from email.message import Message
 
 from scripts.cold_gate.chaos import ChaosClient, LOST_RESPONSE_TOXIC
+from scripts.cold_gate.http import HttpResponse
 
 
-class FakeResponse:
-    def __init__(self, status: int, body: bytes) -> None:
-        self.status = status
-        self.body = body
-        self.headers = Message()
+class FakeHttp:
+    def __init__(self, service: str = "toxiproxy") -> None:
+        self.service = service
+        self.calls = []
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
-
-    def read(self) -> bytes:
-        return self.body
+    def request(self, method, path, **options):
+        self.calls.append((method, path, options))
+        status = 204 if method == "DELETE" else 200
+        body = b"" if status == 204 else b'{"enabled":true}'
+        return HttpResponse(status, (), body)
 
 
 class ColdGateChaosTest(unittest.TestCase):
     def test_controls_only_the_fixed_fault_boundaries(self) -> None:
-        requests = []
-
-        def opener(request, **_options):
-            requests.append(request)
-            status = 204 if request.method == "DELETE" else 200
-            return FakeResponse(status, b"" if status == 204 else b'{"enabled":true}')
-
-        client = ChaosClient(54321, opener)
+        http = FakeHttp()
+        client = ChaosClient(http)
         client.set_enabled("betting_to_risk", False)
         client.add_wallet_response_timeout()
         client.remove_wallet_response_timeout()
 
-        self.assertEqual(json.loads(requests[0].data), {"enabled": False})
+        self.assertEqual(http.calls[0][2]["body"], {"enabled": False})
         self.assertEqual(
-            json.loads(requests[1].data),
+            http.calls[1][2]["body"],
             {
                 "name": LOST_RESPONSE_TOXIC,
                 "type": "timeout",
@@ -45,13 +34,13 @@ class ColdGateChaosTest(unittest.TestCase):
                 "attributes": {"timeout": 0},
             },
         )
-        self.assertTrue(requests[2].full_url.endswith("/toxics/" + LOST_RESPONSE_TOXIC))
-        self.assertEqual(requests[2].method, "DELETE")
+        self.assertTrue(http.calls[2][1].endswith("/toxics/" + LOST_RESPONSE_TOXIC))
+        self.assertEqual(http.calls[2][0], "DELETE")
 
-    def test_rejects_unscoped_proxy_names_and_non_loopback_publication(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "loopback"):
-            ChaosClient(0)
-        client = ChaosClient(54321, lambda *_args, **_options: None)
+    def test_rejects_unscoped_proxy_names_and_foreign_containers(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "owned"):
+            ChaosClient(FakeHttp("wallet"))
+        client = ChaosClient(FakeHttp())
         with self.assertRaisesRegex(ValueError, "outside"):
             client.proxy("unrelated")
 

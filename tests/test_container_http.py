@@ -40,7 +40,7 @@ class ContainerHttpTest(unittest.TestCase):
         self.assertEqual(response.header("X-Action"), "one")
 
     def test_rejects_services_paths_headers_and_timeouts_outside_contract(self) -> None:
-        with self.assertRaisesRegex(ValueError, "not an application"):
+        with self.assertRaisesRegex(ValueError, "not supported"):
             ContainerHttpClient(FakeCompose(), "postgres")
         client = ContainerHttpClient(FakeCompose(), "wallet")
         for options in (
@@ -52,6 +52,15 @@ class ContainerHttpTest(unittest.TestCase):
             with self.subTest(options=options):
                 with self.assertRaises(ValueError):
                     client.request(**options)
+
+    def test_reaches_the_toxiproxy_control_api_inside_its_container(self) -> None:
+        compose = FakeCompose()
+
+        ContainerHttpClient(compose, "toxiproxy").request("GET", "/version")
+
+        arguments, _options = compose.calls[0]
+        self.assertEqual(arguments[:4], ("exec", "-T", "toxiproxy", "curl"))
+        self.assertEqual(arguments[-1], "http://localhost:8474/version")
 
     def test_does_not_relay_transport_output_in_errors(self) -> None:
         client = ContainerHttpClient(FakeCompose(failure=True), "admin")
