@@ -36,6 +36,19 @@ locked_entries() {
   ' "$LOCK"
 }
 
+locked_branch_ref() {
+  local branch=$1
+  local local_ref=refs/heads/$branch
+  local remote_ref=refs/remotes/origin/$branch
+  if git -C "$ROOT" show-ref --verify --quiet "$local_ref"; then
+    printf '%s\n' "$local_ref"
+  elif git -C "$ROOT" show-ref --verify --quiet "$remote_ref"; then
+    printf '%s\n' "$remote_ref"
+  else
+    fail "$branch ref is unavailable"
+  fi
+}
+
 cleanup_created() {
   local path
   for ((index=${#CREATED[@]} - 1; index >= 0; index--)); do
@@ -46,13 +59,14 @@ cleanup_created() {
 }
 
 materialize() {
-  local logical branch commit artifact path
+  local logical branch commit artifact path branch_ref
   [[ ! -e $TARGET ]] || fail "target already exists: $TARGET"
   mkdir "$TARGET"
   trap cleanup_created EXIT ERR INT TERM
   while IFS='|' read -r logical branch commit artifact; do
     git -C "$ROOT" cat-file -e "$commit^{commit}"
-    [[ $(git -C "$ROOT" rev-parse "refs/heads/$branch") == "$commit" ]] \
+    branch_ref=$(locked_branch_ref "$branch")
+    [[ $(git -C "$ROOT" rev-parse "$branch_ref") == "$commit" ]] \
       || fail "$branch no longer matches $commit"
     path=$TARGET/$logical
     git -C "$ROOT" worktree add --quiet --detach "$path" "$commit"
