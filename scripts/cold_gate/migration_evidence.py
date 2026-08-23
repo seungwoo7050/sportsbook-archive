@@ -15,7 +15,7 @@ MIGRATION_NAME = re.compile(r"^V([1-9][0-9]*)__([A-Za-z0-9_]+)\.sql$")
 HISTORY_QUERY = (
     "SELECT installed_rank::text AS installed_rank, version, script, "
     "checksum::text AS checksum, success::text AS success "
-    "FROM flyway_schema_history ORDER BY installed_rank"
+    "FROM flyway_schema_history ORDER BY flyway_schema_history.installed_rank"
 )
 
 
