@@ -21,6 +21,7 @@ def run_release_gate(root: Path, commit: str) -> Path:
     try:
         compose = ComposeProject(context)
         secrets = RuntimeSecrets.generate(context)
+        compose.bind_environment(secrets.environment)
         store = EvidenceStore(context, EvidenceRedactor(secrets.secret_values))
         artifacts = ReleaseBuilder(context, secrets.environment).build()
         checks = ReleaseChecks(context, compose, artifacts, secrets, store)

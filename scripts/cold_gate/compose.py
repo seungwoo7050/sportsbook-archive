@@ -29,6 +29,15 @@ class ComposeProject:
         for path in self.files:
             require_regular_file(path)
         self.runner = runner
+        self.environment: dict[str, str] | None = None
+
+    def bind_environment(self, environment: dict[str, str]) -> None:
+        self.context.require_owned()
+        if environment.get("COMPOSE_PROJECT_NAME") != self.context.project:
+            raise RuntimeError("Compose environment owns another cold project")
+        if self.environment is not None:
+            raise RuntimeError("Compose environment is already bound")
+        self.environment = environment.copy()
 
     def command(self, *arguments: str) -> list[str]:
         command = [
@@ -54,7 +63,7 @@ class ComposeProject:
         return self.runner(
             self.command(*arguments),
             cwd=self.context.root,
-            env=os.environ.copy() if environment is None else environment,
+            env=(self.environment or os.environ.copy()) if environment is None else environment,
             text=True,
             capture_output=capture_output,
             check=check,
