@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable, Iterable
-from pathlib import Path
+from collections.abc import Callable
 
 from scripts.cold_gate.context import ColdGateContext
+from scripts.cold_gate.owned_path import require_regular_file
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -15,13 +15,19 @@ class ComposeProject:
     def __init__(
         self,
         context: ColdGateContext,
-        overlays: Iterable[Path] = (),
         runner: Runner = subprocess.run,
     ) -> None:
         self.context = context
-        self.files = (context.root / "compose.yaml", *overlays)
-        if not all(path.is_file() for path in self.files):
-            raise RuntimeError("a tracked Compose input is missing")
+        self.files = tuple(
+            context.root / name
+            for name in (
+                "compose.yaml",
+                "compose.toxiproxy.yaml",
+                "compose.observability.yaml",
+            )
+        )
+        for path in self.files:
+            require_regular_file(path)
         self.runner = runner
 
     def command(self, *arguments: str) -> list[str]:
@@ -48,7 +54,7 @@ class ComposeProject:
         return self.runner(
             self.command(*arguments),
             cwd=self.context.root,
-            env=environment or os.environ.copy(),
+            env=os.environ.copy() if environment is None else environment,
             text=True,
             capture_output=capture_output,
             check=check,
