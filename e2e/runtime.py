@@ -56,6 +56,7 @@ class E2eRuntime:
         )
         self.settlement_admin = SettlementAdminApi(ContainerHttpClient(compose, "admin"))
         self.settlement_http = ContainerHttpClient(compose, "settlement")
+        self.betting_http = ContainerHttpClient(compose, "betting")
         self.base = BaseOracles(database)
         self.placements = PlacementOracles(database)
         self.corrections = CorrectionOracles(database)
