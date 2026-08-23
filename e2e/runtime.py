@@ -47,6 +47,7 @@ class E2eRuntime:
         self.context = context
         self.compose = compose
         self.environment = secrets.environment
+        self.database = database
         self.signer = JwtSigner(context, secrets.private_key)
         self.bets = BetApi(HostHttpClient(f"http://127.0.0.1:{gateway_port}"))
         self.wallet_api = WalletApi(
