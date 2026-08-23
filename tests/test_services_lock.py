@@ -52,6 +52,21 @@ class ServicesLockTest(unittest.TestCase):
 
         self.assertIn("<artifactId>spring-boot-maven-plugin</artifactId>", pom)
 
+    def test_betting_release_locks_the_root_before_loading_legs(self) -> None:
+        commit = next(entry[2] for entry in entries() if entry[0] == "betting")
+        repository = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{commit}:src/main/java/com/sportsbook/betting/persistence/BetRepository.java",
+            ],
+            cwd=ROOT,
+            text=True,
+        )
+
+        self.assertIn("default Optional<Bet> findLockedByBetId", repository)
+        self.assertIn("Optional<Bet> findLockedRootByBetId", repository)
+
 
 if __name__ == "__main__":
     unittest.main()
