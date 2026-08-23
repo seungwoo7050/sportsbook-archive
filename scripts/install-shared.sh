@@ -13,9 +13,15 @@ fail() {
   exit 1
 }
 
-IFS='|' read -r logical branch commit artifact < <(
-  awk -F'|' '$1 == "shared" { print; found=1 } END { if (!found) exit 2 }' "$LOCK"
-)
+entry=$(awk -F'|' '
+  NF && $1 !~ /^#/ {
+    if (NF != 4) exit 2
+    total++
+    if ($1 == "shared") { print; shared++ }
+  }
+  END { if (total != 8 || shared != 1) exit 2 }
+' "$LOCK") || fail "invalid services lock"
+IFS='|' read -r logical branch commit artifact <<<"$entry"
 [[ $logical == shared && $artifact == shared-protocol-1.0.0.jar ]] \
   || fail "invalid shared lock entry"
 
