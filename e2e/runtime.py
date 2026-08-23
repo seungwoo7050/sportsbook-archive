@@ -54,6 +54,7 @@ class E2eRuntime:
             secrets.environment["WALLET_PLATFORM_API_KEY"],
         )
         self.settlement_admin = SettlementAdminApi(ContainerHttpClient(compose, "admin"))
+        self.settlement_http = ContainerHttpClient(compose, "settlement")
         self.base = BaseOracles(database)
         self.placements = PlacementOracles(database)
         self.corrections = CorrectionOracles(database)
@@ -92,3 +93,19 @@ class E2eRuntime:
             timeout=90,
             interval=1,
         )
+
+    def stop_settlement(self) -> None:
+        self.compose.run("stop", "--timeout", "30", "settlement", capture_output=True)
+
+    def start_settlement(self) -> None:
+        self.compose.run("start", "settlement", capture_output=True)
+        response = poll_until(
+            "Settlement restart readiness",
+            lambda: self.settlement_http.request("GET", "/actuator/health/readiness"),
+            lambda value: value.status == 200,
+            timeout=60,
+            interval=0.5,
+        )
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("status") != "UP":
+            raise RuntimeError("Settlement restart readiness payload drifted")
