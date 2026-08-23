@@ -2,6 +2,7 @@ import io
 import pathlib
 import subprocess
 import tempfile
+import types
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -112,6 +113,23 @@ class ColdReleaseCommandTest(unittest.TestCase):
                         subject.main()
 
                 gate_loader.assert_not_called()
+
+    def test_loads_only_root_anchored_first_party_packages(self):
+        root = str(subject.ROOT)
+        paths = ["/external", root, "/tail", root]
+        gate = object()
+        module = types.SimpleNamespace(run_release_gate=gate)
+
+        with mock.patch.object(subject.sys, "path", paths), mock.patch(
+            "builtins.__import__", return_value=module
+        ):
+            observed = subject._load_gate()
+
+        self.assertIs(observed, gate)
+        self.assertEqual(paths[0], root)
+        self.assertEqual(paths.count(root), 1)
+        for name in subject.EXECUTABLE_TREES:
+            self.assertTrue((subject.ROOT / name / "__init__.py").is_file())
 
     def test_runs_gate_for_script_root_and_prints_evidence_path(self):
         output = io.StringIO()
