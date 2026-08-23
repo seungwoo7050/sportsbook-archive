@@ -9,7 +9,7 @@ from scripts.cold_gate.compose import ComposeProject
 GROUPS = frozenset(
     {"settlement-service", "betting-resolution", "betting-wallet", "gateway-bets", "gateway-odds"}
 )
-TOPIC = re.compile(r"^[a-z][a-z0-9.-]{1,126}$")
+TOPIC = re.compile(r"^[a-z][A-Za-z0-9.-]{1,126}$")
 
 
 class KafkaAdmin:
@@ -93,3 +93,23 @@ class KafkaAdmin:
         if {partition for partition, _lag in lags} != {0, 1, 2}:
             raise RuntimeError("Kafka topic lag inventory is incomplete")
         return sum(lag for _partition, lag in lags)
+
+    def end_offset(self, topic: str, partition: int) -> int:
+        if TOPIC.fullmatch(topic) is None or partition not in range(3):
+            raise ValueError("Kafka offset target is outside the release inventory")
+        try:
+            result = self.compose.run(
+                "exec", "-T", "kafka", "/opt/kafka/bin/kafka-get-offsets.sh",
+                "--bootstrap-server", "kafka:9092", "--topic", topic,
+                "--partitions", str(partition), capture_output=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(f"Kafka end offset query failed for {topic}") from error
+        lines = result.stdout.splitlines()
+        expected = f"{topic}:{partition}:"
+        if len(lines) != 1 or not lines[0].startswith(expected):
+            raise RuntimeError("Kafka end offset receipt is invalid")
+        value = lines[0][len(expected) :]
+        if not value.isdigit():
+            raise RuntimeError("Kafka end offset is not numeric")
+        return int(value)
