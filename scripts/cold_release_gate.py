@@ -43,8 +43,10 @@ def reject_executable_caches(root: Path) -> None:
 
 
 def _load_gate():
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
+    root = str(ROOT)
+    while root in sys.path:
+        sys.path.remove(root)
+    sys.path.insert(0, root)
     from scripts.cold_gate.gate import run_release_gate
 
     return run_release_gate
