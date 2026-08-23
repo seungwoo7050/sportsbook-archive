@@ -91,15 +91,43 @@ class ColdReleaseCommandTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "clean exact HEAD"):
                 subject.clean_head(root)
 
+    def test_rejects_executable_cache_before_loading_the_gate(self):
+        for relative in (
+            pathlib.Path("scripts/__pycache__/gate.pyc"),
+            pathlib.Path("e2e/scenario.pyc"),
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                (root / "scripts").mkdir()
+                (root / "e2e").mkdir()
+                cached = root / relative
+                cached.parent.mkdir(parents=True, exist_ok=True)
+                cached.write_bytes(b"untrusted")
+                gate_loader = mock.Mock()
+
+                with mock.patch.object(subject, "ROOT", root), mock.patch.object(
+                    subject, "clean_head", return_value=SHA
+                ), mock.patch.object(subject, "_load_gate", gate_loader):
+                    with self.assertRaisesRegex(RuntimeError, "executable cache"):
+                        subject.main()
+
+                gate_loader.assert_not_called()
+
     def test_runs_gate_for_script_root_and_prints_evidence_path(self):
         output = io.StringIO()
         with mock.patch.object(subject, "clean_head", return_value=SHA) as head, mock.patch.object(
-            subject, "run_release_gate", return_value=pathlib.Path("/evidence/run")
-        ) as gate, redirect_stdout(output):
+            subject, "reject_executable_caches"
+        ) as caches, mock.patch.object(
+            subject, "_load_gate"
+        ) as load, redirect_stdout(output):
+            gate = load.return_value
+            gate.return_value = pathlib.Path("/evidence/run")
             subject.main()
 
         root = pathlib.Path(subject.__file__).resolve().parents[1]
         head.assert_called_once_with(root)
+        caches.assert_called_once_with(root)
+        load.assert_called_once_with()
         gate.assert_called_once_with(root, SHA)
         self.assertEqual(output.getvalue(), "cold_gate_evidence=/evidence/run\n")
 

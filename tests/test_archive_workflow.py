@@ -37,9 +37,9 @@ class ArchiveWorkflowTest(unittest.TestCase):
     def test_runs_static_guards_before_one_cold_stack_gate(self):
         text = WORKFLOW.read_text()
         commands = (
-            "python3 scripts/history_guard.py",
-            "python3 -m unittest discover -s tests",
-            "python3 scripts/cold_release_gate.py",
+            "python3 -B scripts/history_guard.py",
+            "python3 -B -m unittest discover -s tests",
+            "python3 -I -B scripts/cold_release_gate.py",
         )
         for command in commands:
             self.assertEqual(text.count(command), 1)
