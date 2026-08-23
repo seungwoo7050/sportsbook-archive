@@ -10,7 +10,7 @@ from scripts.cold_gate.build import ReleaseArtifacts
 from scripts.cold_gate.compose import ComposeProject
 from scripts.cold_gate.container_state import ContainerState, HEX64
 from scripts.cold_gate.evidence import EvidenceStore
-from scripts.cold_gate.inventory import APPLICATION_SERVICES, SERVICES
+from scripts.cold_gate.inventory import APPLICATION_SERVICES, COMPLETED_SERVICES, SERVICES
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -56,7 +56,20 @@ class RuntimeEvidence:
                     check=True,
                 ).stdout
             except subprocess.CalledProcessError as error:
-                raise RuntimeError(f"Docker inspection failed for {service}") from error
+                if service not in COMPLETED_SERVICES:
+                    raise RuntimeError(f"Docker inspection failed for {service}") from error
+                image_rows.append(f"{service}\t-\t-")
+                states.append(
+                    {
+                        "service": service,
+                        "name": "-",
+                        "image_id": "-",
+                        "state": "completed",
+                        "health": "-",
+                        "exit_code": 0,
+                    }
+                )
+                continue
             state = ContainerState.parse(
                 inspected, self.compose.context.project, service
             )
