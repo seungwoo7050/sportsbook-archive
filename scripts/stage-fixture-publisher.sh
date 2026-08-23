@@ -7,6 +7,7 @@ SOURCE_ROOT=${1:-$ROOT/.runtime/sources}
 MAVEN_REPO=${2:-$ROOT/.runtime/m2/repository}
 OUTPUT=${3:-$ROOT/.runtime/fixtures}
 PENDING=
+BUILD_TARGET=
 
 fail() {
   printf 'fixture-stage: %s\n' "$1" >&2
@@ -16,6 +17,9 @@ fail() {
 cleanup() {
   local status=$?
   [[ -z $PENDING || ! -f $PENDING ]] || rm -f "$PENDING"
+  if [[ -n $BUILD_TARGET && ( -e $BUILD_TARGET || -L $BUILD_TARGET ) ]]; then
+    rm -rf -- "$BUILD_TARGET"
+  fi
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -41,6 +45,8 @@ JAVAC_MAJOR=$($JAVAC_BIN -version 2>&1 | awk '{print $2; exit}' | cut -d. -f1)
 RUNNER=${MAVEN_RUNNER:-$SHARED/mvnw}
 [[ -x $RUNNER ]] || fail "Maven runner is not executable"
 RUNNER=$(cd "$(dirname "$RUNNER")" && pwd -P)/$(basename "$RUNNER")
+BUILD_TARGET=$ROOT/fixtures/avro-publisher/target
+[[ ! -L $BUILD_TARGET ]] || fail "fixture build target must not be a symlink"
 "$RUNNER" -B -f "$ROOT/fixtures/avro-publisher/pom.xml" \
   "-Dmaven.repo.local=$MAVEN_REPO" clean package
 
@@ -68,4 +74,6 @@ MAJOR=$(javap -verbose -classpath "$PENDING" \
 mv -f "$PENDING" "$OUTPUT/avro-fixture-publisher.jar"
 PENDING=
 shasum -a 256 "$OUTPUT/avro-fixture-publisher.jar"
+rm -rf -- "$BUILD_TARGET"
+BUILD_TARGET=
 trap - EXIT INT TERM
