@@ -8,16 +8,18 @@ cold-stack result that future work must preserve.
 
 ## Final state
 
-- Released local branch: `orchestration`
-- Final tip: `e643aa4e025e79a2fda31c71726d02a22fe6eef5`
-- Release commit: `bf792c98e784d6306fb0c2dcccd1f7ab20152c61`
+- Released branch: `orchestration`
+- Final tip: `dcfc01345377aeccefd2eeb15cb4b9736a669b10`
+- Release commit: `8cbffd0e59f981b37760ca26d00574b4e6f39151`
 - Version: 1.0.0
-- History: 372 commits, one README-only root, 371 single-parent commits, no merges
-- Final evidence directory:
-  `evidence/cold-gate/sb-gate-e643aa4e025e-3e713f9c` on the local ignored filesystem
+- History: 375 commits, one README-only root, 374 single-parent commits, no merges
+- Final cold project: `sb-gate-dcfc01345377-b5db17f5`
+- GitHub Actions run: `32657305364` (`success`, 16m25s)
+- Final evidence artifact:
+  `orchestration-evidence-dcfc01345377aeccefd2eeb15cb4b9736a669b10`
 
-The local `orchestration` and `rebuild-orchestration-final` refs point to the final tip. No tag,
-remote push, or tracked verification output was created.
+The local `orchestration`, `rebuild-orchestration-final`, and `origin/orchestration` refs point to
+the final tip. No tag or tracked verification output was created.
 
 ## Locked service releases
 
@@ -87,16 +89,16 @@ The final history preserves the Wave 0–3 policy:
 - the penultimate commit is the single release commit; and
 - the final commit is the single project documentation commit.
 
-The repository history guard traversed all 372 commits at the final docs tip.
+The repository history guard traversed all 375 commits at the final docs tip.
 
 ## Verification completed
 
-One cold release gate at the exact final tip completed successfully. It rebuilt release JARs from
-the locked sources with tests skipped, built the runtime images, started an empty stack, verified
-topic and migration inventories, ran all 13 functional E2E scenarios, captured runtime/JAR
-identity and readiness, scanned retained evidence/logs for secrets, and removed every owned Docker
-and materialization resource.
+GitHub Actions completed the history guard, all 239 static contract tests, and one cold release gate
+at the exact final tip. The gate rebuilt release JARs from the locked sources with tests skipped,
+built the runtime images, started an empty stack, verified topic and migration inventories, ran all
+13 functional E2E scenarios, captured runtime/JAR identity and readiness, scanned retained
+evidence/logs for secrets, and removed every owned Docker and materialization resource.
 
 The combined Compose configuration SHA-256 is
-`9cb05fb5ebd70e566dd137598fd884e9d1ca5cefdf8233b4bc0cf7a4069442be`.
+`03f3ed88a4041548d449bfcf950a965ef4330f5b754bb0e7a7a7efa39d5708a7`.
 The exact scenario and artifact evidence is recorded in `handoffs/wave4/integration.md`.

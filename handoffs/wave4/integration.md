@@ -2,12 +2,15 @@
 
 ## Gate identity
 
-- Orchestration tip: `e643aa4e025e79a2fda31c71726d02a22fe6eef5`
-- Cold project: `sb-gate-e643aa4e025e-3e713f9c`
-- Evidence directory:
-  `evidence/cold-gate/sb-gate-e643aa4e025e-3e713f9c` in the orchestration worktree
+- Orchestration tip: `dcfc01345377aeccefd2eeb15cb4b9736a669b10`
+- Cold project: `sb-gate-dcfc01345377-b5db17f5`
+- GitHub Actions run: `32657305364` (`success`, 16m25s)
+- Evidence artifact:
+  `orchestration-evidence-dcfc01345377aeccefd2eeb15cb4b9736a669b10`
+- Evidence artifact SHA-256:
+  `214fc834c0e366c9049dc7621a351a2efd7f6763b76c985bcf548421a2ea2fcd`
 - Combined Compose SHA-256:
-  `9cb05fb5ebd70e566dd137598fd884e9d1ca5cefdf8233b4bc0cf7a4069442be`
+  `03f3ed88a4041548d449bfcf950a965ef4330f5b754bb0e7a7a7efa39d5708a7`
 - `services.lock` evidence SHA-256:
   `a87aa711e92577b75e5966256bc3c8e76f593912fe0bf43b416fbe67ba5b43ac`
 - Scenario evidence SHA-256:
@@ -15,8 +18,9 @@
 - Cleanup evidence SHA-256:
   `54acd864d0d3743d440ec674350013eefe88a82638459ec656d69a47874b3333`
 
-Evidence is ignored and remains local. It contains only identities, inventories, results, and
-redacted service logs; no generated secret or tracked measurement output is retained.
+Evidence is not tracked by Git and is retained by GitHub Actions for 14 days. It contains only
+identities, inventories, results, and redacted service logs; no generated secret or tracked
+measurement output is retained.
 
 ## Functional result
 
@@ -45,17 +49,17 @@ ACCEPTED checkpoints before settlement proceeds.
 
 | Artifact | Locked source | SHA-256 |
 | --- | --- | --- |
-| Shared Protocol | `f9de6bc1e533761ab4bb1454d8d4ab8175cdf001` | `a98fb2fb99fe67fdb2dddb45a2d937fcc5331f63dd850c44f2538dea863ce6a8` |
-| Wallet | `c9a05f4d652f24ac97d3e1cd753f69cef2725ff3` | `728c52dd2b34f7d24133d3dc265508b27d690aa09107486338a04b2d24f94000` |
-| Risk | `c64f67dbc437a18640dc4984dea4d8194fb5b164` | `ddb679904b4c6fabbb5050e979d2de0be5cd97da18a88cd4aae4701d1ff6ff3b` |
-| Odds Feed | `574e83d2862f086ae07ff56fd95a8336f78a72da` | `f1f1affb701a526c9b603a3de2f814fb16ba5fe84478cef40e7462d4def96d12` |
-| Betting | `40f040e2eff9638d7d6ff1983d86584b02cfebbc` | `cdd82bfad8de31983dab689e023b21dc38b61679a2071f550ff923aaa2865551` |
-| Gateway | `8248a3233f0fce7ca36a503ee71b7a8a0802d733` | `ee0ca42614eb4b38a048f9ca0cda3470a61929aa00df1c5af40c19fac4a8cfed` |
-| Settlement | `e935873660aad4ceb28788521f7657289f97bc15` | `3962323215dbe02eaef66368e8ab81eaf5f0a9b3618585d03adc0d97cb5fa061` |
-| Admin API | `2fb55910475b31084e6489bf01c34cc970c96874` | `fae5995fdd7939c32cde3944d05a1b3d891ded3acf724c98ad41f11b63ce7b6a` |
+| Shared Protocol | `f9de6bc1e533761ab4bb1454d8d4ab8175cdf001` | `f139c1f1150386570162a00f13573d74806ded4f0aef6c209a5a9b058bb02c6a` |
+| Wallet | `c9a05f4d652f24ac97d3e1cd753f69cef2725ff3` | `162eb8b1d1d4703f456830eca238520d3ab1b94ee535ef498fe493652422abda` |
+| Risk | `c64f67dbc437a18640dc4984dea4d8194fb5b164` | `451782689fd32f65e3489644533c086aa1e2156fe722daf3fb3c66f92a437f2a` |
+| Odds Feed | `574e83d2862f086ae07ff56fd95a8336f78a72da` | `2d73c62d0bbcb6a90b40a026d33043a5cbbb46b76101c11bb31d69d5db548021` |
+| Betting | `40f040e2eff9638d7d6ff1983d86584b02cfebbc` | `07b494395c04d657ff014cf3c7529922d4fb45269399629435bad549568abcc8` |
+| Gateway | `8248a3233f0fce7ca36a503ee71b7a8a0802d733` | `2ec8d320c22992b8030a23ce4e7ba1568c952c0f4c9acc043f70b9e8a6da39c1` |
+| Settlement | `e935873660aad4ceb28788521f7657289f97bc15` | `de939a2861885f3cf156856615014be587efad96c600de5cbcf347b2d88062b3` |
+| Admin API | `2fb55910475b31084e6489bf01c34cc970c96874` | `912e24680a1effd1d1e900ae5f3840db830f29ff4d6da272220334fd5d7fceeb` |
 
 Each application image's `/app/app.jar` hash matched its staged release JAR. The fixture publisher
-SHA-256 was `080f2d629e3098301f61337612a28fbf3564e6e6b35ea76f9b6060370c0ba458`.
+SHA-256 was `3f54f7785a692420592ed7d9dd784c798eb2110405663f1cfd86e574562b22e9`.
 
 ## Infrastructure evidence
 
@@ -82,8 +86,10 @@ Both corrected histories remain linear with their original release and final doc
 positions. No prior handoff was rewritten; this Wave 4 report supersedes only their release SHA for
 full-stack materialization.
 
-## Push boundary
+## Remote verification
 
-Local work is complete. Before any push, `origin/main`, `origin/admin-api`, and
-`origin/orchestration` must be queried again. The exact local/remote SHA and whether each update is
-fast-forward, new-branch, or forced must be briefed, and no push may occur until approval is given.
+GitHub Actions run `32657305364` verified the exact orchestration tip and completed successfully in
+16m25s. It passed the 375-commit history guard, all 239 static contract tests, the cold release
+gate, all 13 E2E scenarios, evidence redaction, and scoped cleanup. `origin/orchestration` points to
+the verified tip. The uploaded artifact digest is
+`sha256:214fc834c0e366c9049dc7621a351a2efd7f6763b76c985bcf548421a2ea2fcd`.
