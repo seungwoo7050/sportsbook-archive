@@ -16,7 +16,7 @@ class FakeCompose:
         return subprocess.CompletedProcess(
             arguments,
             0,
-            stdout="HTTP/1.1 202 Accepted\r\nX-Action: one\r\n\r\n{}\n__E2E_STATUS__:202\n",
+            stdout="HTTP/1.1 202 Accepted\nX-Action: one\n\n{}\n__E2E_STATUS__:202\n",
         )
 
 
