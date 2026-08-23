@@ -47,15 +47,15 @@ class ReleaseChecks:
             self.secrets.secret_values,
         )
         self.stack.start(self.secrets.environment)
-        RuntimeEvidence(self.compose, self.artifacts, self.store).capture()
         TopicEvidence(self.compose, self.store).capture()
         MigrationEvidence(
             self.artifacts, PostgresClient(self.compose), self.store
         ).capture()
-        ReadinessEvidence(self.compose, self.store).capture()
         passed = run_all(
             E2eRuntime(self.context, self.compose, self.artifacts, self.secrets)
         )
+        RuntimeEvidence(self.compose, self.artifacts, self.store).capture()
+        ReadinessEvidence(self.compose, self.store).capture()
         ScenarioEvidence(self.store).capture(passed)
         self.capture_logs()
         return passed
