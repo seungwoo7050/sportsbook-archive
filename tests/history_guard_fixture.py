@@ -34,12 +34,13 @@ def create_long_history(
     commit_file(root, "README.md", "# Fixture\n", ROOT_SUBJECT)
     for number in range(1, pairs + 1):
         production_subject = f"build(unit): add bounded unit {number:03d}"
+        production_content = f"unit={number}\n"
         if number == fault_pair:
-            production_subject = "fix(unit): record provenance"
+            production_content = "oversized\n" * 101
         commit_file(
             root,
             f"src/unit_{number:03d}.txt",
-            f"unit={number}\n",
+            production_content,
             production_subject,
         )
         commit_file(
