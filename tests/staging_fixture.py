@@ -18,6 +18,7 @@ class StagingFixture(unittest.TestCase):
         self.sources = self.temporary_path / "sources"
         self.repository = self.temporary_path / "m2"
         self.docker = self.temporary_path / "docker"
+        self.jdk = self.temporary_path / "jdk"
         self.repository.mkdir()
         materialized = subprocess.run(
             [str(MATERIALIZER), str(self.sources)],
@@ -28,6 +29,18 @@ class StagingFixture(unittest.TestCase):
         )
         self.assertEqual(materialized.returncode, 0, materialized.stderr)
         self.environment = os.environ.copy()
+        (self.jdk / "bin").mkdir(parents=True)
+        for name, output in (
+            ("java", 'openjdk version "17.0.0"'),
+            ("javac", "javac 17.0.0"),
+            ("jar", "BOOT-INF/classes/Probe.class"),
+        ):
+            executable = self.jdk / "bin" / name
+            redirect = "" if name == "jar" else " >&2"
+            executable.write_text(f"#!/bin/sh\nprintf '{output}\\n'{redirect}\n")
+            executable.chmod(0o755)
+        self.environment["JAVA_HOME"] = str(self.jdk)
+        self.environment["PATH"] = f"{self.jdk / 'bin'}:{self.environment['PATH']}"
         self.environment["MAVEN_RUNNER"] = str(FAKE_MAVEN)
         self.environment["DOCKER_OUTPUT_ROOT"] = self.docker.name
 

@@ -33,6 +33,17 @@ class JarStagingCompletenessTest(StagingFixture):
         )
         self.assertEqual(len(list((self.docker / ".jars").iterdir())), 1)
 
+    def test_rejects_non_release_jdk_before_publication(self) -> None:
+        java = self.jdk / "bin/java"
+        java.write_text('#!/bin/sh\nprintf \'openjdk version "21.0.0"\\n\' >&2\n')
+        java.chmod(0o755)
+
+        result = self.stage()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Java 17 JDK is required", result.stderr)
+        self.assertFalse((self.docker / "jars").exists())
+
 
 if __name__ == "__main__":
     import unittest
