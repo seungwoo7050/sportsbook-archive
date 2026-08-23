@@ -3,7 +3,7 @@ import unittest
 from scripts.cold_gate.history_policy import verify_history
 from scripts.cold_gate.history_repository import Change
 from scripts.cold_gate.history_rules import ROOT_SUBJECT
-from tests.history_policy_fixture import changed, valid_development, valid_release
+from tests.history_policy_fixture import changed, history, valid_development, valid_release
 
 
 class HistoryPolicyStructureTest(unittest.TestCase):
@@ -49,6 +49,15 @@ class HistoryPolicyStructureTest(unittest.TestCase):
             with self.subTest(length=len(commits)):
                 with self.assertRaisesRegex(RuntimeError, "release|terminal"):
                     verify_history(commits, minimum=1)
+
+    def test_rejects_release_scope_during_development(self):
+        commits = history(
+            (ROOT_SUBJECT, ("README.md",)),
+            ("build(release): prepare artifacts", ("src/release.py",)),
+            ("test(release): verify artifacts", ("tests/test_release.py",)),
+        )
+        with self.assertRaisesRegex(RuntimeError, "reserved release scope"):
+            verify_history(commits, minimum=1)
 
     def test_root_constant_remains_the_owned_document_subject(self):
         self.assertEqual(ROOT_SUBJECT, "docs(project): establish orchestration ownership")
