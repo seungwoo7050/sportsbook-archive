@@ -23,11 +23,21 @@ HEADER_NAME = re.compile(r"^[A-Za-z0-9-]+$")
 
 
 class ContainerHttpClient:
-    def __init__(self, compose: ComposeProject, service: str) -> None:
-        if service not in SERVICE_PORTS:
+    def __init__(
+        self,
+        compose: ComposeProject,
+        service: str,
+        *,
+        executor: str | None = None,
+    ) -> None:
+        selected_executor = service if executor is None else executor
+        if service not in SERVICE_PORTS or selected_executor not in SERVICE_PORTS:
             raise ValueError("container HTTP service is not supported")
+        if selected_executor == "toxiproxy":
+            raise ValueError("container HTTP executor has no health tool")
         self.compose = compose
         self.service = service
+        self.executor = selected_executor
 
     def request(
         self,
@@ -49,7 +59,7 @@ class ContainerHttpClient:
         command = [
             "exec",
             "-T",
-            self.service,
+            self.executor,
             "curl",
             "--silent",
             "--show-error",
@@ -74,7 +84,8 @@ class ContainerHttpClient:
                     json.dumps(body, separators=(",", ":")),
                 )
             )
-        command.append(f"http://localhost:{SERVICE_PORTS[self.service]}{path}")
+        host = "localhost" if self.executor == self.service else self.service
+        command.append(f"http://{host}:{SERVICE_PORTS[self.service]}{path}")
         try:
             result = self.compose.run(*command, capture_output=True)
         except subprocess.CalledProcessError as error:
