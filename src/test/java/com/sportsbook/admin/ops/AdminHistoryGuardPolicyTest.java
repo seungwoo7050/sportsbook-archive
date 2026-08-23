@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 
 class AdminHistoryGuardPolicyTest extends HistoryGuardFixture {
 
+  private static final int LONG_HISTORY_LENGTH = 240;
+
   @Test
   void acceptsTheRequiredReadmeOnlyRoot() throws Exception {
     initialize();
@@ -76,5 +78,20 @@ class AdminHistoryGuardPolicyTest extends HistoryGuardFixture {
 
     assertThat(result.code()).isNotZero();
     assertThat(result.output()).contains("not followed by its test commit");
+  }
+
+  @Test
+  void traversesLongHistoriesWithoutPipeTermination() throws Exception {
+    initialize();
+    write("src/main/java/Feature.java", "class Feature {}\n");
+    commit("feat(core): add feature", "src/main/java/Feature.java");
+    write("src/test/java/FeatureTest.java", "class FeatureTest {}\n");
+    commit("test(core): verify feature", "src/test/java/FeatureTest.java");
+    for (int index = 0; index < LONG_HISTORY_LENGTH; index++) {
+      write("marker.txt", index + "\n");
+      commit("chore(project): extend history " + index, "marker.txt");
+    }
+
+    assertThat(guard().code()).isZero();
   }
 }
