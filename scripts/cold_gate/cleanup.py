@@ -86,6 +86,7 @@ class ScopedCleanup:
             service_jars.parent.rmdir()
         if evidence is not None:
             evidence.capture(sources, service_jars)
+            evidence.store.verify(complete=True)
 
         self.context.require_owned()
         shutil.rmtree(self.context.runtime)
