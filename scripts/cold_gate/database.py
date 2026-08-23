@@ -47,7 +47,10 @@ class PostgresClient:
             )
         except subprocess.CalledProcessError as error:
             raise RuntimeError(f"PostgreSQL query failed for {database}") from error
-        reader = csv.DictReader(io.StringIO(result.stdout))
+        output = result.stdout
+        if normalized.upper().startswith("UPDATE"):
+            output = re.sub(r"\nUPDATE [0-9]+\n?\Z", "", output)
+        reader = csv.DictReader(io.StringIO(output))
         if reader.fieldnames is None or len(reader.fieldnames) != len(set(reader.fieldnames)):
             raise RuntimeError("PostgreSQL result columns are invalid")
         return [dict(row) for row in reader]
