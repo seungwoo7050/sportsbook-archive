@@ -145,6 +145,16 @@ class AuditHttpIntegrationTest {
     assertThat(terminal.getHttpStatus()).isEqualTo(504);
   }
 
+  @Test
+  void recordsMalformedSuccessesAsUnknown() throws Exception {
+    stubOdds(202, "{\"unexpected\":true}", 0);
+
+    AuditLogEntity terminal = terminalFrom(suspend().andExpect(status().isBadGateway()));
+
+    assertThat(terminal.getOutcome()).isEqualTo(AuditOutcome.UNKNOWN);
+    assertThat(terminal.getHttpStatus()).isEqualTo(502);
+  }
+
   private AuditLogEntity awaitStarted() throws InterruptedException {
     Instant deadline = Instant.now().plus(Duration.ofSeconds(2));
     while (Instant.now().isBefore(deadline)) {
