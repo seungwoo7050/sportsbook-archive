@@ -64,3 +64,16 @@ class PlacementOracles:
               AND schema_name = '{schema_name}'
             """,
         )
+
+    def wallet_void_refund(self, bet_id: str) -> dict[str, str]:
+        return self.database.one(
+            "wallet",
+            f"""
+            SELECT count(*)::text AS operation_count,
+                   COALESCE(min(caller_id), '') AS caller,
+                   COALESCE(min(operation_kind), '') AS kind,
+                   COALESCE(min(status), '') AS status
+            FROM wallet_operation
+            WHERE idempotency_key = 'void:refund:' || {uuid_literal(bet_id)}::text
+            """,
+        )
