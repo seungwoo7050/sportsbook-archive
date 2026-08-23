@@ -1,5 +1,22 @@
 name: sportsbook
 
+x-redis-service: &redis-service
+  image: redis:7.4-alpine
+  command:
+    - redis-server
+    - --appendonly
+    - "yes"
+    - --appendfsync
+    - everysec
+    - --maxmemory-policy
+    - noeviction
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+  networks: [backend]
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -59,9 +76,15 @@ services:
         condition: service_healthy
     networks: [backend]
 
+  redis-risk:
+    <<: *redis-service
+    volumes:
+      - redis-risk-data:/data
+
 volumes:
   postgres-data:
   kafka-data:
+  redis-risk-data:
 
 networks:
   backend:
