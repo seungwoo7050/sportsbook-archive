@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(git rev-parse --show-toplevel)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 SOURCE_ROOT=${1:-$ROOT/.runtime/sources}
 MAVEN_REPO=${2:-$ROOT/.runtime/m2/repository}
 LOCK=${SERVICES_LOCK:-$ROOT/services.lock}
 DOCKER_DIR=${DOCKER_OUTPUT_ROOT:-$ROOT/docker}
-GENERATIONS=$DOCKER_DIR/.jars
-JARS=$DOCKER_DIR/jars
 STAGING=
 LINK_TMP=
 
@@ -25,7 +24,17 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 [[ -d $SOURCE_ROOT && ! -L $SOURCE_ROOT ]] || fail "source root is not materialized"
+SOURCE_ROOT=$(cd "$SOURCE_ROOT" && pwd -P)
 [[ -d $MAVEN_REPO && ! -L $MAVEN_REPO ]] || fail "isolated Maven repository is missing"
+MAVEN_REPO=$(cd "$MAVEN_REPO" && pwd -P)
+mkdir -p "$(dirname "$DOCKER_DIR")"
+DOCKER_DIR=$(cd "$(dirname "$DOCKER_DIR")" && pwd -P)/$(basename "$DOCKER_DIR")
+GENERATIONS=$DOCKER_DIR/.jars
+JARS=$DOCKER_DIR/jars
+if [[ -n ${MAVEN_RUNNER:-} ]]; then
+  [[ -x $MAVEN_RUNNER ]] || fail "Maven runner is not executable"
+  MAVEN_RUNNER=$(cd "$(dirname "$MAVEN_RUNNER")" && pwd -P)/$(basename "$MAVEN_RUNNER")
+fi
 [[ ! -L $GENERATIONS ]] || fail "generation root must not be a symlink"
 mkdir -p "$GENERATIONS"
 STAGING=$(mktemp -d "$GENERATIONS/generation.XXXXXX")
