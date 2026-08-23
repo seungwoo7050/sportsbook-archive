@@ -7,6 +7,7 @@ from e2e.bet_api import BetApi
 from e2e.correction_oracles import CorrectionOracles
 from e2e.model import ScenarioIds
 from e2e.placement_oracles import PlacementOracles
+from e2e.settlement_admin_api import SettlementAdminApi
 from e2e.wallet_api import WalletApi
 from scripts.cold_gate.build import ReleaseArtifacts
 from scripts.cold_gate.chaos import ChaosClient
@@ -52,6 +53,7 @@ class E2eRuntime:
             ContainerHttpClient(compose, "wallet"),
             secrets.environment["WALLET_PLATFORM_API_KEY"],
         )
+        self.settlement_admin = SettlementAdminApi(ContainerHttpClient(compose, "admin"))
         self.base = BaseOracles(database)
         self.placements = PlacementOracles(database)
         self.corrections = CorrectionOracles(database)
