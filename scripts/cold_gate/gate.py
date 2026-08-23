@@ -4,7 +4,7 @@ from pathlib import Path
 
 from scripts.cold_gate.build import ReleaseBuilder
 from scripts.cold_gate.checks import ReleaseChecks
-from scripts.cold_gate.cleanup import ScopedCleanup
+from scripts.cold_gate.cleanup import ScopedCleanup, remove_owned_context
 from scripts.cold_gate.cleanup_evidence import CleanupEvidence
 from scripts.cold_gate.cleanup_targets import discover_cleanup_targets
 from scripts.cold_gate.compose import ComposeProject
@@ -17,11 +17,13 @@ from scripts.cold_gate.secrets import RuntimeSecrets
 def run_release_gate(root: Path, commit: str) -> Path:
     context = ColdGateContext.create(root, commit)
     compose = None
+    compose_bound = False
     checks = None
     try:
         compose = ComposeProject(context)
         secrets = RuntimeSecrets.generate(context)
         compose.bind_environment(secrets.environment)
+        compose_bound = True
         store = EvidenceStore(context, EvidenceRedactor(secrets.secret_values))
         artifacts = ReleaseBuilder(context, secrets.environment).build()
         checks = ReleaseChecks(context, compose, artifacts, secrets, store)
@@ -37,10 +39,15 @@ def run_release_gate(root: Path, commit: str) -> Path:
                 checks.capture_logs()
             except Exception as log_error:
                 failures.append(log_error)
-        if compose is not None:
+        if compose_bound:
             try:
                 sources, service_jars = discover_cleanup_targets(context)
                 ScopedCleanup(context, compose).run(sources, service_jars)
+            except Exception as cleanup_error:
+                failures.append(cleanup_error)
+        else:
+            try:
+                remove_owned_context(context)
             except Exception as cleanup_error:
                 failures.append(cleanup_error)
         if len(failures) > 1:

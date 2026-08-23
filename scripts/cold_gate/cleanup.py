@@ -15,6 +15,13 @@ from scripts.cold_gate.owned_path import require_directory
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def remove_owned_context(context: ColdGateContext) -> None:
+    context.require_owned()
+    shutil.rmtree(context.runtime)
+    (context.lock / "owner").unlink()
+    context.lock.rmdir()
+
+
 class ScopedCleanup:
     def __init__(
         self,
@@ -88,7 +95,4 @@ class ScopedCleanup:
             evidence.capture(sources, service_jars)
             evidence.store.verify(complete=True)
 
-        self.context.require_owned()
-        shutil.rmtree(self.context.runtime)
-        (self.context.lock / "owner").unlink()
-        self.context.lock.rmdir()
+        remove_owned_context(self.context)
