@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 
 class DownstreamUnavailableMappingTest {
 
@@ -38,11 +39,19 @@ class DownstreamUnavailableMappingTest {
   }
 
   @Test
+  void recognizesReadTimeoutsWrappedDuringBodyExtraction() {
+    DownstreamUnavailableException timeout =
+        mapped(new RestClientException("extract response", new SocketTimeoutException()));
+
+    assertThat(timeout.reason()).isEqualTo(DownstreamUnavailableException.Reason.TIMEOUT);
+    assertThat(timeout.status()).isNull();
+  }
+
+  @Test
   void neverRetriesAnAmbiguousMutationAutomatically() {
     AtomicInteger attempts = new AtomicInteger();
 
-    mapped(
-        new ResourceAccessException("lost response", new SocketTimeoutException()), attempts);
+    mapped(new ResourceAccessException("lost response", new SocketTimeoutException()), attempts);
 
     assertThat(attempts).hasValue(1);
   }
@@ -51,8 +60,7 @@ class DownstreamUnavailableMappingTest {
     return mapped(failure, new AtomicInteger());
   }
 
-  private DownstreamUnavailableException mapped(
-      RuntimeException failure, AtomicInteger attempts) {
+  private DownstreamUnavailableException mapped(RuntimeException failure, AtomicInteger attempts) {
     return catchThrowableOfType(
         () ->
             mapper.execute(
