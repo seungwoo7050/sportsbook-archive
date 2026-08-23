@@ -4,7 +4,7 @@ import urllib.error
 import unittest
 from email.message import Message
 
-from scripts.cold_gate.http import HostHttpClient, HttpResponse
+from scripts.cold_gate.http import HostHttpClient, HttpResponse, parse_curl_response
 
 
 class FakeResponse:
@@ -72,6 +72,29 @@ class ColdGateHttpTest(unittest.TestCase):
         response = HttpResponse(202, (("X-Id", "one"), ("x-id", "two")), b"")
         with self.assertRaisesRegex(RuntimeError, "exactly one"):
             response.header("X-Id")
+
+    def test_parses_a_framed_container_receipt_without_losing_headers(self) -> None:
+        response = parse_curl_response(
+            b"HTTP/1.1 202 Accepted\r\n"
+            b"X-Admin-Action-Id: first\r\n"
+            b"X-Trace: trace\r\n\r\n"
+            b'{"outcome":"QUEUED"}\n__E2E_STATUS__:202\n'
+        )
+
+        self.assertEqual(response.status, 202)
+        self.assertEqual(response.header("X-Admin-Action-Id"), "first")
+        self.assertEqual(response.json(), {"outcome": "QUEUED"})
+
+    def test_rejects_unframed_or_malformed_container_receipts(self) -> None:
+        invalid = (
+            b"HTTP/1.1 200 OK\r\n\r\nbody",
+            b"HTTP/1.1 200 OK\r\nBad\r\n\r\n\n__E2E_STATUS__:200\n",
+            b"HTTP/1.1 200 OK\r\n\r\n\n__E2E_STATUS__:999\n",
+        )
+        for receipt in invalid:
+            with self.subTest(receipt=receipt):
+                with self.assertRaises(RuntimeError):
+                    parse_curl_response(receipt)
 
 
 if __name__ == "__main__":
