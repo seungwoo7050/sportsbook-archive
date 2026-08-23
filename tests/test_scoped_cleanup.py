@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts.cold_gate.cleanup import ScopedCleanup
+from scripts.cold_gate.cleanup import ScopedCleanup, remove_owned_context
 from scripts.cold_gate.context import ColdGateContext
 
 
@@ -43,6 +43,21 @@ class FakeEvidence:
 
 
 class ScopedCleanupTest(unittest.TestCase):
+    def test_removes_a_partially_generated_owned_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            context = ColdGateContext.create(
+                pathlib.Path(temporary), SHA, "00000001"
+            )
+            secrets = context.runtime / "secrets"
+            secrets.mkdir()
+            (secrets / "jwt-private.pem").write_text("partial\n")
+
+            remove_owned_context(context)
+
+            self.assertFalse(context.runtime.exists())
+            self.assertFalse(context.lock.exists())
+            self.assertTrue(context.evidence.is_dir())
+
     def test_removes_only_owned_runtime_and_preserves_evidence(self) -> None:
         materializer_calls = []
 

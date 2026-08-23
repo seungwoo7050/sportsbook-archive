@@ -29,6 +29,7 @@ class ReleaseGateTest(unittest.TestCase):
             "ReleaseChecks": mock.Mock(return_value=checks),
             "CleanupEvidence": mock.Mock(return_value="receipt"),
             "ScopedCleanup": mock.Mock(return_value=cleanup),
+            "remove_owned_context": mock.Mock(),
             "discover_cleanup_targets": mock.Mock(
                 return_value=(artifacts.sources, artifacts.service_jars)
             ),
@@ -83,6 +84,33 @@ class ReleaseGateTest(unittest.TestCase):
             [str(error) for error in captured.exception.exceptions],
             ["primary", "logs", "cleanup"],
         )
+
+    def test_releases_context_when_compose_or_secret_preflight_fails(self):
+        for stage in ("ComposeProject", "RuntimeSecrets"):
+            with self.subTest(stage=stage):
+                values = self.fixture()
+                (
+                    context,
+                    _compose,
+                    _secrets,
+                    _artifacts,
+                    _store,
+                    _checks,
+                    _cleanup,
+                    replacements,
+                ) = values
+                failure = RuntimeError(f"{stage} failed")
+                if stage == "ComposeProject":
+                    replacements[stage].side_effect = failure
+                else:
+                    replacements[stage].generate.side_effect = failure
+
+                with mock.patch.multiple(subject, **replacements):
+                    with self.assertRaisesRegex(RuntimeError, f"{stage} failed"):
+                        subject.run_release_gate(pathlib.Path("/release"), COMMIT)
+
+                replacements["remove_owned_context"].assert_called_once_with(context)
+                replacements["ScopedCleanup"].assert_not_called()
 
 
 if __name__ == "__main__":
