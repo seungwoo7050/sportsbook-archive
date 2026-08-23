@@ -25,7 +25,7 @@ def write_release(root: pathlib.Path, major: int = 61, shared: str = "1.0.0") ->
                 "BOOT-INF/classes/" + start.replace(".", "/") + ".class",
                 class_bytes(major),
             )
-            archive.writestr(f"BOOT-INF/lib/shared-{shared}.jar", b"shared")
+            archive.writestr(f"BOOT-INF/lib/shared-protocol-{shared}.jar", b"shared")
         sums.append(f"{hashlib.sha256(jar.read_bytes()).hexdigest()}  {jar.name}")
     (root / "SHA256SUMS").write_text("\n".join(sums) + "\n")
 
