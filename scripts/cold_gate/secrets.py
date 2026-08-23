@@ -10,10 +10,18 @@ from pathlib import Path
 from scripts.cold_gate.context import ColdGateContext
 
 
-def _available_loopback_port() -> str:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
-        candidate.bind(("127.0.0.1", 0))
-        return str(candidate.getsockname()[1])
+def _available_loopback_ports() -> tuple[str, str]:
+    candidates = (
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM),
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM),
+    )
+    try:
+        for candidate in candidates:
+            candidate.bind(("127.0.0.1", 0))
+        return tuple(str(candidate.getsockname()[1]) for candidate in candidates)
+    finally:
+        for candidate in candidates:
+            candidate.close()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -27,6 +35,13 @@ class RuntimeSecrets:
         port = int(self.environment["GATEWAY_HOST_PORT"])
         if not 0 < port <= 65535:
             raise RuntimeError("generated gateway port is invalid")
+        return port
+
+    @property
+    def toxiproxy_port(self) -> int:
+        port = int(self.environment["TOXIPROXY_HOST_PORT"])
+        if not 0 < port <= 65535:
+            raise RuntimeError("generated Toxiproxy port is invalid")
         return port
 
     @classmethod
@@ -73,6 +88,7 @@ class RuntimeSecrets:
         public_pem = public_key.read_text()
         postgres_password = secrets.token_urlsafe(32)
         grafana_password = secrets.token_urlsafe(32)
+        gateway_port, toxiproxy_port = _available_loopback_ports()
         environment = os.environ.copy()
         environment.update(dict(zip(names, values, strict=True)))
         environment.update(
@@ -82,7 +98,8 @@ class RuntimeSecrets:
                 "GATEWAY_JWT_PUBLIC_KEY": public_pem,
                 "ADMIN_JWT_PUBLIC_KEY": public_pem,
                 "ADMIN_JWT_ISSUER": "sportsbook-admin-e2e",
-                "GATEWAY_HOST_PORT": _available_loopback_port(),
+                "GATEWAY_HOST_PORT": gateway_port,
+                "TOXIPROXY_HOST_PORT": toxiproxy_port,
                 "COMPOSE_PROJECT_NAME": context.project,
             }
         )
