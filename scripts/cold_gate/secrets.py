@@ -69,6 +69,7 @@ class RuntimeSecrets:
                 "ADMIN_JWT_PUBLIC_KEY": public_pem,
                 "ADMIN_JWT_ISSUER": "sportsbook-admin-e2e",
                 "GATEWAY_HOST_PORT": "0",
+                "COMPOSE_PROJECT_NAME": context.project,
             }
         )
         sensitive = (*values, postgres_password, grafana_password, public_pem)
