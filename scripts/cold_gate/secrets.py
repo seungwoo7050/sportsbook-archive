@@ -22,6 +22,13 @@ class RuntimeSecrets:
     private_key: Path
     secret_values: tuple[str, ...]
 
+    @property
+    def gateway_port(self) -> int:
+        port = int(self.environment["GATEWAY_HOST_PORT"])
+        if not 0 < port <= 65535:
+            raise RuntimeError("generated gateway port is invalid")
+        return port
+
     @classmethod
     def generate(cls, context: ColdGateContext) -> "RuntimeSecrets":
         context.require_owned()
