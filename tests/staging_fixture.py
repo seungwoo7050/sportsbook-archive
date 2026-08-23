@@ -29,7 +29,7 @@ class StagingFixture(unittest.TestCase):
         self.assertEqual(materialized.returncode, 0, materialized.stderr)
         self.environment = os.environ.copy()
         self.environment["MAVEN_RUNNER"] = str(FAKE_MAVEN)
-        self.environment["DOCKER_OUTPUT_ROOT"] = str(self.docker)
+        self.environment["DOCKER_OUTPUT_ROOT"] = self.docker.name
 
     def tearDown(self) -> None:
         if self.sources.exists():
@@ -45,8 +45,8 @@ class StagingFixture(unittest.TestCase):
     def stage(self, **environment: str) -> subprocess.CompletedProcess[str]:
         run_environment = self.environment | environment
         return subprocess.run(
-            [str(STAGER), str(self.sources), str(self.repository)],
-            cwd=ROOT,
+            [str(STAGER), self.sources.name, self.repository.name],
+            cwd=self.temporary_path,
             env=run_environment,
             text=True,
             capture_output=True,
