@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.sportsbook.admin.audit.AuditLogRepository;
+import com.sportsbook.admin.audit.AuditWriteRepository;
 import com.sportsbook.admin.context.AdminContext;
 import com.sportsbook.admin.context.AdminContextArgumentResolver;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -53,6 +56,10 @@ class SecurityChainTest {
   }
 
   @Autowired private MockMvc mvc;
+
+  @MockBean private AuditLogRepository auditLogs;
+
+  @MockBean private AuditWriteRepository auditWrites;
 
   @Test
   void rejectsAnonymousRequestsWithAnRfc7807Response() throws Exception {
