@@ -64,6 +64,7 @@ class MigrationEvidenceTest(unittest.TestCase):
             self.assertEqual(len(lines), 26)
             self.assertEqual([call[0] for call in database.calls], list(MIGRATION_VERSIONS))
             self.assertTrue(all(call[1] == HISTORY_QUERY for call in database.calls))
+            self.assertIn("ORDER BY flyway_schema_history.installed_rank", HISTORY_QUERY)
             self.assertEqual(sum(line.endswith("\ttrue") for line in lines[1:]), 25)
 
     def test_rejects_database_or_source_inventory_drift_without_evidence(self) -> None:
