@@ -33,6 +33,7 @@ class RuntimeSecretsTest(unittest.TestCase):
             public_key = generated.environment["GATEWAY_JWT_PUBLIC_KEY"]
             self.assertEqual(public_key, generated.environment["ADMIN_JWT_PUBLIC_KEY"])
             self.assertTrue(public_key.startswith("-----BEGIN PUBLIC KEY-----"))
+            self.assertEqual(generated.environment["COMPOSE_PROJECT_NAME"], context.project)
             self.assertEqual(
                 stat.S_IMODE(generated.private_key.stat().st_mode), 0o600
             )
