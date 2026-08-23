@@ -66,6 +66,18 @@ class CombinedComposeTest(ComposeContractFixture):
         self.assertEqual(published["grafana"][0]["target"], 3000)
         for name in ("prometheus", "loki", "promtail"):
             self.assertNotIn("ports", services[name])
+        self.assertEqual(
+            services["prometheus"]["healthcheck"]["test"],
+            ["CMD", "wget", "--quiet", "--spider", "http://localhost:9090/-/ready"],
+        )
+        self.assertEqual(
+            services["loki"]["healthcheck"]["test"],
+            ["CMD", "wget", "--quiet", "--spider", "http://localhost:3100/ready"],
+        )
+        self.assertEqual(
+            services["promtail"]["healthcheck"]["test"],
+            ["CMD", "wget", "--quiet", "--spider", "http://localhost:9080/ready"],
+        )
 
         self.assertEqual(
             set(rendered["volumes"]),
