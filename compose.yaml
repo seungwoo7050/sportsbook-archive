@@ -81,10 +81,16 @@ services:
     volumes:
       - redis-risk-data:/data
 
+  redis-odds:
+    <<: *redis-service
+    volumes:
+      - redis-odds-data:/data
+
 volumes:
   postgres-data:
   kafka-data:
   redis-risk-data:
+  redis-odds-data:
 
 networks:
   backend:
