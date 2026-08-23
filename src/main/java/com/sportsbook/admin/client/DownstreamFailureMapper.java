@@ -6,9 +6,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 
 public final class DownstreamFailureMapper {
 
@@ -35,8 +35,11 @@ public final class DownstreamFailureMapper {
       if (hasCause(clientFailure, HttpMessageConversionException.class)) {
         throw new DownstreamContractException("deserializable response body", clientFailure);
       }
-      throw new DownstreamUnavailableException(
-          DownstreamUnavailableException.Reason.TRANSPORT, null, clientFailure);
+      DownstreamUnavailableException.Reason reason =
+          hasCause(clientFailure, SocketTimeoutException.class)
+              ? DownstreamUnavailableException.Reason.TIMEOUT
+              : DownstreamUnavailableException.Reason.TRANSPORT;
+      throw new DownstreamUnavailableException(reason, null, clientFailure);
     }
   }
 
