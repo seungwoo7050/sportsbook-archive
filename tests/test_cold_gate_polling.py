@@ -72,6 +72,24 @@ class ColdGatePollingTest(unittest.TestCase):
             )
         self.assertEqual(timer.sleeps, [0.6, 0.4])
 
+    def test_propagates_a_terminal_state_assertion_without_retrying(self) -> None:
+        timer = FakeTime()
+
+        def reject(_value: str) -> bool:
+            raise RuntimeError("terminal projection drift")
+
+        with self.assertRaisesRegex(RuntimeError, "terminal projection drift"):
+            poll_until(
+                "projection",
+                lambda: "REJECTED",
+                reject,
+                timeout=5,
+                interval=1,
+                clock=timer.clock,
+                sleep=timer.sleep,
+            )
+        self.assertEqual(timer.sleeps, [])
+
 
 if __name__ == "__main__":
     unittest.main()
