@@ -98,6 +98,19 @@ class SharedInstallTest(unittest.TestCase):
                 (source / "target/shared-protocol-1.0.0.jar").read_bytes(),
                 (installed / "shared-protocol-1.0.0.jar").read_bytes(),
             )
+            lock = temporary_path / "duplicate.lock"
+            locked = (ROOT / "services.lock").read_text()
+            lock.write_text(locked + locked.splitlines()[1] + "\n")
+            failed = subprocess.run(
+                [str(SCRIPT), source_root.name, repository.name],
+                cwd=temporary_path,
+                env=environment | {"SERVICES_LOCK": str(lock)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("invalid services lock", failed.stderr)
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(source)],
                 cwd=ROOT,
