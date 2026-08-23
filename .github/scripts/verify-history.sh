@@ -3,6 +3,11 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 head_commit=$(git rev-parse HEAD)
 root_commit=$(git rev-list --max-parents=0 HEAD)
+head_subject=$(git show -s --format=%s HEAD)
+expected_release=""
+if [[ $head_subject == "docs(project): document admin API contracts" ]]; then
+  expected_release=$(git rev-parse HEAD^)
+fi
 subject_pattern='^(feat|fix|test|refactor|perf|build|docs|chore|style|ci)\([a-z0-9-]+\): .+'
 forbidden_subject='fixup|squash|devlog|changelog|provenance|reconstruct'
 forbidden_path='(^|/)(devlog|changelog|provenance|reconstruction)(/|\.|$)|(^|/)load-test/results/'
@@ -69,8 +74,12 @@ while read -r commit; do
     [[ $subject == "docs(project): establish admin API ownership" && $paths == README.md ]] ||
       report "$short is not the required README-only root"
   elif [[ $subject == docs\(* ]]; then
-    [[ $commit == "$head_commit" && $subject == "docs(project): document admin API contracts" ]] ||
+    [[ $commit == "$head_commit" && $subject == "docs(project): document admin API contracts" && $paths == README.md ]] ||
       report "$short is an intermediate documentation commit"
+  fi
+  if [[ $subject == chore\(release\):* ]]; then
+    [[ $commit == "$expected_release" && $subject == "chore(release): release admin API 1.0.0" && $paths == pom.xml ]] ||
+      report "$short is not the single penultimate release commit"
   fi
 
   if grep -Eq '^(src/main/|pom\.xml$|config/|mvnw$|mvnw\.cmd$|\.mvn/wrapper/|\.github/(scripts|workflows)/)' <<<"$paths" \
@@ -86,7 +95,6 @@ fi
 if git ls-tree -r --name-only HEAD | grep -Eiq "$forbidden_path"; then
   report "final tree contains forbidden reconstruction material"
 fi
-head_subject=$(git show -s --format=%s HEAD)
 if [[ $head_subject == "docs(project): document admin API contracts" ]]; then
   [[ $(git show -s --format=%s HEAD^) == "chore(release): release admin API 1.0.0" ]] ||
     report "release commit is not immediately before final documentation"
