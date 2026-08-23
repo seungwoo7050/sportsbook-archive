@@ -1,8 +1,10 @@
 package com.sportsbook.admin.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +30,73 @@ class SettlementRevisionProofTest {
 
     assertThat(SettlementRevisionProof.verify(REVISION, pending)).isSameAs(pending);
     assertThat(SettlementRevisionProof.verify(REVISION, applied)).isSameAs(applied);
+  }
+
+  @Test
+  void rejectsMismatchedUnsafeAndImpossibleLifecycleProofs() {
+    UUID other = UUID.fromString("018f0000-0000-7000-8000-000000000152");
+    List<SettlementRevisionView> invalid =
+        List.of(
+            view(other, 1L, SettlementRevisionView.State.PENDING, 0, CREATED, CREATED, null, null),
+            view(
+                REVISION,
+                0L,
+                SettlementRevisionView.State.PENDING,
+                0,
+                CREATED,
+                CREATED,
+                null,
+                null),
+            view(
+                REVISION,
+                1L,
+                SettlementRevisionView.State.PENDING,
+                13,
+                CREATED,
+                CREATED,
+                null,
+                null),
+            view(
+                REVISION,
+                1L,
+                SettlementRevisionView.State.PENDING,
+                0,
+                CREATED,
+                CREATED.minusSeconds(1),
+                null,
+                null),
+            view(
+                REVISION,
+                1L,
+                SettlementRevisionView.State.APPLIED,
+                1,
+                CREATED,
+                CREATED,
+                null,
+                null),
+            view(
+                REVISION,
+                1L,
+                SettlementRevisionView.State.PENDING,
+                0,
+                CREATED,
+                CREATED,
+                CREATED,
+                null),
+            view(
+                REVISION,
+                1L,
+                SettlementRevisionView.State.BLOCKED,
+                1,
+                CREATED,
+                CREATED,
+                null,
+                -1L));
+
+    invalid.forEach(
+        view ->
+            assertThatThrownBy(() -> SettlementRevisionProof.verify(REVISION, view))
+                .isInstanceOf(DownstreamContractException.class));
   }
 
   private static SettlementRevisionView view(
