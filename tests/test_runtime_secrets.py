@@ -34,7 +34,7 @@ class RuntimeSecretsTest(unittest.TestCase):
             self.assertEqual(public_key, generated.environment["ADMIN_JWT_PUBLIC_KEY"])
             self.assertTrue(public_key.startswith("-----BEGIN PUBLIC KEY-----"))
             self.assertEqual(generated.environment["COMPOSE_PROJECT_NAME"], context.project)
-            gateway_port = int(generated.environment["GATEWAY_HOST_PORT"])
+            gateway_port = generated.gateway_port
             self.assertTrue(0 < gateway_port <= 65535)
             self.assertEqual(
                 stat.S_IMODE(generated.private_key.stat().st_mode), 0o600
@@ -52,6 +52,12 @@ class RuntimeSecretsTest(unittest.TestCase):
             self.assertEqual(checked.returncode, 0, checked.stderr)
             for value in generated.secret_values:
                 self.assertNotIn(value, checked.stdout + checked.stderr)
+
+    def test_rejects_an_invalid_gateway_port(self) -> None:
+        generated = RuntimeSecrets({"GATEWAY_HOST_PORT": "0"}, pathlib.Path("key"), ())
+
+        with self.assertRaisesRegex(RuntimeError, "gateway port"):
+            _ = generated.gateway_port
 
 
 if __name__ == "__main__":

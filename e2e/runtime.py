@@ -25,7 +25,6 @@ from scripts.cold_gate.polling import poll_until
 from scripts.cold_gate.probe import KafkaProbe
 from scripts.cold_gate.redis import RedisClient
 from scripts.cold_gate.secrets import RuntimeSecrets
-from scripts.cold_gate.stack import ColdStack
 
 
 SETTLEMENT_ASSIGNMENTS = frozenset(
@@ -45,7 +44,7 @@ class E2eRuntime:
     ) -> None:
         if compose.context is not context:
             raise RuntimeError("E2E runtime ownership mismatch")
-        gateway_port = ColdStack(context, compose).loopback_port("gateway", 8080)
+        gateway_port = secrets.gateway_port
         database = PostgresClient(compose)
         self.context = context
         self.compose = compose
