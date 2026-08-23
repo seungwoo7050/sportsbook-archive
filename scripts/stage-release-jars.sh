@@ -35,6 +35,11 @@ if [[ -n ${MAVEN_RUNNER:-} ]]; then
   [[ -x $MAVEN_RUNNER ]] || fail "Maven runner is not executable"
   MAVEN_RUNNER=$(cd "$(dirname "$MAVEN_RUNNER")" && pwd -P)/$(basename "$MAVEN_RUNNER")
 fi
+JAVA_BIN=${JAVA_HOME:+$JAVA_HOME/bin/}java
+JAVAC_BIN=${JAVA_HOME:+$JAVA_HOME/bin/}javac
+JAVA_MAJOR=$($JAVA_BIN -version 2>&1 | awk -F'[."]' '/version/ {print $2; exit}')
+JAVAC_MAJOR=$($JAVAC_BIN -version 2>&1 | awk '{print $2; exit}' | cut -d. -f1)
+[[ $JAVA_MAJOR == 17 && $JAVAC_MAJOR == 17 ]] || fail "Java 17 JDK is required"
 [[ ! -L $GENERATIONS ]] || fail "generation root must not be a symlink"
 mkdir -p "$GENERATIONS"
 STAGING=$(mktemp -d "$GENERATIONS/generation.XXXXXX")
