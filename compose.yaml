@@ -1,0 +1,25 @@
+name: sportsbook
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sportsbook
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sportsbook -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+
+volumes:
+  postgres-data:
+
+networks:
+  backend:
+    internal: true
