@@ -47,14 +47,14 @@ def _verify_executable_jar(path: Path) -> None:
             start_class = _manifest_value(manifest, "Start-Class")
             main_path = "BOOT-INF/classes/" + start_class.replace(".", "/") + ".class"
             bytecode = archive.read(main_path)
-            shared = [name for name in names if name.startswith("BOOT-INF/lib/shared-")]
+            shared = [name for name in names if name.startswith("BOOT-INF/lib/shared-protocol-")]
     except (KeyError, UnicodeDecodeError, zipfile.BadZipFile) as error:
         raise RuntimeError(f"{path.name} is not an executable release JAR") from error
     if len(bytecode) < 8 or bytecode[:4] != b"\xca\xfe\xba\xbe":
         raise RuntimeError(f"{path.name} application entrypoint is not bytecode")
     if int.from_bytes(bytecode[6:8], "big") != 61:
         raise RuntimeError(f"{path.name} application class is not Java 17")
-    if shared != ["BOOT-INF/lib/shared-1.0.0.jar"]:
+    if shared != ["BOOT-INF/lib/shared-protocol-1.0.0.jar"]:
         raise RuntimeError(f"{path.name} shared protocol dependency drifted")
 
 
