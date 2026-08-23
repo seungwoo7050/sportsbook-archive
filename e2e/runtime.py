@@ -21,6 +21,7 @@ from scripts.cold_gate.http import HostHttpClient
 from scripts.cold_gate.jwt import JwtSigner
 from scripts.cold_gate.kafka import KafkaAdmin
 from scripts.cold_gate.polling import poll_until
+from scripts.cold_gate.probe import KafkaProbe
 from scripts.cold_gate.redis import RedisClient
 from scripts.cold_gate.secrets import RuntimeSecrets
 from scripts.cold_gate.stack import ColdStack
@@ -66,6 +67,7 @@ class E2eRuntime:
         self.risk = RedisClient(compose, "redis-risk")
         self.kafka = KafkaAdmin(compose)
         self.fixtures = FixturePublisher(context, compose, artifacts.fixture_jar)
+        self.probe = KafkaProbe(context, compose, artifacts.fixture_jar)
         self.chaos = ChaosClient(compose)
 
     def user_token(self, fixture: ScenarioIds) -> str:
