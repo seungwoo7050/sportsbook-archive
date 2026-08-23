@@ -6,7 +6,9 @@ import subprocess
 from scripts.cold_gate.compose import ComposeProject
 
 
-GROUPS = frozenset({"settlement-service", "betting-service", "gateway-service"})
+GROUPS = frozenset(
+    {"settlement-service", "betting-resolution", "betting-wallet", "gateway-bets", "gateway-odds"}
+)
 TOPIC = re.compile(r"^[a-z][a-z0-9.-]{1,126}$")
 
 
