@@ -21,6 +21,8 @@ class ScopedCleanup:
     ) -> None:
         self.context = context
         self.compose = compose
+        if compose.context is not context:
+            raise RuntimeError("cleanup Compose project has different ownership")
         self.runner = runner
 
     def run(self, sources: Path | None = None) -> None:
@@ -53,6 +55,8 @@ class ScopedCleanup:
                 capture_output=True,
                 check=True,
             )
+            if sources.exists() or sources.is_symlink():
+                raise RuntimeError("materialized sources remain after cleanup")
 
         self.context.require_owned()
         shutil.rmtree(self.context.runtime)
