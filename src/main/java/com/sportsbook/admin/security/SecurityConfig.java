@@ -27,7 +27,10 @@ class SecurityConfig {
             requests ->
                 requests
                     .requestMatchers(
-                        "/actuator/health/liveness", "/actuator/health/readiness", "/error")
+                        "/actuator/health/liveness",
+                        "/actuator/health/readiness",
+                        "/actuator/prometheus",
+                        "/error")
                     .permitAll()
                     .requestMatchers("/admin/**")
                     .authenticated()
