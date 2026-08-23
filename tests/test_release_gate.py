@@ -85,6 +85,18 @@ class ReleaseGateTest(unittest.TestCase):
             ["primary", "logs", "cleanup"],
         )
 
+    def test_interrupt_captures_logs_cleans_and_rethrows(self):
+        values = self.fixture()
+        _context, _compose, _secrets, artifacts, _store, checks, cleanup, replacements = values
+        checks.run.side_effect = KeyboardInterrupt()
+
+        with mock.patch.multiple(subject, **replacements):
+            with self.assertRaises(KeyboardInterrupt):
+                subject.run_release_gate(pathlib.Path("/release"), COMMIT)
+
+        checks.capture_logs.assert_called_once_with()
+        cleanup.run.assert_called_once_with(artifacts.sources, artifacts.service_jars)
+
     def test_releases_context_when_compose_or_secret_preflight_fails(self):
         for stage in ("ComposeProject", "RuntimeSecrets"):
             with self.subTest(stage=stage):
