@@ -34,6 +34,8 @@ class RuntimeSecretsTest(unittest.TestCase):
             self.assertEqual(public_key, generated.environment["ADMIN_JWT_PUBLIC_KEY"])
             self.assertTrue(public_key.startswith("-----BEGIN PUBLIC KEY-----"))
             self.assertEqual(generated.environment["COMPOSE_PROJECT_NAME"], context.project)
+            gateway_port = int(generated.environment["GATEWAY_HOST_PORT"])
+            self.assertTrue(0 < gateway_port <= 65535)
             self.assertEqual(
                 stat.S_IMODE(generated.private_key.stat().st_mode), 0o600
             )
