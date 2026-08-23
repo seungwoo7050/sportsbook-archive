@@ -16,7 +16,7 @@ from scripts.cold_gate.history_rules import DOCS_SUBJECT
 def verify_version(root: Path, commits: tuple[Commit, ...]) -> None:
     version = root / "VERSION"
     released = commits[-1].subject == DOCS_SUBJECT
-    if released and (not version.is_file() or version.read_text() != "1.0.0\n"):
+    if released and (version.is_symlink() or not version.is_file() or version.read_text() != "1.0.0\n"):
         raise RuntimeError("released VERSION content is not exactly 1.0.0")
     if not released and (version.exists() or version.is_symlink()):
         raise RuntimeError("VERSION exists before the terminal release pair")
