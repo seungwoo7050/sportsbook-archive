@@ -74,7 +74,37 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis-risk:
+        condition: service_healthy
+      redis-odds:
+        condition: service_healthy
+      redis-wallet:
+        condition: service_healthy
+      redis-gateway:
+        condition: service_healthy
     networks: [backend]
+
+  secret-preflight:
+    image: python:3.12-alpine
+    entrypoint: ["python3", "/opt/sportsbook/check-secrets.py"]
+    environment:
+      GATEWAY_BETTING_API_KEY: ${GATEWAY_BETTING_API_KEY:-}
+      GATEWAY_WALLET_API_KEY: ${GATEWAY_WALLET_API_KEY:-}
+      BETTING_RISK_API_KEY: ${BETTING_RISK_API_KEY:-}
+      BETTING_WALLET_API_KEY: ${BETTING_WALLET_API_KEY:-}
+      SETTLEMENT_WALLET_API_KEY: ${SETTLEMENT_WALLET_API_KEY:-}
+      ADMIN_WALLET_API_KEY: ${ADMIN_WALLET_API_KEY:-}
+      ADMIN_RISK_API_KEY: ${ADMIN_RISK_API_KEY:-}
+      ADMIN_ODDS_FEED_API_KEY: ${ADMIN_ODDS_FEED_API_KEY:-}
+      ADMIN_SETTLEMENT_API_KEY: ${ADMIN_SETTLEMENT_API_KEY:-}
+      WALLET_PLATFORM_API_KEY: ${WALLET_PLATFORM_API_KEY:-}
+      INTERNAL_PLATFORM_API_KEY: ${INTERNAL_PLATFORM_API_KEY:-}
+    volumes:
+      - ./scripts/check-secrets.py:/opt/sportsbook/check-secrets.py:ro
+      - ./config/required-secrets.txt:/opt/config/required-secrets.txt:ro
+    network_mode: none
 
   redis-risk:
     <<: *redis-service
@@ -131,6 +161,8 @@ services:
         condition: service_healthy
       topic-init:
         condition: service_completed_successfully
+      secret-preflight:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8081/actuator/health >/dev/null"]
       interval: 3s
@@ -161,6 +193,8 @@ services:
       redis-risk:
         condition: service_healthy
       topic-init:
+        condition: service_completed_successfully
+      secret-preflight:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8083/actuator/health/readiness >/dev/null"]
@@ -194,6 +228,8 @@ services:
       redis-odds:
         condition: service_healthy
       topic-init:
+        condition: service_completed_successfully
+      secret-preflight:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8085/actuator/health/readiness >/dev/null"]
@@ -299,6 +335,25 @@ services:
     networks: [backend]
     restart: unless-stopped
 
+  consumer-assignment:
+    image: apache/kafka:3.8.0
+    entrypoint: ["/bin/sh", "/opt/sportsbook/wait-consumer-assignments.sh"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ASSIGNMENT_TIMEOUT_SECONDS: "180"
+    volumes:
+      - ./docker/kafka/wait-consumer-assignments.sh:/opt/sportsbook/wait-consumer-assignments.sh:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      betting:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    networks: [backend]
+
   settlement:
     build:
       context: ./docker
@@ -334,6 +389,8 @@ services:
         condition: service_completed_successfully
       wallet:
         condition: service_healthy
+      consumer-assignment:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8084/actuator/health/readiness >/dev/null"]
       interval: 3s
