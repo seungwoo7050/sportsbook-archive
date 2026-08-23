@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
 import org.springframework.core.MethodParameter;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.support.WebDataBinderFactory;
@@ -35,12 +36,21 @@ public final class AdminContextArgumentResolver implements HandlerMethodArgument
     if (request == null || response == null) {
       throw new AuthenticationCredentialsNotFoundException("HTTP request context is required");
     }
+    return initialize(request, response);
+  }
+
+  static AdminContext initialize(HttpServletRequest request, HttpServletResponse response) {
     Object cached = request.getAttribute(REQUEST_ATTRIBUTE);
     if (cached instanceof AdminContext context) {
       return context;
     }
-    if (!(request.getUserPrincipal() instanceof JwtAuthenticationToken authentication)
-        || !authentication.isAuthenticated()) {
+    Object principal = request.getUserPrincipal();
+    Object securityAuthentication = SecurityContextHolder.getContext().getAuthentication();
+    JwtAuthenticationToken authentication =
+        principal instanceof JwtAuthenticationToken jwt
+            ? jwt
+            : securityAuthentication instanceof JwtAuthenticationToken jwt ? jwt : null;
+    if (authentication == null || !authentication.isAuthenticated()) {
       throw new AuthenticationCredentialsNotFoundException("Verified operator JWT is required");
     }
     AdminRole role =
