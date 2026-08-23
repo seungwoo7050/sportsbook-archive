@@ -53,14 +53,19 @@ class ContainerHttpTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     client.request(**options)
 
-    def test_reaches_the_toxiproxy_control_api_inside_its_container(self) -> None:
+    def test_reaches_toxiproxy_through_an_application_health_tool(self) -> None:
         compose = FakeCompose()
 
-        ContainerHttpClient(compose, "toxiproxy").request("GET", "/version")
+        ContainerHttpClient(
+            compose, "toxiproxy", executor="gateway"
+        ).request("GET", "/version")
 
         arguments, _options = compose.calls[0]
-        self.assertEqual(arguments[:4], ("exec", "-T", "toxiproxy", "curl"))
-        self.assertEqual(arguments[-1], "http://localhost:8474/version")
+        self.assertEqual(arguments[:4], ("exec", "-T", "gateway", "curl"))
+        self.assertEqual(arguments[-1], "http://toxiproxy:8474/version")
+
+        with self.assertRaisesRegex(ValueError, "no health tool"):
+            ContainerHttpClient(compose, "toxiproxy")
 
     def test_does_not_relay_transport_output_in_errors(self) -> None:
         client = ContainerHttpClient(FakeCompose(failure=True), "admin")
