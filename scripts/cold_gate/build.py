@@ -12,6 +12,18 @@ from scripts.cold_gate.owned_path import ensure_directory
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+RESERVED_BUILD_ENVIRONMENT = frozenset(
+    {
+        "DOCKER_OUTPUT_ROOT",
+        "JDK_JAVA_OPTIONS",
+        "JAVA_TOOL_OPTIONS",
+        "MAVEN_ARGS",
+        "MAVEN_OPTS",
+        "MAVEN_RUNNER",
+        "SERVICES_LOCK",
+        "_JAVA_OPTIONS",
+    }
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -35,6 +47,9 @@ class ReleaseBuilder:
 
     def build(self) -> ReleaseArtifacts:
         self.context.require_owned()
+        overrides = sorted(RESERVED_BUILD_ENVIRONMENT.intersection(self.environment))
+        if overrides:
+            raise RuntimeError("reserved build environment is set: " + ", ".join(overrides))
         root = self.context.root
         sources = self.context.runtime / "sources"
         repository = self.context.runtime / "m2/repository"
