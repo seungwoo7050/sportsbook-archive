@@ -73,6 +73,7 @@ MAJOR=$(javap -verbose -classpath "$PENDING" \
 
 mv -f "$PENDING" "$OUTPUT/avro-fixture-publisher.jar"
 PENDING=
+chmod 0444 "$OUTPUT/avro-fixture-publisher.jar"
 shasum -a 256 "$OUTPUT/avro-fixture-publisher.jar"
 rm -rf -- "$BUILD_TARGET"
 BUILD_TARGET=

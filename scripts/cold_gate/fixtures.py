@@ -48,7 +48,7 @@ class FixturePublisher:
             ) as output:
                 json.dump(payload, output, sort_keys=True, separators=(",", ":"))
                 pending = Path(output.name)
-            pending.chmod(0o600)
+            pending.chmod(0o444)
             arguments = ["publish", "kafka:9092", fixture_type, "/fixture.json"]
             if partition is not None:
                 arguments.append(str(partition))
