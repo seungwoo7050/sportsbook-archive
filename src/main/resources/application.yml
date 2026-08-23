@@ -73,3 +73,7 @@ admin:
       risk-api-key: ${ADMIN_RISK_API_KEY:}
       odds-feed-api-key: ${ADMIN_ODDS_FEED_API_KEY:}
       settlement-api-key: ${ADMIN_SETTLEMENT_API_KEY:}
+  audit:
+    stale-after: ${ADMIN_AUDIT_STALE_AFTER:5m}
+    stale-scan-interval: ${ADMIN_AUDIT_STALE_SCAN_INTERVAL:PT30S}
+    stale-batch-size: ${ADMIN_AUDIT_STALE_BATCH_SIZE:100}
