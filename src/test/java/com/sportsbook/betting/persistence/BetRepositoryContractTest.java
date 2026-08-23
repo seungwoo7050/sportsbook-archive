@@ -11,10 +11,12 @@ import org.springframework.data.jpa.repository.Lock;
 class BetRepositoryContractTest {
 
   @Test
-  void locksAggregateBeforeSagaOrResolutionTransition() throws Exception {
-    var method = BetRepository.class.getMethod("findLockedByBetId", UUID.class);
+  void locksTheRootBeforeLoadingTheAggregateGraph() throws Exception {
+    var aggregate = BetRepository.class.getMethod("findLockedByBetId", UUID.class);
+    var root = BetRepository.class.getMethod("findLockedRootByBetId", UUID.class);
 
-    assertThat(method.getAnnotation(Lock.class).value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
-    assertThat(method.getAnnotation(EntityGraph.class).attributePaths()).containsExactly("legs");
+    assertThat(aggregate.isDefault()).isTrue();
+    assertThat(root.getAnnotation(Lock.class).value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+    assertThat(root.getAnnotation(EntityGraph.class)).isNull();
   }
 }
