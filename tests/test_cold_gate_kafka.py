@@ -56,6 +56,23 @@ settlement-service event.lifecycle 2 0 0 0 consumer /172.1 client
             KafkaAdmin(FakeCompose("", failure=True)).assignments("settlement-service")
         self.assertNotIn("credential", str(captured.exception))
 
+    def test_reads_one_numeric_committed_offset(self) -> None:
+        output = "betting-service bet.resolution.revised.v1 2 41 41 0 c h id\n"
+        admin = KafkaAdmin(FakeCompose(output))
+
+        self.assertEqual(
+            admin.committed_offset("betting-service", "bet.resolution.revised.v1", 2),
+            41,
+        )
+        with self.assertRaisesRegex(RuntimeError, "not unique"):
+            KafkaAdmin(FakeCompose("")).committed_offset(
+                "betting-service", "bet.resolution.revised.v1", 2
+            )
+        with self.assertRaisesRegex(RuntimeError, "unavailable"):
+            KafkaAdmin(
+                FakeCompose("betting-service bet.resolution.revised.v1 2 - 0 0 c h id\n")
+            ).committed_offset("betting-service", "bet.resolution.revised.v1", 2)
+
 
 if __name__ == "__main__":
     unittest.main()
