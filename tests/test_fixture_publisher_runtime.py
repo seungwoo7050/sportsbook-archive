@@ -17,11 +17,14 @@ class FakeCompose:
         self.context = context
         self.calls = []
         self.payloads = []
+        self.input_modes = []
 
     def run(self, *arguments, **options):
         self.calls.append((arguments, options))
         mount = next(value for value in arguments if value.endswith(":/fixture.json:ro"))
-        self.payloads.append(json.loads(pathlib.Path(mount.split(":", 1)[0]).read_text()))
+        input_file = pathlib.Path(mount.split(":", 1)[0])
+        self.input_modes.append(input_file.stat().st_mode & 0o777)
+        self.payloads.append(json.loads(input_file.read_text()))
         fixture_type = arguments[arguments.index("publish") + 2]
         topic, fingerprint = {
             "MatchResult": ("match.result", "3f39fbc4bbfea727"),
@@ -75,6 +78,7 @@ class FixturePublisherRuntimeTest(unittest.TestCase):
             self.assertIn(f"{jar}:/fixture.jar:ro", arguments)
             self.assertEqual(arguments[-4:], ("publish", "kafka:9092", "MatchResult", "/fixture.json"))
             self.assertEqual(options, {"capture_output": True})
+            self.assertEqual(compose.input_modes, [0o444])
             self.assertEqual(compose.payloads[0]["eventId"], EVENT)
             self.assertEqual(receipt.topic, "match.result")
             self.assertEqual(list((context.runtime / "fixture-inputs").iterdir()), [])

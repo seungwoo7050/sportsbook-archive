@@ -12,6 +12,7 @@ class FixtureStagingTest(FixtureStagingFixture):
         self.assertFalse(BUILT.parent.exists())
         staged = self.output / "avro-fixture-publisher.jar"
         self.assertEqual([path.name for path in self.output.iterdir()], [staged.name])
+        self.assertEqual(staged.stat().st_mode & 0o777, 0o444)
         self.assertIn(hashlib.sha256(staged.read_bytes()).hexdigest(), result.stdout)
         with zipfile.ZipFile(staged) as archive:
             names = set(archive.namelist())
