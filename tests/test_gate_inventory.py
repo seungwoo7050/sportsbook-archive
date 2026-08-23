@@ -11,6 +11,7 @@ from scripts.cold_gate.inventory import (
     MIGRATION_VERSIONS,
     SERVICES,
 )
+from scripts.cold_gate.evidence import LOG_SERVICES
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -39,6 +40,7 @@ class GateInventoryTest(unittest.TestCase):
 
     def test_partitions_runtime_roles_and_exact_migrations(self) -> None:
         self.assertEqual(len(SERVICES), 21)
+        self.assertEqual(LOG_SERVICES, set(SERVICES))
         self.assertEqual(len(LONG_RUNNING_SERVICES), 18)
         self.assertEqual(len(COMPLETED_SERVICES), 3)
         self.assertEqual(LONG_RUNNING_SERVICES | COMPLETED_SERVICES, set(SERVICES))
