@@ -11,7 +11,8 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
 class FakeCompose:
-    def __init__(self) -> None:
+    def __init__(self, context) -> None:
+        self.context = context
         self.calls = []
         self.absence_checks = 0
 
@@ -36,7 +37,7 @@ class ScopedCleanupTest(unittest.TestCase):
             context = ColdGateContext.create(root, SHA, "00000001")
             sources = context.runtime / "sources"
             sources.mkdir()
-            compose = FakeCompose()
+            compose = FakeCompose(context)
 
             ScopedCleanup(context, compose, runner).run(sources)
 
@@ -66,7 +67,7 @@ class ScopedCleanupTest(unittest.TestCase):
             context = ColdGateContext.create(root, SHA, "00000001")
             foreign = root / "foreign"
             foreign.mkdir()
-            compose = FakeCompose()
+            compose = FakeCompose(context)
 
             with self.assertRaisesRegex(RuntimeError, "not owned"):
                 ScopedCleanup(context, compose).run(foreign)
@@ -82,7 +83,7 @@ class ScopedCleanupTest(unittest.TestCase):
                 pathlib.Path(temporary), SHA, "00000001"
             )
             (context.runtime / ".owner").write_text("project=foreign\n")
-            compose = FakeCompose()
+            compose = FakeCompose(context)
 
             with self.assertRaisesRegex(RuntimeError, "marker mismatch"):
                 ScopedCleanup(context, compose).run()
